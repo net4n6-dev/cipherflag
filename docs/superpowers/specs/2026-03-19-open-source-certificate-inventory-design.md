@@ -69,17 +69,20 @@ CipherFlag is not intended to replace commercial NDR platforms. It is a focused 
 ### Zeek Sensor Container
 
 - Base image: `zeek/zeek` (official open-source Zeek)
-- Two operating modes controlled by `MODE` environment variable:
-  - `MODE=live` — runs `zeek -i <interface>` for passive network capture
-  - `MODE=pcap` — watches `/pcap-input/` and runs `zeek -r <file>` on new .pcap files
+- Default mode runs both live capture and PCAP processing simultaneously:
+  - Live capture: `zeek -i <interface>` for passive network monitoring (disabled if `NETWORK_INTERFACE` is unset)
+  - PCAP watcher: background inotify/polling loop watches `/pcap-input/` and spawns `zeek -r <file>` for each new .pcap file
+  - Both capabilities run concurrently — uploading a PCAP does not interrupt live capture
 - Configured to output JSON format (`@load policy/tuning/json-logs`)
 - Certificate PEM extraction enabled (`@load policy/protocols/ssl/extract-certs-pem`)
+- Log rotation enabled (`LogRotationInterval = 1 hr`) to bound disk usage; processed logs are eligible for cleanup by CipherFlag's poller
 - Logs written to `/zeek-logs/`
+- PCAP completion signaling: the entrypoint script writes a sentinel file (`/zeek-logs/<job-id>/.done`) after each `zeek -r` process exits, enabling the CipherFlag poller to distinguish "still processing" from "complete with zero results"
 
 ### CipherFlag Container
 
 - Multi-stage Docker build: Go binary + SvelteKit static assets in minimal runtime image
-- Serves API and frontend on port 8443 (embedded static files)
+- Serves API and frontend on port 8443 (embedded static files; code default in `config.go` must be updated from 8080 to 8443)
 - Background goroutine polls `/zeek-logs/` for new log entries
 - PCAP upload endpoint writes files to `/pcap-input/` shared volume
 
@@ -123,7 +126,7 @@ Zeek logs (JSON)
         → Log parser (deserializes x509/ssl/conn JSON records)
             → Certificate builder (maps Zeek fields → CipherFlag Certificate model)
                 → Deduplicator (upsert by SHA256 fingerprint, update last_seen)
-                    → Health scorer (runs 16-rule analysis on new/updated certs)
+                    → Health scorer (runs scoring analysis on new/updated certs)
                         → Observation recorder (creates CertificateObservation + EndpointProfile)
 ```
 
@@ -132,8 +135,9 @@ Zeek logs (JSON)
 - **JSON log format:** Zeek supports JSON output natively. Easier to parse than Zeek's default TSV format with header-based typing.
 - **Cursor-based polling:** The existing `ingestion_state` table tracks file byte position per log file. On restart, CipherFlag resumes where it left off. No data loss, no reprocessing.
 - **Poll interval:** Configurable, defaults to 30 seconds (existing config key `sources.zeek_file.poll_interval_seconds`).
-- **Batch upserts:** The existing `BatchUpsertCertificates` store method is used. The poller accumulates records and flushes in batches (100 records or 5 seconds, whichever comes first).
+- **Batch upserts:** The existing `BatchUpsertCertificates` store method needs to be reimplemented with proper batch inserts (multi-row `INSERT ... ON CONFLICT` or `pgx.CopyFrom`) before ingestion begins. The current implementation loops single-row upserts, which will be a bottleneck at volume. The poller accumulates records and flushes in batches (100 records or 5 seconds, whichever comes first).
 - **Real X.509 parsing:** For PEM files extracted by Zeek (`extract-certs-pem` policy), Go's `crypto/x509` package parses the full certificate. This captures fields Zeek doesn't expose (extended key usage details, policy OIDs) and provides the raw PEM for Venafi export.
+- **Log cleanup:** After the poller successfully ingests a Zeek log file and advances the cursor past its end, the file becomes eligible for deletion. Combined with Zeek's log rotation, this bounds disk usage on the shared volume.
 
 ## PCAP Upload Flow
 
@@ -197,7 +201,8 @@ Processed PCAPs cleaned up after configurable retention (default 24 hours).
   [export.venafi]
   enabled = false
   base_url = "https://tpp.example.com/vedsdk"
-  access_token = ""
+  client_id = ""
+  refresh_token = ""
   folder = "\\VED\\Policy\\Discovered\\CipherFlag"
   push_interval_minutes = 60
   ```
@@ -206,6 +211,7 @@ Processed PCAPs cleaned up after configurable retention (default 24 hours).
 - Includes metadata: discovery source, first/last seen, observed endpoints, health grade
 - Deduplication handled by Venafi (by certificate thumbprint)
 - Runs on configurable interval, only sends new/updated certificates since last push
+- **Token lifecycle:** Venafi TPP access tokens expire (typically 8 hours). The client uses OAuth2 refresh token flow — stores `refresh_token` in config, obtains short-lived access tokens automatically, and refreshes them before expiry. No manual token rotation required.
 
 ### Export Data Model
 
@@ -229,18 +235,40 @@ Processed PCAPs cleaned up after configurable retention (default 24 hours).
 
 Zeek's `extract-certs-pem` policy writes raw PEM files during live capture. For PCAP analysis, PEM is extracted from the TLS handshake. When raw PEM is available, Venafi gets the full certificate object. When only Zeek's parsed fields are available (e.g., if PEM extraction is disabled), metadata-only export is still possible.
 
+## Security Considerations
+
+**v1 ships without built-in authentication.** The API exposes PCAP upload (up to 500MB), certificate export, and Venafi push capabilities. Deployments should be protected by one of:
+
+- Network segmentation (only accessible from management VLAN)
+- Reverse proxy with authentication (nginx + basic auth, OAuth2 proxy, etc.)
+- Host firewall rules restricting access to port 8443
+
+The quick-start docs and README will include a security notice recommending network-level access control. Built-in API key or OAuth authentication is planned for a future release.
+
 ## Code Changes
+
+### Prerequisites (Existing Code Upgrades)
+
+These changes to existing code are required before new features can be built:
+
+| File | Change | Reason |
+|------|--------|--------|
+| `internal/store/postgres.go` | Upgrade migration system from single `//go:embed` to multi-file runner using `//go:embed migrations/*.sql` with `fs.FS`, add `schema_migrations` tracking table | Current system only supports a single SQL file; v1 adds `002_pcap_jobs.sql` and `003_raw_pem.sql` |
+| `internal/store/postgres.go` | Reimplement `BatchUpsertCertificates` with multi-row `INSERT ... ON CONFLICT` | Current loop-based approach will bottleneck at Zeek log volumes |
+| `internal/model/certificate.go` | Add `RawPEM string` field | Required for Venafi export and PEM file storage from Zeek's cert extraction |
+| `internal/store/migrations/` | Add `003_raw_pem.sql`: `ALTER TABLE certificates ADD COLUMN raw_pem TEXT` | Storage for extracted PEM data |
+| `internal/config/config.go` | Update default listen port from `8080` to `8443`; add typed source config structs (e.g., `ZeekFileSourceConfig`) and decode `toml.Primitive` values | Port consistency; source config values are currently loaded but inaccessible |
 
 ### New Go Packages
 
 | Package | Purpose |
 |---------|---------|
-| `internal/ingest/zeek/` | Zeek JSON log parser for x509.log, ssl.log, conn.log |
+| `internal/ingest/zeek/` | Zeek JSON log parser for x509.log, ssl.log, conn.log (directory exists as empty placeholder; new code fills it in) |
 | `internal/ingest/poller.go` | File watcher/poller, monitors /zeek-logs/, manages cursors |
 | `internal/ingest/pcap.go` | PCAP job manager — writes files, tracks job status |
 | `internal/export/csv.go` | CSV export aligned with Venafi import template |
 | `internal/export/json.go` | JSON export with full certificate + observation data |
-| `internal/export/venafi/` | Venafi TPP REST API client for certificate push |
+| `internal/export/venafi/` | Venafi TPP REST API client with OAuth2 token refresh for certificate push |
 | `internal/certparse/` | Go `crypto/x509` wrapper for PEM/DER parsing |
 
 ### Modified Existing Code
@@ -249,10 +277,10 @@ Zeek's `extract-certs-pem` policy writes raw PEM files during live capture. For 
 |------|--------|
 | `cmd/cipherflag/main.go` | Start Zeek log poller as background goroutine alongside HTTP server |
 | `internal/api/server.go` | Add routes: `/api/v1/export/*`, `/api/v1/pcap/*` |
-| `internal/store/store.go` | Add interface methods: `CreatePCAPJob`, `UpdatePCAPJob`, `GetPCAPJob`, `ListPCAPJobs` |
-| `internal/store/postgres.go` | Implement new store methods |
-| `internal/store/migrations/` | Add `002_pcap_jobs.sql` |
-| `internal/config/config.go` | Add `Export` and `PCAP` config sections |
+| `internal/store/store.go` | Add interface methods: `CreatePCAPJob`, `UpdatePCAPJob`, `GetPCAPJob`, `ListPCAPJobs`; update `UpsertCertificate` to handle `RawPEM` |
+| `internal/store/postgres.go` | Implement new store methods, update certificate scan/insert to include `raw_pem` |
+| `internal/store/migrations/` | Add `002_pcap_jobs.sql`, `003_raw_pem.sql` |
+| `internal/config/config.go` | Add `Export`, `PCAP`, and typed source config sections |
 | `config/cipherflag.toml` | Add export and PCAP configuration blocks |
 
 ### Frontend Additions
@@ -266,10 +294,9 @@ Zeek's `extract-certs-pem` policy writes raw PEM files during live capture. For 
 ### Unchanged
 
 - Health scoring engine (`internal/analysis/`)
-- Certificate and observation models (`internal/model/`)
 - All existing API endpoints and handlers
 - Graph visualization and all existing frontend pages
-- Database schema for certificates, observations, endpoint_profiles, health_reports
+- Database schema for observations, endpoint_profiles, health_reports (certificates table gets `raw_pem` column only)
 
 ## Open-Source Packaging
 
@@ -282,7 +309,7 @@ cipherflag/
 ├── CONTRIBUTING.md                  (development setup, PR process, code structure)
 ├── .env.example                     (sensible defaults, key variables documented)
 ├── docker-compose.yml               (Zeek + CipherFlag + PostgreSQL)
-├── docker-compose.corelight.yml     (override: no Zeek container)
+├── docker-compose.corelight.yml     (override: no Zeek container — v1.1, ships as placeholder)
 ├── Dockerfile                       (multi-stage: Go + SvelteKit → minimal runtime)
 ├── docker/
 │   └── zeek/
