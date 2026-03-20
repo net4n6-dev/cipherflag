@@ -79,7 +79,7 @@ func runServe(ctx context.Context, cfg *config.Config) {
 		go pcapMgr.Run(pollerCtx)
 	}
 
-	router := api.NewRouter(st, cfg.Server.FrontendURL)
+	router := api.NewRouter(st, cfg.Server.FrontendURL, cfg.PCAP.InputDir, cfg.PCAP.MaxFileSizeMB)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Listen,
