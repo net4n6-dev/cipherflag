@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: cipherflag
+      POSTGRES_USER: cipherflag
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cipherflag"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  zeek:
+    build:
+      context: ./docker/zeek
+    environment:
+      NETWORK_INTERFACE: ${NETWORK_INTERFACE:-}
+      ZEEK_LOG_DIR: /zeek-logs
+      PCAP_INPUT_DIR: /pcap-input
+    volumes:
+      - zeek-logs:/zeek-logs
+      - pcap-input:/pcap-input
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+  cipherflag:
+    build:
+      context: .
+    environment:
+      CIPHERFLAG_CONFIG: /app/config/cipherflag.toml
+    ports:
+      - "8443:8443"
+    volumes:
+      - zeek-logs:/zeek-logs:ro
+      - pcap-input:/pcap-input
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pg-data:
+  zeek-logs:
+  pcap-input:

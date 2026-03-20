@@ -1,0 +1,45 @@
+# CipherFlag Configuration
+
+[server]
+listen = "0.0.0.0:8443"
+frontend_url = "http://localhost:5174"
+
+[storage]
+# PostgreSQL (primary)
+postgres_url = "postgres://cipherflag:dev@localhost:5432/cipherflag?sslmode=disable"
+
+# SQLite fallback (for dev / small deployments)
+# sqlite_path = "./data/cipherflag.db"
+
+[analysis]
+recheck_interval_hours = 6
+expiry_warning_days = [30, 60, 90, 180]
+
+[analysis.protocol_policy]
+min_tls_version = "1.2"
+require_forward_secrecy = true
+require_aead = true
+banned_ciphers = ["RC4", "DES", "3DES", "NULL", "EXPORT"]
+
+[sources.zeek_file]
+enabled = true
+log_dir = "/var/log/zeek/current"
+poll_interval_seconds = 30
+
+[sources.corelight]
+enabled = false
+api_url = ""
+api_token = ""
+
+[export.venafi]
+enabled = false
+base_url = ""
+client_id = ""
+refresh_token = ""
+folder = "\\VED\\Policy\\Discovered\\CipherFlag"
+push_interval_minutes = 60
+
+[pcap]
+max_file_size_mb = 500
+retention_hours = 24
+input_dir = "/pcap-input"
