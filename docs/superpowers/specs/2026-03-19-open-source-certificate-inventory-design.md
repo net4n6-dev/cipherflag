@@ -342,7 +342,8 @@ Key variables in `.env.example`:
 - `POSTGRES_PASSWORD` — database password
 - `VENAFI_ENABLED` — enable/disable Venafi push (default: false)
 - `VENAFI_BASE_URL` — Venafi TPP server URL
-- `VENAFI_ACCESS_TOKEN` — Venafi API token
+- `VENAFI_CLIENT_ID` — Venafi OAuth2 client ID
+- `VENAFI_REFRESH_TOKEN` — Venafi OAuth2 refresh token
 - `VENAFI_FOLDER` — target policy folder in Venafi
 
 Everything else has working defaults. Zero config for evaluation, progressively configurable for production.
