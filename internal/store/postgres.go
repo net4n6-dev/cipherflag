@@ -874,6 +874,72 @@ func (s *PostgresStore) SetIngestionState(ctx context.Context, state *model.Inge
 	return err
 }
 
+// ── PCAP Jobs ───────────────────────────────────────────────────────────────
+
+func (s *PostgresStore) CreatePCAPJob(ctx context.Context, job *model.PCAPJob) error {
+	return s.pool.QueryRow(ctx, `
+		INSERT INTO pcap_jobs (filename, file_size, status)
+		VALUES ($1, $2, $3)
+		RETURNING id, created_at
+	`, job.Filename, job.FileSize, job.Status).Scan(&job.ID, &job.CreatedAt)
+}
+
+func (s *PostgresStore) GetPCAPJob(ctx context.Context, id string) (*model.PCAPJob, error) {
+	var job model.PCAPJob
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, filename, file_size, status, certs_found, certs_new,
+			COALESCE(error, ''), created_at, completed_at
+		FROM pcap_jobs WHERE id = $1
+	`, id).Scan(&job.ID, &job.Filename, &job.FileSize, &job.Status,
+		&job.CertsFound, &job.CertsNew, &job.Error,
+		&job.CreatedAt, &job.CompletedAt)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &job, nil
+}
+
+func (s *PostgresStore) UpdatePCAPJob(ctx context.Context, job *model.PCAPJob) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE pcap_jobs
+		SET status = $1, certs_found = $2, certs_new = $3, error = $4, completed_at = $5
+		WHERE id = $6
+	`, job.Status, job.CertsFound, job.CertsNew, job.Error, job.CompletedAt, job.ID)
+	return err
+}
+
+func (s *PostgresStore) ListPCAPJobs(ctx context.Context, limit int) ([]model.PCAPJob, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, filename, file_size, status, certs_found, certs_new,
+			COALESCE(error, ''), created_at, completed_at
+		FROM pcap_jobs
+		ORDER BY created_at DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var jobs []model.PCAPJob
+	for rows.Next() {
+		var job model.PCAPJob
+		if err := rows.Scan(&job.ID, &job.Filename, &job.FileSize, &job.Status,
+			&job.CertsFound, &job.CertsNew, &job.Error,
+			&job.CreatedAt, &job.CompletedAt); err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	return jobs, nil
+}
+
 // ── Row scanners ────────────────────────────────────────────────────────────
 
 func scanCertificate(row pgx.Row) (*model.Certificate, error) {
