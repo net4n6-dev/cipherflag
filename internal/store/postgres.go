@@ -116,7 +116,7 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 			subject_alt_names, is_ca, basic_constraints_path_len,
 			key_usage, extended_key_usage,
 			ocsp_responder_urls, crl_distribution_points, scts,
-			source_discovery, first_seen, last_seen
+			source_discovery, first_seen, last_seen, raw_pem
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13,
@@ -124,11 +124,12 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 			$17, $18, $19,
 			$20, $21, $22,
 			$23, $24, $25, $26, $27,
-			$28, $29, $30
+			$28, $29, $30, $31
 		)
 		ON CONFLICT (fingerprint_sha256) DO UPDATE SET
 			last_seen = EXCLUDED.last_seen,
-			source_discovery = EXCLUDED.source_discovery
+			source_discovery = EXCLUDED.source_discovery,
+			raw_pem = COALESCE(NULLIF(EXCLUDED.raw_pem, ''), certificates.raw_pem)
 	`,
 		cert.FingerprintSHA256,
 		cert.Subject.CommonName, cert.Subject.Organization, cert.Subject.OrganizationalUnit,
@@ -139,7 +140,7 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 		string(cert.KeyAlgorithm), cert.KeySizeBits, string(cert.SignatureAlgorithm),
 		sans, cert.IsCA, cert.BasicConstraintsPathLen,
 		ku, eku, ocsp, crl, scts,
-		string(cert.SourceDiscovery), cert.FirstSeen, cert.LastSeen,
+		string(cert.SourceDiscovery), cert.FirstSeen, cert.LastSeen, cert.RawPEM,
 	)
 	return err
 }
@@ -154,7 +155,7 @@ func (s *PostgresStore) GetCertificate(ctx context.Context, fingerprint string) 
 			subject_alt_names, is_ca, basic_constraints_path_len,
 			key_usage, extended_key_usage,
 			ocsp_responder_urls, crl_distribution_points, scts,
-			source_discovery, first_seen, last_seen
+			source_discovery, first_seen, last_seen, raw_pem
 		FROM certificates WHERE fingerprint_sha256 = $1
 	`, fingerprint)
 	return scanCertificate(row)
@@ -247,7 +248,7 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 			c.subject_alt_names, c.is_ca, c.basic_constraints_path_len,
 			c.key_usage, c.extended_key_usage,
 			c.ocsp_responder_urls, c.crl_distribution_points, c.scts,
-			c.source_discovery, c.first_seen, c.last_seen
+			c.source_discovery, c.first_seen, c.last_seen, c.raw_pem
 		FROM certificates c
 		LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint
 		%s
@@ -280,9 +281,60 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 }
 
 func (s *PostgresStore) BatchUpsertCertificates(ctx context.Context, certs []*model.Certificate) error {
-	for _, c := range certs {
-		if err := s.UpsertCertificate(ctx, c); err != nil {
-			return err
+	if len(certs) == 0 {
+		return nil
+	}
+	batch := &pgx.Batch{}
+	for _, cert := range certs {
+		sans, _ := json.Marshal(cert.SubjectAltNames)
+		ku, _ := json.Marshal(cert.KeyUsage)
+		eku, _ := json.Marshal(cert.ExtendedKeyUsage)
+		ocsp, _ := json.Marshal(cert.OCSPResponderURLs)
+		crl, _ := json.Marshal(cert.CRLDistributionPoints)
+		scts, _ := json.Marshal(cert.SCTs)
+
+		batch.Queue(`
+			INSERT INTO certificates (
+				fingerprint_sha256, subject_cn, subject_org, subject_ou,
+				subject_country, subject_state, subject_locality, subject_full,
+				issuer_cn, issuer_org, issuer_ou, issuer_country, issuer_full,
+				serial_number, not_before, not_after,
+				key_algorithm, key_size_bits, signature_algorithm,
+				subject_alt_names, is_ca, basic_constraints_path_len,
+				key_usage, extended_key_usage,
+				ocsp_responder_urls, crl_distribution_points, scts,
+				source_discovery, first_seen, last_seen, raw_pem
+			) VALUES (
+				$1, $2, $3, $4, $5, $6, $7, $8,
+				$9, $10, $11, $12, $13,
+				$14, $15, $16,
+				$17, $18, $19,
+				$20, $21, $22,
+				$23, $24, $25, $26, $27,
+				$28, $29, $30, $31
+			)
+			ON CONFLICT (fingerprint_sha256) DO UPDATE SET
+				last_seen = EXCLUDED.last_seen,
+				source_discovery = EXCLUDED.source_discovery,
+				raw_pem = COALESCE(NULLIF(EXCLUDED.raw_pem, ''), certificates.raw_pem)
+		`,
+			cert.FingerprintSHA256,
+			cert.Subject.CommonName, cert.Subject.Organization, cert.Subject.OrganizationalUnit,
+			cert.Subject.Country, cert.Subject.State, cert.Subject.Locality, cert.Subject.Full,
+			cert.Issuer.CommonName, cert.Issuer.Organization, cert.Issuer.OrganizationalUnit,
+			cert.Issuer.Country, cert.Issuer.Full,
+			cert.SerialNumber, cert.NotBefore, cert.NotAfter,
+			string(cert.KeyAlgorithm), cert.KeySizeBits, string(cert.SignatureAlgorithm),
+			sans, cert.IsCA, cert.BasicConstraintsPathLen,
+			ku, eku, ocsp, crl, scts,
+			string(cert.SourceDiscovery), cert.FirstSeen, cert.LastSeen, cert.RawPEM,
+		)
+	}
+	br := s.pool.SendBatch(ctx, batch)
+	defer br.Close()
+	for range certs {
+		if _, err := br.Exec(); err != nil {
+			return fmt.Errorf("batch upsert: %w", err)
 		}
 	}
 	return nil
@@ -298,7 +350,7 @@ func (s *PostgresStore) GetAllCertificatesForGraph(ctx context.Context) ([]model
 			c.subject_alt_names, c.is_ca, c.basic_constraints_path_len,
 			c.key_usage, c.extended_key_usage,
 			c.ocsp_responder_urls, c.crl_distribution_points, c.scts,
-			c.source_discovery, c.first_seen, c.last_seen
+			c.source_discovery, c.first_seen, c.last_seen, c.raw_pem
 		FROM certificates c
 		ORDER BY c.is_ca DESC, c.subject_cn ASC
 	`)
@@ -837,7 +889,7 @@ func scanCertificate(row pgx.Row) (*model.Certificate, error) {
 		&c.KeyAlgorithm, &c.KeySizeBits, &c.SignatureAlgorithm,
 		&sansJSON, &c.IsCA, &c.BasicConstraintsPathLen,
 		&kuJSON, &ekuJSON, &ocspJSON, &crlJSON, &sctsJSON,
-		&c.SourceDiscovery, &c.FirstSeen, &c.LastSeen,
+		&c.SourceDiscovery, &c.FirstSeen, &c.LastSeen, &c.RawPEM,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -867,7 +919,7 @@ func scanCertificateRows(rows pgx.Rows) (*model.Certificate, error) {
 		&c.KeyAlgorithm, &c.KeySizeBits, &c.SignatureAlgorithm,
 		&sansJSON, &c.IsCA, &c.BasicConstraintsPathLen,
 		&kuJSON, &ekuJSON, &ocspJSON, &crlJSON, &sctsJSON,
-		&c.SourceDiscovery, &c.FirstSeen, &c.LastSeen,
+		&c.SourceDiscovery, &c.FirstSeen, &c.LastSeen, &c.RawPEM,
 	)
 	if err != nil {
 		return nil, err
