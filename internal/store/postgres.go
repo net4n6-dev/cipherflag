@@ -1186,6 +1186,110 @@ func (s *PostgresStore) GetExpiryTimeline(ctx context.Context) (*ExpiryTimeline,
 	}, nil
 }
 
+func (s *PostgresStore) GetChainFlow(ctx context.Context) (*model.ChainFlowResponse, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			ca.fingerprint_sha256,
+			ca.subject_cn,
+			ca.issuer_cn,
+			ca.is_ca,
+			CASE WHEN ca.subject_cn = ca.issuer_cn OR ca.issuer_cn = '' THEN 'root' ELSE 'intermediate' END as node_type,
+			COALESCE(h.grade, '?') as grade,
+			(SELECT COUNT(*) FROM certificates ch
+			 WHERE ch.issuer_cn = ca.subject_cn AND ch.is_ca = false
+			 AND ch.fingerprint_sha256 != ca.fingerprint_sha256) as leaf_count,
+			(SELECT COUNT(*) FROM certificates ch
+			 WHERE ch.issuer_cn = ca.subject_cn AND ch.is_ca = false
+			 AND ch.not_after < NOW()
+			 AND ch.fingerprint_sha256 != ca.fingerprint_sha256) as leaf_expired,
+			(SELECT COALESCE(MAX(h2.grade), '?') FROM certificates ch2
+			 JOIN health_reports h2 ON ch2.fingerprint_sha256 = h2.cert_fingerprint
+			 WHERE ch2.issuer_cn = ca.subject_cn AND ch2.is_ca = false
+			 AND ch2.fingerprint_sha256 != ca.fingerprint_sha256) as leaf_worst_grade
+		FROM certificates ca
+		LEFT JOIN health_reports h ON ca.fingerprint_sha256 = h.cert_fingerprint
+		WHERE ca.is_ca = true
+		ORDER BY node_type, ca.subject_cn
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	resp := &model.ChainFlowResponse{
+		Nodes: []model.ChainFlowNode{},
+		Links: []model.ChainFlowLink{},
+	}
+
+	type caInfo struct {
+		fp, cn, issuerCN, nodeType, grade, leafWorstGrade string
+		leafCount, leafExpired                             int
+	}
+	var cas []caInfo
+	caSubjects := map[string]string{} // subject_cn → fingerprint
+
+	for rows.Next() {
+		var c caInfo
+		var isCA bool
+		if err := rows.Scan(&c.fp, &c.cn, &c.issuerCN, &isCA,
+			&c.nodeType, &c.grade, &c.leafCount, &c.leafExpired, &c.leafWorstGrade); err != nil {
+			return nil, err
+		}
+		cas = append(cas, c)
+		caSubjects[c.cn] = c.fp
+	}
+
+	for _, ca := range cas {
+		resp.Nodes = append(resp.Nodes, model.ChainFlowNode{
+			ID:           "fp-" + ca.fp,
+			Label:        ca.cn,
+			NodeType:     ca.nodeType,
+			CertCount:    ca.leafCount,
+			Grade:        ca.grade,
+			ExpiredCount: ca.leafExpired,
+		})
+
+		if ca.leafCount > 0 {
+			leafGrade := ca.leafWorstGrade
+			if leafGrade == "" {
+				leafGrade = "?"
+			}
+			resp.Nodes = append(resp.Nodes, model.ChainFlowNode{
+				ID:           "leaves-fp-" + ca.fp,
+				Label:        fmt.Sprintf("%d leaf certificates", ca.leafCount),
+				NodeType:     "leaf-aggregate",
+				CertCount:    ca.leafCount,
+				Grade:        leafGrade,
+				ExpiredCount: ca.leafExpired,
+			})
+
+			resp.Links = append(resp.Links, model.ChainFlowLink{
+				Source:       "fp-" + ca.fp,
+				Target:       "leaves-fp-" + ca.fp,
+				Value:        ca.leafCount,
+				WorstGrade:   leafGrade,
+				ExpiredCount: ca.leafExpired,
+			})
+		}
+	}
+
+	for _, ca := range cas {
+		if ca.nodeType == "intermediate" {
+			if issuerFP, ok := caSubjects[ca.issuerCN]; ok && ca.issuerCN != ca.cn {
+				resp.Links = append(resp.Links, model.ChainFlowLink{
+					Source:       "fp-" + issuerFP,
+					Target:       "fp-" + ca.fp,
+					Value:        max(ca.leafCount, 1),
+					WorstGrade:   ca.grade,
+					ExpiredCount: ca.leafExpired,
+				})
+			}
+		}
+	}
+
+	return resp, nil
+}
+
 // ── Ingestion State ─────────────────────────────────────────────────────────
 
 func (s *PostgresStore) GetIngestionState(ctx context.Context, sourceName string) (*model.IngestionState, error) {
