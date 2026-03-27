@@ -87,3 +87,25 @@ type SigAlgoCount struct {
 	Algorithm string `json:"algorithm"`
 	Count     int    `json:"count"`
 }
+
+// ExpiryForecastBucket holds expiry data for one time period, broken down by issuer.
+type ExpiryForecastBucket struct {
+	WeekStart   string                 `json:"week_start"`
+	TotalCount  int                    `json:"total_count"`
+	ByIssuer    []ExpiryIssuerCount    `json:"by_issuer"`
+	ByGrade     map[string]int         `json:"by_grade"`
+}
+
+// ExpiryIssuerCount holds expiry count for a specific issuer in a bucket.
+type ExpiryIssuerCount struct {
+	IssuerOrg string `json:"issuer_org"`
+	Count     int    `json:"count"`
+}
+
+// ExpiryForecastResponse is the API response for the expiry forecast analytics.
+type ExpiryForecastResponse struct {
+	Buckets        []ExpiryForecastBucket `json:"buckets"`
+	AlreadyExpired int                    `json:"already_expired"`
+	TotalExpiring  int                    `json:"total_expiring"`
+	TopIssuers     []string               `json:"top_issuers"`
+}

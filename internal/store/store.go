@@ -147,6 +147,7 @@ type CertStore interface {
 	GetOwnershipStats(ctx context.Context) (*model.OwnershipResponse, error)
 	GetDeploymentStats(ctx context.Context) (*model.DeploymentResponse, error)
 	GetCryptoPosture(ctx context.Context) (*model.CryptoPostureResponse, error)
+	GetExpiryForecast(ctx context.Context) (*model.ExpiryForecastResponse, error)
 
 	// Graph data
 	GetAllCertificatesForGraph(ctx context.Context) ([]model.Certificate, error)

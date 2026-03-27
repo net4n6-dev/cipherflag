@@ -1463,6 +1463,106 @@ func (s *PostgresStore) GetCryptoPosture(ctx context.Context) (*model.CryptoPost
 	return resp, nil
 }
 
+func (s *PostgresStore) GetExpiryForecast(ctx context.Context) (*model.ExpiryForecastResponse, error) {
+	resp := &model.ExpiryForecastResponse{
+		Buckets: []model.ExpiryForecastBucket{},
+	}
+
+	// Count already expired
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM certificates WHERE not_after < NOW()").Scan(&resp.AlreadyExpired)
+
+	// Get top 8 issuers by expiring cert count (for stacked bar grouping)
+	topRows, err := s.pool.Query(ctx, `
+		SELECT COALESCE(NULLIF(issuer_org, ''), 'Unknown') as issuer_org, COUNT(*) as cnt
+		FROM certificates
+		WHERE not_after >= NOW() AND not_after <= NOW() + INTERVAL '52 weeks'
+		GROUP BY issuer_org
+		ORDER BY cnt DESC
+		LIMIT 8
+	`)
+	if err != nil {
+		return nil, err
+	}
+	for topRows.Next() {
+		var org string
+		var cnt int
+		if err := topRows.Scan(&org, &cnt); err != nil {
+			topRows.Close()
+			return nil, err
+		}
+		resp.TopIssuers = append(resp.TopIssuers, org)
+	}
+	topRows.Close()
+
+	// Build weekly buckets with per-issuer and per-grade breakdowns
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			date_trunc('week', c.not_after)::date as week_start,
+			COALESCE(NULLIF(c.issuer_org, ''), 'Unknown') as issuer_org,
+			COALESCE(h.grade, '?') as grade,
+			COUNT(*) as cnt
+		FROM certificates c
+		LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint
+		WHERE c.not_after >= NOW() AND c.not_after <= NOW() + INTERVAL '52 weeks'
+		GROUP BY week_start, issuer_org, grade
+		ORDER BY week_start
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	bucketMap := map[string]*model.ExpiryForecastBucket{}
+	for rows.Next() {
+		var weekStart, issuerOrg, grade string
+		var cnt int
+		if err := rows.Scan(&weekStart, &issuerOrg, &grade, &cnt); err != nil {
+			return nil, err
+		}
+
+		bucket, ok := bucketMap[weekStart]
+		if !ok {
+			bucket = &model.ExpiryForecastBucket{
+				WeekStart: weekStart,
+				ByGrade:   map[string]int{},
+			}
+			bucketMap[weekStart] = bucket
+		}
+		bucket.TotalCount += cnt
+		bucket.ByGrade[grade] += cnt
+
+		// Add to issuer breakdown
+		found := false
+		for i := range bucket.ByIssuer {
+			if bucket.ByIssuer[i].IssuerOrg == issuerOrg {
+				bucket.ByIssuer[i].Count += cnt
+				found = true
+				break
+			}
+		}
+		if !found {
+			bucket.ByIssuer = append(bucket.ByIssuer, model.ExpiryIssuerCount{
+				IssuerOrg: issuerOrg,
+				Count:     cnt,
+			})
+		}
+	}
+
+	// Sort buckets by week and calculate total
+	weeks := make([]string, 0, len(bucketMap))
+	for w := range bucketMap {
+		weeks = append(weeks, w)
+	}
+	sort.Strings(weeks)
+
+	for _, w := range weeks {
+		resp.Buckets = append(resp.Buckets, *bucketMap[w])
+		resp.TotalExpiring += bucketMap[w].TotalCount
+	}
+
+	return resp, nil
+}
+
 // ── Ingestion State ─────────────────────────────────────────────────────────
 
 func (s *PostgresStore) GetIngestionState(ctx context.Context, sourceName string) (*model.IngestionState, error) {
