@@ -12,23 +12,63 @@ export function createSimulation(
 ): Simulation<ForceNode, ForceEdge> {
 	return forceSimulation<ForceNode>()
 		.force('charge', forceManyBody<ForceNode>().strength((d) => {
-			if (d.type === 'root') return -300;
-			if (d.type === 'intermediate') return -150;
-			return -30;
+			// Tight clustering — just enough repulsion to prevent overlap
+			if (d.type === 'root') return -80;
+			if (d.type === 'intermediate') return -40;
+			return -15;
 		}))
 		.force('link', forceLink<ForceNode, ForceEdge>().id(d => d.id).strength((link) => {
 			const target = link.target as ForceNode;
-			if (target.type === 'intermediate') return 0.7;
-			return 0.3;
+			if (target.type === 'intermediate') return 0.9;
+			return 0.5;
 		}).distance((link) => {
 			const target = link.target as ForceNode;
-			if (target.type === 'intermediate') return 120;
-			return 60;
+			if (target.type === 'intermediate') return 50;
+			return 30;
 		}))
-		.force('center', forceCenter(width / 2, height / 2).strength(0.05))
-		.force('collision', forceCollide<ForceNode>().radius(d => d.radius + 4))
-		.alphaDecay(0.02)
+		.force('center', forceCenter(width / 2, height / 2).strength(0.15))
+		.force('collision', forceCollide<ForceNode>().radius(d => d.radius + 6))
+		.alphaDecay(0.025)
 		.on('tick', onTick);
+}
+
+// Compute a zoom transform that fits all nodes into the viewport with padding
+export function fitToViewport(
+	nodes: ForceNode[],
+	width: number,
+	height: number,
+	padding = 60,
+): { x: number; y: number; k: number } {
+	if (nodes.length === 0) return { x: 0, y: 0, k: 1 };
+
+	let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+	for (const n of nodes) {
+		const x = n.x ?? 0;
+		const y = n.y ?? 0;
+		const r = n.radius + 20; // account for label space
+		if (x - r < minX) minX = x - r;
+		if (y - r < minY) minY = y - r;
+		if (x + r > maxX) maxX = x + r;
+		if (y + r > maxY) maxY = y + r;
+	}
+
+	const graphW = maxX - minX;
+	const graphH = maxY - minY;
+	if (graphW === 0 || graphH === 0) return { x: 0, y: 0, k: 1 };
+
+	const k = Math.min(
+		(width - padding * 2) / graphW,
+		(height - padding * 2) / graphH,
+		2.5, // don't zoom in too much
+	);
+	const cx = (minX + maxX) / 2;
+	const cy = (minY + maxY) / 2;
+
+	return {
+		x: width / 2 - cx * k,
+		y: height / 2 - cy * k,
+		k,
+	};
 }
 
 export function apiNodeToForceNode(apiNode: AggregatedGraphNode): ForceNode {

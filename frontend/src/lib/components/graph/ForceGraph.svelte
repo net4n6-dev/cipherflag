@@ -5,7 +5,7 @@
 	import { drag } from 'd3-drag';
 	import type { Simulation } from 'd3-force';
 	import type { ForceNode, ForceEdge } from './graph-types';
-	import { createSimulation, updateSimulation } from './graph-simulation';
+	import { createSimulation, updateSimulation, fitToViewport } from './graph-simulation';
 	import 'd3-transition';
 
 	interface Props {
@@ -40,6 +40,7 @@
 	let zoomBehavior: ZoomBehavior<SVGSVGElement, unknown>;
 	let resizeObserver: ResizeObserver;
 	let animFrame: number;
+	let hasFittedInitial = false;
 
 	onMount(() => {
 		const rect = svgEl.parentElement!.getBoundingClientRect();
@@ -52,6 +53,12 @@
 				nodes = [...nodes];
 				edges = [...edges];
 			});
+
+			// Auto-fit once the simulation has nearly settled
+			if (!hasFittedInitial && sim.alpha() < 0.1 && nodes.length > 0) {
+				hasFittedInitial = true;
+				requestAnimationFrame(() => fitToContent(500));
+			}
 		});
 
 		zoomBehavior = zoom<SVGSVGElement, unknown>()
@@ -122,7 +129,17 @@
 	}
 
 	export function zoomReset() {
-		select(svgEl).transition().duration(500).call(zoomBehavior.transform, zoomIdentity);
+		fitToContent(500);
+	}
+
+	function fitToContent(duration = 0) {
+		const fit = fitToViewport(nodes, width, height);
+		const t = zoomIdentity.translate(fit.x, fit.y).scale(fit.k);
+		if (duration > 0) {
+			select(svgEl).transition().duration(duration).call(zoomBehavior.transform, t);
+		} else {
+			select(svgEl).call(zoomBehavior.transform, t);
+		}
 	}
 
 	function nodeOpacity(node: ForceNode): number {
