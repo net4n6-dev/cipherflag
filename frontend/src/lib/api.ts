@@ -173,6 +173,55 @@ export interface PCAPJob {
 	completed_at?: string;
 }
 
+export interface AggregatedGraphNode {
+	fingerprint: string;
+	common_name: string;
+	organization: string;
+	type: 'root' | 'intermediate' | 'leaf';
+	cert_count: number;
+	worst_grade: string;
+	avg_score: number;
+	expired_count: number;
+	expiring_30d_count: number;
+	key_algorithm: string;
+	key_size_bits: number;
+}
+
+export interface AggregatedGraphEdge {
+	source: string;
+	target: string;
+	child_grade: string;
+}
+
+export interface AggregatedLandscapeResponse {
+	nodes: AggregatedGraphNode[];
+	edges: AggregatedGraphEdge[];
+}
+
+export interface CAChildrenResponse {
+	parent_fingerprint: string;
+	nodes: AggregatedGraphNode[];
+	edges: AggregatedGraphEdge[];
+	total: number;
+	has_more: boolean;
+}
+
+export interface BlastRadiusSummary {
+	total_certs: number;
+	expired: number;
+	expiring_30d: number;
+	grade_f: number;
+	intermediates: number;
+}
+
+export interface BlastRadiusResponse {
+	root_fingerprint: string;
+	nodes: AggregatedGraphNode[];
+	edges: AggregatedGraphEdge[];
+	summary: BlastRadiusSummary;
+	truncated: boolean;
+}
+
 export const api = {
 	getLandscape: () => fetchJSON<GraphResponse>('/graph/landscape'),
 	getChainGraph: (fp: string) => fetchJSON<GraphResponse>(`/graph/chain/${fp}`),
@@ -196,4 +245,8 @@ export const api = {
 	exportCerts: (format: 'csv' | 'json', params?: string) => {
 		window.open(`${BASE}/export/certificates?format=${format}${params ? '&' + params : ''}`);
 	},
+	getAggregatedLandscape: () => fetchJSON<AggregatedLandscapeResponse>('/graph/landscape/aggregated'),
+	getCAChildren: (fp: string, limit = 100, offset = 0) =>
+		fetchJSON<CAChildrenResponse>(`/graph/ca/${fp}/children?limit=${limit}&offset=${offset}`),
+	getBlastRadius: (fp: string) => fetchJSON<BlastRadiusResponse>(`/graph/ca/${fp}/blast-radius`),
 };
