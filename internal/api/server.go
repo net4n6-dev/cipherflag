@@ -56,6 +56,9 @@ func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcap
 		r.Get("/stats/ciphers", statsH.Ciphers)
 		r.Get("/stats/issuers", statsH.Issuers)
 		r.Get("/stats/expiry-timeline", statsH.ExpiryTimeline)
+		r.Get("/stats/chain-flow", statsH.ChainFlow)
+		r.Get("/stats/ownership", statsH.Ownership)
+		r.Get("/stats/deployment", statsH.Deployment)
 
 		// PKI tree
 		r.Get("/pki/tree", statsH.PKITree)
