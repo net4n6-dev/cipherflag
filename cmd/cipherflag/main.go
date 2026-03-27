@@ -14,6 +14,7 @@ import (
 
 	"github.com/cyberflag-ai/cipherflag/internal/api"
 	"github.com/cyberflag-ai/cipherflag/internal/config"
+	"github.com/cyberflag-ai/cipherflag/internal/export/venafi"
 	"github.com/cyberflag-ai/cipherflag/internal/ingest"
 	"github.com/cyberflag-ai/cipherflag/internal/store"
 )
@@ -79,7 +80,31 @@ func runServe(ctx context.Context, cfg *config.Config) {
 		go pcapMgr.Run(pollerCtx)
 	}
 
-	router := api.NewRouter(st, cfg.Server.FrontendURL, cfg.PCAP.InputDir, cfg.PCAP.MaxFileSizeMB)
+	// Venafi push scheduler
+	venafiInterval := time.Duration(cfg.Export.Venafi.PushIntervalMinutes) * time.Minute
+	if cfg.Export.Venafi.Enabled {
+		pushCtx, pushCancel := context.WithCancel(ctx)
+		defer pushCancel()
+
+		authBase := cfg.Export.Venafi.BaseURL
+		sdkBase := cfg.Export.Venafi.BaseURL
+		if len(authBase) > 6 && authBase[len(authBase)-6:] == "vedsdk" {
+			authBase = authBase[:len(authBase)-6] + "vedauth"
+		} else {
+			sdkBase = authBase + "/vedsdk"
+			authBase = authBase + "/vedauth"
+		}
+
+		venafiClient := venafi.NewClient(sdkBase, authBase, cfg.Export.Venafi.ClientID, cfg.Export.Venafi.RefreshToken)
+		pusher := venafi.NewPusher(venafiClient, st, cfg.Export.Venafi.Folder, venafiInterval)
+		go pusher.Run(pushCtx)
+		log.Info().
+			Str("folder", cfg.Export.Venafi.Folder).
+			Int("interval_min", cfg.Export.Venafi.PushIntervalMinutes).
+			Msg("venafi push scheduler started")
+	}
+
+	router := api.NewRouter(st, cfg.Server.FrontendURL, cfg.PCAP.InputDir, cfg.PCAP.MaxFileSizeMB, cfg.Export.Venafi.Enabled, venafiInterval)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Listen,
