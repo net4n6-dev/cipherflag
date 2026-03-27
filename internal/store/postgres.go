@@ -370,6 +370,333 @@ func (s *PostgresStore) GetAllCertificatesForGraph(ctx context.Context) ([]model
 	return certs, nil
 }
 
+func (s *PostgresStore) GetAggregatedLandscape(ctx context.Context) (*model.AggregatedLandscapeResponse, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			ca.fingerprint_sha256,
+			ca.subject_cn,
+			ca.subject_org,
+			ca.issuer_cn,
+			ca.key_algorithm,
+			ca.key_size_bits,
+			CASE WHEN ca.subject_cn = ca.issuer_cn OR ca.issuer_cn = '' THEN 'root' ELSE 'intermediate' END as node_type,
+			COALESCE(h.grade, '?') as ca_grade,
+			(SELECT COUNT(*) FROM certificates ch WHERE ch.issuer_cn = ca.subject_cn AND ch.fingerprint_sha256 != ca.fingerprint_sha256) as cert_count,
+			COALESCE((
+				SELECT MIN(h2.grade) FROM certificates ch2
+				JOIN health_reports h2 ON ch2.fingerprint_sha256 = h2.cert_fingerprint
+				WHERE ch2.issuer_cn = ca.subject_cn AND ch2.fingerprint_sha256 != ca.fingerprint_sha256
+			), COALESCE(h.grade, '?')) as worst_grade,
+			COALESCE((
+				SELECT AVG(h2.score)::numeric(5,1) FROM certificates ch2
+				JOIN health_reports h2 ON ch2.fingerprint_sha256 = h2.cert_fingerprint
+				WHERE ch2.issuer_cn = ca.subject_cn AND ch2.fingerprint_sha256 != ca.fingerprint_sha256
+			), COALESCE(h.score, 0)) as avg_score,
+			(SELECT COUNT(*) FROM certificates ch3 WHERE ch3.issuer_cn = ca.subject_cn AND ch3.not_after < NOW() AND ch3.fingerprint_sha256 != ca.fingerprint_sha256) as expired_count,
+			(SELECT COUNT(*) FROM certificates ch4 WHERE ch4.issuer_cn = ca.subject_cn AND ch4.not_after BETWEEN NOW() AND NOW() + INTERVAL '30 days' AND ch4.fingerprint_sha256 != ca.fingerprint_sha256) as expiring_30d_count
+		FROM certificates ca
+		LEFT JOIN health_reports h ON ca.fingerprint_sha256 = h.cert_fingerprint
+		WHERE ca.is_ca = true
+		ORDER BY cert_count DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	resp := &model.AggregatedLandscapeResponse{
+		Nodes: []model.AggregatedGraphNode{},
+		Edges: []model.AggregatedGraphEdge{},
+	}
+
+	caSubjects := map[string]bool{}
+	type caRow struct {
+		node     model.AggregatedGraphNode
+		issuerCN string
+	}
+	var cas []caRow
+
+	for rows.Next() {
+		var r caRow
+		var issuerCN string
+		if err := rows.Scan(
+			&r.node.Fingerprint, &r.node.CommonName, &r.node.Organization,
+			&issuerCN, &r.node.KeyAlgorithm, &r.node.KeySizeBits,
+			&r.node.NodeType, new(string),
+			&r.node.CertCount, &r.node.WorstGrade, &r.node.AvgScore,
+			&r.node.ExpiredCount, &r.node.Expiring30dCount,
+		); err != nil {
+			return nil, err
+		}
+		r.issuerCN = issuerCN
+		cas = append(cas, r)
+		caSubjects[r.node.CommonName] = true
+	}
+
+	for _, ca := range cas {
+		resp.Nodes = append(resp.Nodes, ca.node)
+		if ca.node.NodeType == "intermediate" && caSubjects[ca.issuerCN] && ca.issuerCN != ca.node.CommonName {
+			for _, parent := range cas {
+				if parent.node.CommonName == ca.issuerCN {
+					resp.Edges = append(resp.Edges, model.AggregatedGraphEdge{
+						Source: parent.node.Fingerprint,
+						Target: ca.node.Fingerprint,
+						ChildGrade: ca.node.WorstGrade,
+					})
+					break
+				}
+			}
+		}
+	}
+
+	return resp, nil
+}
+
+func (s *PostgresStore) GetCAChildren(ctx context.Context, fingerprint string, limit, offset int) (*model.CAChildrenResponse, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var parentCN string
+	err := s.pool.QueryRow(ctx, "SELECT subject_cn FROM certificates WHERE fingerprint_sha256 = $1", fingerprint).Scan(&parentCN)
+	if err != nil {
+		return nil, fmt.Errorf("parent CA not found: %w", err)
+	}
+
+	var total int
+	s.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM certificates
+		WHERE issuer_cn = $1 AND fingerprint_sha256 != $2
+	`, parentCN, fingerprint).Scan(&total)
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			c.fingerprint_sha256,
+			c.subject_cn,
+			c.subject_org,
+			c.key_algorithm,
+			c.key_size_bits,
+			c.is_ca,
+			c.not_after,
+			COALESCE(h.grade, '?') as grade,
+			COALESCE(h.score, 0) as score,
+			CASE WHEN c.is_ca THEN
+				(SELECT COUNT(*) FROM certificates ch WHERE ch.issuer_cn = c.subject_cn AND ch.fingerprint_sha256 != c.fingerprint_sha256)
+			ELSE 0 END as child_count,
+			CASE WHEN c.is_ca THEN COALESCE((
+				SELECT MIN(h2.grade) FROM certificates ch2
+				JOIN health_reports h2 ON ch2.fingerprint_sha256 = h2.cert_fingerprint
+				WHERE ch2.issuer_cn = c.subject_cn AND ch2.fingerprint_sha256 != c.fingerprint_sha256
+			), COALESCE(h.grade, '?')) ELSE COALESCE(h.grade, '?') END as worst_grade,
+			CASE WHEN c.is_ca THEN COALESCE((
+				SELECT AVG(h2.score)::numeric(5,1) FROM certificates ch2
+				JOIN health_reports h2 ON ch2.fingerprint_sha256 = h2.cert_fingerprint
+				WHERE ch2.issuer_cn = c.subject_cn AND ch2.fingerprint_sha256 != c.fingerprint_sha256
+			), COALESCE(h.score, 0)) ELSE COALESCE(h.score, 0) END as avg_score,
+			CASE WHEN c.is_ca THEN
+				(SELECT COUNT(*) FROM certificates ch3 WHERE ch3.issuer_cn = c.subject_cn AND ch3.not_after < NOW() AND ch3.fingerprint_sha256 != c.fingerprint_sha256)
+			ELSE CASE WHEN c.not_after < NOW() THEN 1 ELSE 0 END END as expired_count,
+			CASE WHEN c.is_ca THEN
+				(SELECT COUNT(*) FROM certificates ch4 WHERE ch4.issuer_cn = c.subject_cn AND ch4.not_after BETWEEN NOW() AND NOW() + INTERVAL '30 days' AND ch4.fingerprint_sha256 != c.fingerprint_sha256)
+			ELSE CASE WHEN c.not_after BETWEEN NOW() AND NOW() + INTERVAL '30 days' THEN 1 ELSE 0 END END as expiring_30d_count
+		FROM certificates c
+		LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint
+		WHERE c.issuer_cn = $1 AND c.fingerprint_sha256 != $2
+		ORDER BY c.is_ca DESC, c.subject_cn ASC
+		LIMIT $3 OFFSET $4
+	`, parentCN, fingerprint, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	resp := &model.CAChildrenResponse{
+		ParentFingerprint: fingerprint,
+		Nodes:             []model.AggregatedGraphNode{},
+		Edges:             []model.AggregatedGraphEdge{},
+		Total:             total,
+		HasMore:           offset+limit < total,
+	}
+
+	for rows.Next() {
+		var fp, cn, org, keyAlg, grade, worstGrade string
+		var keyBits, score, childCount, expiredCount, expiring30d int
+		var isCA bool
+		var notAfter time.Time
+		var avgScore float64
+
+		if err := rows.Scan(
+			&fp, &cn, &org, &keyAlg, &keyBits, &isCA, &notAfter,
+			&grade, &score, &childCount, &worstGrade, &avgScore,
+			&expiredCount, &expiring30d,
+		); err != nil {
+			return nil, err
+		}
+
+		nodeType := "leaf"
+		if isCA {
+			nodeType = "intermediate"
+		}
+
+		node := model.AggregatedGraphNode{
+			Fingerprint:      fp,
+			CommonName:       cn,
+			Organization:     org,
+			NodeType:         nodeType,
+			CertCount:        childCount,
+			WorstGrade:       worstGrade,
+			AvgScore:         avgScore,
+			ExpiredCount:     expiredCount,
+			Expiring30dCount: expiring30d,
+			KeyAlgorithm:     keyAlg,
+			KeySizeBits:      keyBits,
+		}
+		resp.Nodes = append(resp.Nodes, node)
+		resp.Edges = append(resp.Edges, model.AggregatedGraphEdge{
+			Source:     fingerprint,
+			Target:     fp,
+			ChildGrade: worstGrade,
+		})
+	}
+
+	return resp, nil
+}
+
+func (s *PostgresStore) GetBlastRadius(ctx context.Context, fingerprint string, limit int) (*model.BlastRadiusResponse, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		WITH RECURSIVE descendants AS (
+			SELECT c.fingerprint_sha256, c.subject_cn, c.subject_org,
+				c.issuer_cn, c.key_algorithm, c.key_size_bits, c.is_ca, c.not_after,
+				1 as depth
+			FROM certificates c
+			JOIN certificates parent ON parent.fingerprint_sha256 = $1 AND c.issuer_cn = parent.subject_cn
+			WHERE c.fingerprint_sha256 != $1
+
+			UNION
+
+			SELECT c.fingerprint_sha256, c.subject_cn, c.subject_org,
+				c.issuer_cn, c.key_algorithm, c.key_size_bits, c.is_ca, c.not_after,
+				d.depth + 1
+			FROM certificates c
+			JOIN descendants d ON c.issuer_cn = d.subject_cn AND d.is_ca = true
+			WHERE c.fingerprint_sha256 != d.fingerprint_sha256
+			AND d.depth < 10
+		)
+		SELECT DISTINCT ON (d.fingerprint_sha256)
+			d.fingerprint_sha256, d.subject_cn, d.subject_org,
+			d.issuer_cn, d.key_algorithm, d.key_size_bits, d.is_ca, d.not_after,
+			COALESCE(h.grade, '?') as grade,
+			COALESCE(h.score, 0) as score
+		FROM descendants d
+		LEFT JOIN health_reports h ON d.fingerprint_sha256 = h.cert_fingerprint
+		ORDER BY d.fingerprint_sha256, d.depth
+		LIMIT $2
+	`, fingerprint, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	resp := &model.BlastRadiusResponse{
+		RootFingerprint: fingerprint,
+		Nodes:           []model.AggregatedGraphNode{},
+		Edges:           []model.AggregatedGraphEdge{},
+	}
+
+	caFPBySubject := map[string]string{}
+	var rootCN string
+	s.pool.QueryRow(ctx, "SELECT subject_cn FROM certificates WHERE fingerprint_sha256 = $1", fingerprint).Scan(&rootCN)
+	caFPBySubject[rootCN] = fingerprint
+
+	type blastRow struct {
+		fp, cn, org, issuerCN, keyAlg, grade string
+		keyBits, score                        int
+		isCA                                  bool
+		notAfter                              time.Time
+	}
+	var allRows []blastRow
+
+	for rows.Next() {
+		var r blastRow
+		if err := rows.Scan(
+			&r.fp, &r.cn, &r.org, &r.issuerCN, &r.keyAlg, &r.keyBits,
+			&r.isCA, &r.notAfter, &r.grade, &r.score,
+		); err != nil {
+			return nil, err
+		}
+		allRows = append(allRows, r)
+		if r.isCA {
+			caFPBySubject[r.cn] = r.fp
+		}
+	}
+
+	// Build summary from ALL rows (before truncation) so counts are accurate
+	summary := model.BlastRadiusSummary{}
+	for _, r := range allRows {
+		summary.TotalCerts++
+		if r.notAfter.Before(time.Now()) {
+			summary.Expired++
+		} else if r.notAfter.Before(time.Now().Add(30 * 24 * time.Hour)) {
+			summary.Expiring30d++
+		}
+		if r.grade == "F" {
+			summary.GradeF++
+		}
+		if r.isCA {
+			summary.Intermediates++
+		}
+	}
+	resp.Summary = summary
+
+	// Truncate after computing summary
+	if len(allRows) > limit {
+		resp.Truncated = true
+		allRows = allRows[:limit]
+	}
+
+	// Build nodes + edges
+	for _, r := range allRows {
+		nodeType := "leaf"
+		if r.isCA {
+			nodeType = "intermediate"
+		}
+
+		expiredCount := 0
+		if r.notAfter.Before(time.Now()) {
+			expiredCount = 1
+		}
+
+		resp.Nodes = append(resp.Nodes, model.AggregatedGraphNode{
+			Fingerprint:  r.fp,
+			CommonName:   r.cn,
+			Organization: r.org,
+			NodeType:     nodeType,
+			WorstGrade:   r.grade,
+			AvgScore:     float64(r.score),
+			KeyAlgorithm: r.keyAlg,
+			KeySizeBits:  r.keyBits,
+			ExpiredCount: expiredCount,
+		})
+
+		if issuerFP, ok := caFPBySubject[r.issuerCN]; ok {
+			resp.Edges = append(resp.Edges, model.AggregatedGraphEdge{
+				Source:     issuerFP,
+				Target:     r.fp,
+				ChildGrade: r.grade,
+			})
+		}
+	}
+
+	return resp, nil
+}
+
 // ── Observations ────────────────────────────────────────────────────────────
 
 func (s *PostgresStore) RecordObservation(ctx context.Context, obs *model.CertificateObservation) error {
