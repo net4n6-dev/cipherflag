@@ -143,6 +143,9 @@ type CertStore interface {
 	GetPKITree(ctx context.Context) (*PKITreeResponse, error)
 	GetIssuerStats(ctx context.Context) ([]IssuerStat, error)
 	GetExpiryTimeline(ctx context.Context) (*ExpiryTimeline, error)
+	GetChainFlow(ctx context.Context) (*model.ChainFlowResponse, error)
+	GetOwnershipStats(ctx context.Context) (*model.OwnershipResponse, error)
+	GetDeploymentStats(ctx context.Context) (*model.DeploymentResponse, error)
 
 	// Graph data
 	GetAllCertificatesForGraph(ctx context.Context) ([]model.Certificate, error)
