@@ -60,3 +60,30 @@ type DeploymentResponse struct {
 	TotalObservedCerts int               `json:"total_observed_certs"`
 	TotalDomains       int               `json:"total_domains"`
 }
+
+// CryptoPostureResponse is the API response for crypto posture analytics.
+type CryptoPostureResponse struct {
+	KeyAlgorithms       []KeyAlgoCount   `json:"key_algorithms"`
+	KeySizes            []KeySizeCount   `json:"key_sizes"`
+	SignatureAlgorithms []SigAlgoCount   `json:"signature_algorithms"`
+	TotalCerts          int              `json:"total_certs"`
+}
+
+// KeyAlgoCount holds key algorithm distribution.
+type KeyAlgoCount struct {
+	Algorithm string `json:"algorithm"`
+	Count     int    `json:"count"`
+}
+
+// KeySizeCount holds key size distribution.
+type KeySizeCount struct {
+	Algorithm string `json:"algorithm"`
+	SizeBits  int    `json:"size_bits"`
+	Count     int    `json:"count"`
+}
+
+// SigAlgoCount holds signature algorithm distribution.
+type SigAlgoCount struct {
+	Algorithm string `json:"algorithm"`
+	Count     int    `json:"count"`
+}

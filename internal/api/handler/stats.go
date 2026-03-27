@@ -85,3 +85,12 @@ func (h *StatsHandler) Deployment(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
+func (h *StatsHandler) CryptoPosture(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.store.GetCryptoPosture(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}

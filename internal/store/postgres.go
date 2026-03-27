@@ -1392,6 +1392,77 @@ func (s *PostgresStore) GetDeploymentStats(ctx context.Context) (*model.Deployme
 	return resp, nil
 }
 
+func (s *PostgresStore) GetCryptoPosture(ctx context.Context) (*model.CryptoPostureResponse, error) {
+	resp := &model.CryptoPostureResponse{
+		KeyAlgorithms:       []model.KeyAlgoCount{},
+		KeySizes:            []model.KeySizeCount{},
+		SignatureAlgorithms: []model.SigAlgoCount{},
+	}
+
+	// Key algorithm distribution
+	rows, err := s.pool.Query(ctx, `
+		SELECT key_algorithm, COUNT(*) as count
+		FROM certificates
+		GROUP BY key_algorithm
+		ORDER BY count DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var a model.KeyAlgoCount
+		if err := rows.Scan(&a.Algorithm, &a.Count); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		resp.KeyAlgorithms = append(resp.KeyAlgorithms, a)
+		resp.TotalCerts += a.Count
+	}
+	rows.Close()
+
+	// Key size distribution (grouped by algorithm + size)
+	rows, err = s.pool.Query(ctx, `
+		SELECT key_algorithm, key_size_bits, COUNT(*) as count
+		FROM certificates
+		GROUP BY key_algorithm, key_size_bits
+		ORDER BY key_algorithm, key_size_bits
+	`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var k model.KeySizeCount
+		if err := rows.Scan(&k.Algorithm, &k.SizeBits, &k.Count); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		resp.KeySizes = append(resp.KeySizes, k)
+	}
+	rows.Close()
+
+	// Signature algorithm distribution
+	rows, err = s.pool.Query(ctx, `
+		SELECT signature_algorithm, COUNT(*) as count
+		FROM certificates
+		GROUP BY signature_algorithm
+		ORDER BY count DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var sa model.SigAlgoCount
+		if err := rows.Scan(&sa.Algorithm, &sa.Count); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		resp.SignatureAlgorithms = append(resp.SignatureAlgorithms, sa)
+	}
+	rows.Close()
+
+	return resp, nil
+}
+
 // ── Ingestion State ─────────────────────────────────────────────────────────
 
 func (s *PostgresStore) GetIngestionState(ctx context.Context, sourceName string) (*model.IngestionState, error) {
