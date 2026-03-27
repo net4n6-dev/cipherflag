@@ -222,6 +222,60 @@ export interface BlastRadiusResponse {
 	truncated: boolean;
 }
 
+export interface ChainFlowNode {
+	id: string;
+	label: string;
+	type: 'root' | 'intermediate' | 'leaf-aggregate';
+	cert_count: number;
+	grade: string;
+	expired_count: number;
+}
+
+export interface ChainFlowLink {
+	source: string;
+	target: string;
+	value: number;
+	worst_grade: string;
+	expired_count: number;
+}
+
+export interface ChainFlowResponse {
+	nodes: ChainFlowNode[];
+	links: ChainFlowLink[];
+}
+
+export interface OwnershipGroup {
+	issuer_org: string;
+	subject_ou: string;
+	cert_count: number;
+	expired_count: number;
+	expiring_30d_count: number;
+	worst_grade: string;
+	avg_score: number;
+}
+
+export interface OwnershipResponse {
+	groups: OwnershipGroup[];
+	total_certs: number;
+	total_issuers: number;
+	total_ous: number;
+}
+
+export interface DeploymentGroup {
+	domain: string;
+	cert_count: number;
+	unique_ips: number;
+	expired_count: number;
+	worst_grade: string;
+	avg_score: number;
+}
+
+export interface DeploymentResponse {
+	groups: DeploymentGroup[];
+	total_observed_certs: number;
+	total_domains: number;
+}
+
 export const api = {
 	getLandscape: () => fetchJSON<GraphResponse>('/graph/landscape'),
 	getChainGraph: (fp: string) => fetchJSON<GraphResponse>(`/graph/chain/${fp}`),
@@ -249,4 +303,7 @@ export const api = {
 	getCAChildren: (fp: string, limit = 100, offset = 0) =>
 		fetchJSON<CAChildrenResponse>(`/graph/ca/${fp}/children?limit=${limit}&offset=${offset}`),
 	getBlastRadius: (fp: string) => fetchJSON<BlastRadiusResponse>(`/graph/ca/${fp}/blast-radius`),
+	getChainFlow: () => fetchJSON<ChainFlowResponse>('/stats/chain-flow'),
+	getOwnership: () => fetchJSON<OwnershipResponse>('/stats/ownership'),
+	getDeployment: () => fetchJSON<DeploymentResponse>('/stats/deployment'),
 };
