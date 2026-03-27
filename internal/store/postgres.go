@@ -1290,6 +1290,54 @@ func (s *PostgresStore) GetChainFlow(ctx context.Context) (*model.ChainFlowRespo
 	return resp, nil
 }
 
+func (s *PostgresStore) GetOwnershipStats(ctx context.Context) (*model.OwnershipResponse, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			COALESCE(NULLIF(c.issuer_org, ''), 'Unknown Issuer') as issuer_org,
+			COALESCE(NULLIF(c.subject_ou, ''), '') as subject_ou,
+			COUNT(*) as cert_count,
+			COUNT(*) FILTER (WHERE c.not_after < NOW()) as expired_count,
+			COUNT(*) FILTER (WHERE c.not_after BETWEEN NOW() AND NOW() + INTERVAL '30 days') as expiring_30d_count,
+			COALESCE(MAX(h.grade), '?') as worst_grade,
+			COALESCE(AVG(h.score)::numeric(5,1), 0) as avg_score
+		FROM certificates c
+		LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint
+		GROUP BY COALESCE(NULLIF(c.issuer_org, ''), 'Unknown Issuer'),
+		         COALESCE(NULLIF(c.subject_ou, ''), '')
+		ORDER BY cert_count DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	resp := &model.OwnershipResponse{
+		Groups: []model.OwnershipGroup{},
+	}
+
+	issuers := map[string]bool{}
+	ous := map[string]bool{}
+
+	for rows.Next() {
+		var g model.OwnershipGroup
+		if err := rows.Scan(&g.IssuerOrg, &g.SubjectOU, &g.CertCount,
+			&g.ExpiredCount, &g.Expiring30dCount, &g.WorstGrade, &g.AvgScore); err != nil {
+			return nil, err
+		}
+		resp.Groups = append(resp.Groups, g)
+		resp.TotalCerts += g.CertCount
+		issuers[g.IssuerOrg] = true
+		if g.SubjectOU != "" {
+			ous[g.SubjectOU] = true
+		}
+	}
+
+	resp.TotalIssuers = len(issuers)
+	resp.TotalOUs = len(ous)
+
+	return resp, nil
+}
+
 // ── Ingestion State ─────────────────────────────────────────────────────────
 
 func (s *PostgresStore) GetIngestionState(ctx context.Context, sourceName string) (*model.IngestionState, error) {
