@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/cyberflag-ai/cipherflag/internal/model"
 )
@@ -165,6 +166,13 @@ type CertStore interface {
 	GetPCAPJob(ctx context.Context, id string) (*model.PCAPJob, error)
 	UpdatePCAPJob(ctx context.Context, job *model.PCAPJob) error
 	ListPCAPJobs(ctx context.Context, limit int) ([]model.PCAPJob, error)
+
+	// Venafi push
+	GetCertsForVenafiPush(ctx context.Context, pushInterval time.Duration, limit int) ([]model.Certificate, error)
+	GetLatestObservationsForCerts(ctx context.Context, fingerprints []string) (map[string]*model.CertificateObservation, error)
+	MarkVenafiPushSuccess(ctx context.Context, fingerprints []string) error
+	MarkVenafiPushFailure(ctx context.Context, fingerprints []string) error
+	GetVenafiPushStats(ctx context.Context) (*model.VenafiPushStats, error)
 
 	// Lifecycle
 	Migrate(ctx context.Context) error

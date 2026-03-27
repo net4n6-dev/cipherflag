@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 // ChainFlowNode represents a node in the Sankey chain flow diagram.
 type ChainFlowNode struct {
 	ID           string `json:"id"`
@@ -127,4 +129,15 @@ type SourceLineageGroup struct {
 type SourceLineageResponse struct {
 	Sources    []SourceLineageGroup `json:"sources"`
 	TotalCerts int                  `json:"total_certs"`
+}
+
+// VenafiPushStats holds aggregate push status for the Venafi status endpoint.
+type VenafiPushStats struct {
+	Enabled      bool       `json:"enabled"`
+	LastPushAt   *time.Time `json:"last_push_at"`
+	Pending      int        `json:"pending"`
+	Pushed       int        `json:"pushed"`
+	Failed       int        `json:"failed"`
+	DeadLettered int        `json:"dead_lettered"`
+	NextPushAt   *time.Time `json:"next_push_at"`
 }
