@@ -1338,6 +1338,60 @@ func (s *PostgresStore) GetOwnershipStats(ctx context.Context) (*model.Ownership
 	return resp, nil
 }
 
+func (s *PostgresStore) GetDeploymentStats(ctx context.Context) (*model.DeploymentResponse, error) {
+	rows, err := s.pool.Query(ctx, `
+		WITH cert_domains AS (
+			SELECT DISTINCT
+				o.cert_fingerprint,
+				o.server_ip,
+				CASE
+					WHEN array_length(string_to_array(o.server_name, '.'), 1) >= 3
+					THEN substring(o.server_name from position('.' in o.server_name) + 1)
+					ELSE o.server_name
+				END as domain
+			FROM observations o
+			WHERE o.server_name IS NOT NULL AND o.server_name != ''
+		)
+		SELECT
+			cd.domain,
+			COUNT(DISTINCT cd.cert_fingerprint) as cert_count,
+			COUNT(DISTINCT cd.server_ip) as unique_ips,
+			COUNT(DISTINCT cd.cert_fingerprint) FILTER (WHERE c.not_after < NOW()) as expired_count,
+			COALESCE(MAX(h.grade), '?') as worst_grade,
+			COALESCE(AVG(h.score)::numeric(5,1), 0) as avg_score
+		FROM cert_domains cd
+		JOIN certificates c ON c.fingerprint_sha256 = cd.cert_fingerprint
+		LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint
+		GROUP BY cd.domain
+		ORDER BY cert_count DESC
+		LIMIT 50
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	resp := &model.DeploymentResponse{
+		Groups: []model.DeploymentGroup{},
+	}
+
+	domains := map[string]bool{}
+	for rows.Next() {
+		var g model.DeploymentGroup
+		if err := rows.Scan(&g.Domain, &g.CertCount, &g.UniqueIPs,
+			&g.ExpiredCount, &g.WorstGrade, &g.AvgScore); err != nil {
+			return nil, err
+		}
+		resp.Groups = append(resp.Groups, g)
+		resp.TotalObservedCerts += g.CertCount
+		domains[g.Domain] = true
+	}
+
+	resp.TotalDomains = len(domains)
+
+	return resp, nil
+}
+
 // ── Ingestion State ─────────────────────────────────────────────────────────
 
 func (s *PostgresStore) GetIngestionState(ctx context.Context, sourceName string) (*model.IngestionState, error) {
