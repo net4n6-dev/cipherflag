@@ -1830,6 +1830,132 @@ func scanCertificateRows(rows pgx.Rows) (*model.Certificate, error) {
 	return &c, nil
 }
 
+// ── Venafi Push ─────────────────────────────────────────────────────────────
+
+func (s *PostgresStore) GetCertsForVenafiPush(ctx context.Context, pushInterval time.Duration, limit int) ([]model.Certificate, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	intervalSecs := int(pushInterval.Seconds())
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT c.id, c.fingerprint_sha256,
+			c.subject_cn, c.subject_org, c.subject_ou, c.subject_country, c.subject_state, c.subject_locality, c.subject_full,
+			c.issuer_cn, c.issuer_org, c.issuer_ou, c.issuer_country, c.issuer_full,
+			c.serial_number, c.not_before, c.not_after,
+			c.key_algorithm, c.key_size_bits, c.signature_algorithm,
+			c.subject_alt_names, c.is_ca, c.basic_constraints_path_len,
+			c.key_usage, c.extended_key_usage,
+			c.ocsp_responder_urls, c.crl_distribution_points, c.scts,
+			c.source_discovery, c.first_seen, c.last_seen, c.raw_pem
+		FROM certificates c
+		WHERE (c.venafi_pushed_at IS NULL OR c.last_seen > c.venafi_pushed_at)
+		  AND c.venafi_push_failures < 5
+		  AND (
+		    c.venafi_last_push_attempt IS NULL
+		    OR c.venafi_last_push_attempt + make_interval(secs => $1 * power(2, c.venafi_push_failures)::int) < NOW()
+		  )
+		  AND c.raw_pem IS NOT NULL AND c.raw_pem != ''
+		ORDER BY c.last_seen DESC
+		LIMIT $2
+	`, intervalSecs, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var certs []model.Certificate
+	for rows.Next() {
+		c, err := scanCertificateRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		certs = append(certs, *c)
+	}
+	return certs, nil
+}
+
+func (s *PostgresStore) GetLatestObservationsForCerts(ctx context.Context, fingerprints []string) (map[string]*model.CertificateObservation, error) {
+	if len(fingerprints) == 0 {
+		return map[string]*model.CertificateObservation{}, nil
+	}
+
+	rows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT ON (o.cert_fingerprint)
+			o.id, o.cert_fingerprint, o.server_ip, o.server_port, o.server_name, o.client_ip,
+			o.negotiated_version, o.negotiated_cipher, o.cipher_strength,
+			o.ja3_fingerprint, o.ja3s_fingerprint, o.source, o.observed_at
+		FROM observations o
+		WHERE o.cert_fingerprint = ANY($1)
+		ORDER BY o.cert_fingerprint, o.observed_at DESC
+	`, fingerprints)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]*model.CertificateObservation)
+	for rows.Next() {
+		var obs model.CertificateObservation
+		if err := rows.Scan(
+			&obs.ID, &obs.CertFingerprint, &obs.ServerIP, &obs.ServerPort,
+			&obs.ServerName, &obs.ClientIP, &obs.NegotiatedVersion,
+			&obs.NegotiatedCipher, &obs.CipherStrength,
+			&obs.JA3Fingerprint, &obs.JA3SFingerprint, &obs.Source, &obs.ObservedAt,
+		); err != nil {
+			return nil, err
+		}
+		result[obs.CertFingerprint] = &obs
+	}
+	return result, nil
+}
+
+func (s *PostgresStore) MarkVenafiPushSuccess(ctx context.Context, fingerprints []string) error {
+	if len(fingerprints) == 0 {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE certificates
+		SET venafi_pushed_at = NOW(),
+		    venafi_push_failures = 0,
+		    venafi_last_push_attempt = NOW()
+		WHERE fingerprint_sha256 = ANY($1)
+	`, fingerprints)
+	return err
+}
+
+func (s *PostgresStore) MarkVenafiPushFailure(ctx context.Context, fingerprints []string) error {
+	if len(fingerprints) == 0 {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx, `
+		UPDATE certificates
+		SET venafi_push_failures = venafi_push_failures + 1,
+		    venafi_last_push_attempt = NOW()
+		WHERE fingerprint_sha256 = ANY($1)
+	`, fingerprints)
+	return err
+}
+
+func (s *PostgresStore) GetVenafiPushStats(ctx context.Context) (*model.VenafiPushStats, error) {
+	stats := &model.VenafiPushStats{}
+
+	s.pool.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE venafi_pushed_at IS NOT NULL AND (last_seen <= venafi_pushed_at) AND venafi_push_failures = 0),
+			COUNT(*) FILTER (WHERE (venafi_pushed_at IS NULL OR last_seen > venafi_pushed_at) AND venafi_push_failures < 5),
+			COUNT(*) FILTER (WHERE venafi_push_failures > 0 AND venafi_push_failures < 5),
+			COUNT(*) FILTER (WHERE venafi_push_failures >= 5)
+		FROM certificates
+	`).Scan(&stats.Pushed, &stats.Pending, &stats.Failed, &stats.DeadLettered)
+
+	var lastPush *time.Time
+	s.pool.QueryRow(ctx, "SELECT MAX(venafi_pushed_at) FROM certificates").Scan(&lastPush)
+	stats.LastPushAt = lastPush
+
+	return stats, nil
+}
+
 func scanEndpointProfile(row pgx.Row) (*model.EndpointProfile, error) {
 	var ep model.EndpointProfile
 	var suitesJSON []byte
