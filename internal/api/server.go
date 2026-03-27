@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
@@ -14,7 +15,7 @@ import (
 )
 
 // NewRouter builds the HTTP router with all API routes.
-func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcapMaxSizeMB int) http.Handler {
+func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcapMaxSizeMB int, venafiEnabled bool, venafiPushInterval time.Duration) http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -29,6 +30,7 @@ func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcap
 	statsH := handler.NewStatsHandler(st)
 	exportH := handler.NewExportHandler(st)
 	pcapH := handler.NewPCAPHandler(st, pcapInputDir, pcapMaxSizeMB)
+	venafiH := handler.NewVenafiHandler(st, venafiEnabled, venafiPushInterval)
 
 	// Health check
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +78,9 @@ func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcap
 		r.Post("/pcap/upload", pcapH.Upload)
 		r.Get("/pcap/jobs/{id}", pcapH.GetJob)
 		r.Get("/pcap/jobs", pcapH.ListJobs)
+
+		// Venafi
+		r.Get("/venafi/status", venafiH.Status)
 	})
 
 	log.Info().Msg("API routes registered")
