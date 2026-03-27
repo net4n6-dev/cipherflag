@@ -1497,7 +1497,7 @@ func (s *PostgresStore) GetExpiryForecast(ctx context.Context) (*model.ExpiryFor
 	// Build weekly buckets with per-issuer and per-grade breakdowns
 	rows, err := s.pool.Query(ctx, `
 		SELECT
-			date_trunc('week', c.not_after)::date as week_start,
+			to_char(date_trunc('week', c.not_after), 'YYYY-MM-DD') as week_start,
 			COALESCE(NULLIF(c.issuer_org, ''), 'Unknown') as issuer_org,
 			COALESCE(h.grade, '?') as grade,
 			COUNT(*) as cnt
