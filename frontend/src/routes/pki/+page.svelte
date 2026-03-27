@@ -231,6 +231,41 @@
 		mode = q ? 'search' : 'explore';
 	}
 
+	function handleSearchResultClick(result: { type: string; id: string; label: string; org: string; nodeType: string; grade?: string }) {
+		searchQuery = '';
+		mode = 'explore';
+
+		if (result.type === 'graph') {
+			// Node is in the graph — select it to open detail panel
+			const target = nodes.find(n => n.id === result.id);
+			if (target) {
+				selectedNode = target;
+			}
+		} else {
+			// Server result — not in graph, open detail panel with a synthetic node
+			// so the panel can fetch cert details by fingerprint
+			const syntheticNode: ForceNode = {
+				id: result.id,
+				label: result.label,
+				type: result.nodeType === 'ca' ? 'intermediate' : 'leaf',
+				grade: result.grade ?? '?',
+				certCount: 0,
+				avgScore: 0,
+				expiredCount: 0,
+				expiring30dCount: 0,
+				keyAlgorithm: '',
+				keySizeBits: 0,
+				organization: result.org,
+				isExpanded: false,
+				radius: 6,
+				color: '#64748b',
+				fillOpacity: 0.12,
+				pulseRate: 0,
+			};
+			selectedNode = syntheticNode;
+		}
+	}
+
 	function handleGradeToggle(grade: string) {
 		const next = new Set(selectedGrades);
 		if (next.has(grade)) next.delete(grade);
@@ -306,10 +341,12 @@
 			{mode}
 			{selectedGrades}
 			{showExpiredOnly}
+			{nodes}
 			nodeCount={nodes.filter(n => n.type !== 'leaf').length}
 			edgeCount={edges.length}
 			expandedCount={expandedCAs.size}
 			onSearchChange={handleSearchChange}
+			onSearchResultClick={handleSearchResultClick}
 			onGradeToggle={handleGradeToggle}
 			onExpiredToggle={handleExpiredToggle}
 			onBlastRadiusToggle={handleBlastRadiusToggle}
