@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+/* ── CipherFlag Dark Theme ─────────────────────────────────────────────── */
+
+:root {
+	--cf-bg-primary: #0a0e17;
+	--cf-bg-secondary: #111827;
+	--cf-bg-tertiary: #1f2937;
+	--cf-bg-card: #151d2e;
+	--cf-border: #1e293b;
+	--cf-border-hover: #334155;
+	--cf-text-primary: #f1f5f9;
+	--cf-text-secondary: #94a3b8;
+	--cf-text-muted: #64748b;
+	--cf-accent: #38bdf8;
+	--cf-accent-hover: #7dd3fc;
+
+	/* Health grade colors */
+	--cf-grade-a: #22c55e;
+	--cf-grade-b: #84cc16;
+	--cf-grade-c: #eab308;
+	--cf-grade-d: #f97316;
+	--cf-grade-f: #ef4444;
+
+	/* Risk */
+	--cf-risk-critical: #ef4444;
+	--cf-risk-high: #f97316;
+	--cf-risk-medium: #eab308;
+	--cf-risk-low: #22c55e;
+
+	/* Graph */
+	--cf-node-root: #a78bfa;
+	--cf-node-intermediate: #38bdf8;
+	--cf-node-leaf: #34d399;
+	--cf-node-endpoint: #f472b6;
+	--cf-edge-default: #334155;
+	--cf-edge-fresh: #38bdf8;
+}
+
+html, body {
+	margin: 0;
+	padding: 0;
+	background: var(--cf-bg-primary);
+	color: var(--cf-text-primary);
+	font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+	-webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+	width: 6px;
+	height: 6px;
+}
+::-webkit-scrollbar-track {
+	background: var(--cf-bg-secondary);
+}
+::-webkit-scrollbar-thumb {
+	background: var(--cf-border-hover);
+	border-radius: 3px;
+}
