@@ -47,6 +47,9 @@ func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcap
 		// Graph
 		r.Get("/graph/landscape", graphH.Landscape)
 		r.Get("/graph/chain/{fingerprint}", graphH.ChainGraph)
+		r.Get("/graph/landscape/aggregated", graphH.AggregatedLandscape)
+		r.Get("/graph/ca/{fingerprint}/children", graphH.CAChildren)
+		r.Get("/graph/ca/{fingerprint}/blast-radius", graphH.BlastRadius)
 
 		// Stats
 		r.Get("/stats/summary", statsH.Summary)
