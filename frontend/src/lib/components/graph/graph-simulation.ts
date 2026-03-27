@@ -56,9 +56,9 @@ export function apiNodeToForceNode(apiNode: AggregatedGraphNode): ForceNode {
 	return node;
 }
 
-export function apiEdgeToForceEdge(apiEdge: AggregatedGraphEdge, index: number): ForceEdge {
+export function apiEdgeToForceEdge(apiEdge: AggregatedGraphEdge, _index: number): ForceEdge {
 	return {
-		id: `e-${index}`,
+		id: `e-${apiEdge.source.slice(0, 8)}-${apiEdge.target.slice(0, 8)}`,
 		source: apiEdge.source,
 		target: apiEdge.target,
 		sourceId: apiEdge.source,

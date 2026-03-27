@@ -383,7 +383,7 @@ func (s *PostgresStore) GetAggregatedLandscape(ctx context.Context) (*model.Aggr
 			COALESCE(h.grade, '?') as ca_grade,
 			(SELECT COUNT(*) FROM certificates ch WHERE ch.issuer_cn = ca.subject_cn AND ch.fingerprint_sha256 != ca.fingerprint_sha256) as cert_count,
 			COALESCE((
-				SELECT MIN(h2.grade) FROM certificates ch2
+				SELECT MAX(h2.grade) FROM certificates ch2
 				JOIN health_reports h2 ON ch2.fingerprint_sha256 = h2.cert_fingerprint
 				WHERE ch2.issuer_cn = ca.subject_cn AND ch2.fingerprint_sha256 != ca.fingerprint_sha256
 			), COALESCE(h.grade, '?')) as worst_grade,
@@ -467,10 +467,12 @@ func (s *PostgresStore) GetCAChildren(ctx context.Context, fingerprint string, l
 	}
 
 	var total int
-	s.pool.QueryRow(ctx, `
+	if err := s.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FROM certificates
 		WHERE issuer_cn = $1 AND fingerprint_sha256 != $2
-	`, parentCN, fingerprint).Scan(&total)
+	`, parentCN, fingerprint).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count children: %w", err)
+	}
 
 	rows, err := s.pool.Query(ctx, `
 		SELECT
@@ -487,7 +489,7 @@ func (s *PostgresStore) GetCAChildren(ctx context.Context, fingerprint string, l
 				(SELECT COUNT(*) FROM certificates ch WHERE ch.issuer_cn = c.subject_cn AND ch.fingerprint_sha256 != c.fingerprint_sha256)
 			ELSE 0 END as child_count,
 			CASE WHEN c.is_ca THEN COALESCE((
-				SELECT MIN(h2.grade) FROM certificates ch2
+				SELECT MAX(h2.grade) FROM certificates ch2
 				JOIN health_reports h2 ON ch2.fingerprint_sha256 = h2.cert_fingerprint
 				WHERE ch2.issuer_cn = c.subject_cn AND ch2.fingerprint_sha256 != c.fingerprint_sha256
 			), COALESCE(h.grade, '?')) ELSE COALESCE(h.grade, '?') END as worst_grade,
@@ -579,7 +581,7 @@ func (s *PostgresStore) GetBlastRadius(ctx context.Context, fingerprint string, 
 			JOIN certificates parent ON parent.fingerprint_sha256 = $1 AND c.issuer_cn = parent.subject_cn
 			WHERE c.fingerprint_sha256 != $1
 
-			UNION
+			UNION ALL
 
 			SELECT c.fingerprint_sha256, c.subject_cn, c.subject_org,
 				c.issuer_cn, c.key_algorithm, c.key_size_bits, c.is_ca, c.not_after,
@@ -612,7 +614,9 @@ func (s *PostgresStore) GetBlastRadius(ctx context.Context, fingerprint string, 
 
 	caFPBySubject := map[string]string{}
 	var rootCN string
-	s.pool.QueryRow(ctx, "SELECT subject_cn FROM certificates WHERE fingerprint_sha256 = $1", fingerprint).Scan(&rootCN)
+	if err := s.pool.QueryRow(ctx, "SELECT subject_cn FROM certificates WHERE fingerprint_sha256 = $1", fingerprint).Scan(&rootCN); err != nil {
+		return nil, fmt.Errorf("root CA not found: %w", err)
+	}
 	caFPBySubject[rootCN] = fingerprint
 
 	type blastRow struct {
@@ -668,21 +672,26 @@ func (s *PostgresStore) GetBlastRadius(ctx context.Context, fingerprint string, 
 			nodeType = "intermediate"
 		}
 
+		now := time.Now()
 		expiredCount := 0
-		if r.notAfter.Before(time.Now()) {
+		expiring30d := 0
+		if r.notAfter.Before(now) {
 			expiredCount = 1
+		} else if r.notAfter.Before(now.Add(30 * 24 * time.Hour)) {
+			expiring30d = 1
 		}
 
 		resp.Nodes = append(resp.Nodes, model.AggregatedGraphNode{
-			Fingerprint:  r.fp,
-			CommonName:   r.cn,
-			Organization: r.org,
-			NodeType:     nodeType,
-			WorstGrade:   r.grade,
-			AvgScore:     float64(r.score),
-			KeyAlgorithm: r.keyAlg,
-			KeySizeBits:  r.keyBits,
-			ExpiredCount: expiredCount,
+			Fingerprint:      r.fp,
+			CommonName:       r.cn,
+			Organization:     r.org,
+			NodeType:         nodeType,
+			WorstGrade:       r.grade,
+			AvgScore:         float64(r.score),
+			KeyAlgorithm:     r.keyAlg,
+			KeySizeBits:      r.keyBits,
+			ExpiredCount:     expiredCount,
+			Expiring30dCount: expiring30d,
 		})
 
 		if issuerFP, ok := caFPBySubject[r.issuerCN]; ok {
