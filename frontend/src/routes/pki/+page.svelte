@@ -6,6 +6,7 @@
 	import GraphTooltip from '$lib/components/graph/GraphTooltip.svelte';
 	import GraphToolbar from '$lib/components/graph/GraphToolbar.svelte';
 	import GraphLegend from '$lib/components/graph/GraphLegend.svelte';
+	import GraphDetailPanel from '$lib/components/graph/GraphDetailPanel.svelte';
 	import type { ForceNode, ForceEdge, GraphMode } from '$lib/components/graph/graph-types';
 	import { apiNodeToForceNode, apiEdgeToForceEdge } from '$lib/components/graph/graph-simulation';
 
@@ -26,6 +27,7 @@
 	let error: string | null = $state(null);
 	let totalCerts = $state(0);
 	let zoomScale = $state(1);
+	let selectedNode: ForceNode | null = $state(null);
 
 	let graphComponent: ForceGraph;
 
@@ -92,16 +94,8 @@
 			return;
 		}
 
-		if (node.type === 'leaf') {
-			goto(`/certificates/${node.id}`);
-			return;
-		}
-
-		if (expandedCAs.has(node.id)) {
-			collapseCA(node.id);
-		} else {
-			await expandCA(node.id);
-		}
+		// Open detail panel for any node
+		selectedNode = node;
 	}
 
 	async function expandCA(fingerprint: string) {
@@ -215,6 +209,7 @@
 		if (mode === 'blast-radius') {
 			deactivateBlastRadius();
 		}
+		selectedNode = null;
 		hoveredNode = null;
 	}
 
@@ -257,9 +252,31 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
-			if (mode === 'blast-radius') deactivateBlastRadius();
+			if (selectedNode) selectedNode = null;
+			else if (mode === 'blast-radius') deactivateBlastRadius();
 			else if (searchQuery) handleSearchChange('');
 		}
+	}
+
+	function handlePanelNavigateCert(fp: string) {
+		// Select that node in the graph if it's loaded, otherwise navigate
+		const target = nodes.find(n => n.id === fp);
+		if (target) {
+			selectedNode = target;
+		} else {
+			goto(`/certificates/${fp}`);
+		}
+	}
+
+	async function handlePanelExpandCA(fp: string) {
+		selectedNode = null;
+		await expandCA(fp);
+	}
+
+	async function handlePanelBlastRadius(fp: string) {
+		selectedNode = null;
+		mode = 'blast-radius';
+		await activateBlastRadius(fp);
 	}
 </script>
 
@@ -308,6 +325,16 @@
 			{totalCerts}
 			expandedCount={expandedCAs.size}
 		/>
+
+		{#if selectedNode}
+			<GraphDetailPanel
+				node={selectedNode}
+				onClose={() => selectedNode = null}
+				onNavigateCert={handlePanelNavigateCert}
+				onBlastRadius={handlePanelBlastRadius}
+				onExpandCA={handlePanelExpandCA}
+			/>
+		{/if}
 
 		{#if mode === 'blast-radius' && blastRadiusSummary}
 			<div class="blast-badge">
