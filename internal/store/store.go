@@ -146,6 +146,9 @@ type CertStore interface {
 
 	// Graph data
 	GetAllCertificatesForGraph(ctx context.Context) ([]model.Certificate, error)
+	GetAggregatedLandscape(ctx context.Context) (*model.AggregatedLandscapeResponse, error)
+	GetCAChildren(ctx context.Context, fingerprint string, limit, offset int) (*model.CAChildrenResponse, error)
+	GetBlastRadius(ctx context.Context, fingerprint string, limit int) (*model.BlastRadiusResponse, error)
 
 	// Ingestion state
 	GetIngestionState(ctx context.Context, sourceName string) (*model.IngestionState, error)
