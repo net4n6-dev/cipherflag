@@ -83,6 +83,82 @@ func (c *Client) ImportCertificate(ctx context.Context, cert *model.Certificate,
 	return nil
 }
 
+// DiscoveryImportRequest is the body for POST /vedsdk/Discovery/Import.
+type DiscoveryImportRequest struct {
+	ZoneName  string              `json:"zoneName"`
+	Endpoints []DiscoveryEndpoint `json:"endpoints"`
+}
+
+// DiscoveryEndpoint represents one certificate + its deployment context.
+type DiscoveryEndpoint struct {
+	Certificates []DiscoveryCert  `json:"certificates"`
+	Host         string           `json:"host,omitempty"`
+	IP           string           `json:"ip,omitempty"`
+	Port         int              `json:"port,omitempty"`
+	Protocols    []DiscoveryProto `json:"protocols,omitempty"`
+}
+
+// DiscoveryCert holds a certificate for the Discovery/Import endpoint.
+type DiscoveryCert struct {
+	Certificate string `json:"certificate"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// DiscoveryProto holds TLS protocol info for a discovered endpoint.
+type DiscoveryProto struct {
+	Certificates []string `json:"certificates"`
+	Protocol     string   `json:"protocol"`
+}
+
+// DiscoveryImportResponse is the response from POST /vedsdk/Discovery/Import.
+type DiscoveryImportResponse struct {
+	CreatedCertificates int      `json:"createdCertificates"`
+	CreatedInstances    int      `json:"createdInstances"`
+	UpdatedCertificates int      `json:"updatedCertificates"`
+	UpdatedInstances    int      `json:"updatedInstances"`
+	Warnings            []string `json:"warnings"`
+	ZoneName            string   `json:"zoneName"`
+}
+
+// ImportDiscovery imports a batch of certificates with endpoint metadata via Discovery/Import.
+func (c *Client) ImportDiscovery(ctx context.Context, request *DiscoveryImportRequest) (*DiscoveryImportResponse, error) {
+	token, err := c.getToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("venafi: obtaining token: %w", err)
+	}
+
+	payload, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("venafi: marshalling discovery import: %w", err)
+	}
+
+	url := c.sdkBaseURL + "/Discovery/Import"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return nil, fmt.Errorf("venafi: creating discovery import request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("venafi: discovery import request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("venafi: discovery import returned status %d", resp.StatusCode)
+	}
+
+	var result DiscoveryImportResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("venafi: decoding discovery import response: %w", err)
+	}
+
+	return &result, nil
+}
+
 // tokenResponse represents the OAuth token response from Venafi TPP.
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
