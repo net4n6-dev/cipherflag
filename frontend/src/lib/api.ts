@@ -337,6 +337,23 @@ export interface ExpiryForecastResponse {
 	top_issuers: string[];
 }
 
+export interface SourceLineageGroup {
+	source: string;
+	cert_count: number;
+	expired_count: number;
+	expiring_30d_count: number;
+	grade_distribution: Record<string, number>;
+	key_algorithms: Record<string, number>;
+	avg_score: number;
+	first_seen: string;
+	last_seen: string;
+}
+
+export interface SourceLineageResponse {
+	sources: SourceLineageGroup[];
+	total_certs: number;
+}
+
 export const api = {
 	getLandscape: () => fetchJSON<GraphResponse>('/graph/landscape'),
 	getChainGraph: (fp: string) => fetchJSON<GraphResponse>(`/graph/chain/${fp}`),
@@ -370,4 +387,5 @@ export const api = {
 	getCiphers: () => fetchJSON<CipherStats>('/stats/ciphers'),
 	getCryptoPosture: () => fetchJSON<CryptoPostureResponse>('/stats/crypto-posture'),
 	getExpiryForecast: () => fetchJSON<ExpiryForecastResponse>('/stats/expiry-forecast'),
+	getSourceLineage: () => fetchJSON<SourceLineageResponse>('/stats/source-lineage'),
 };
