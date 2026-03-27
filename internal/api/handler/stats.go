@@ -103,3 +103,12 @@ func (h *StatsHandler) ExpiryForecast(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
+
+func (h *StatsHandler) SourceLineage(w http.ResponseWriter, r *http.Request) {
+	resp, err := h.store.GetSourceLineage(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}

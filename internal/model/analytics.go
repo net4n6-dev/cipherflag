@@ -109,3 +109,22 @@ type ExpiryForecastResponse struct {
 	TotalExpiring  int                    `json:"total_expiring"`
 	TopIssuers     []string               `json:"top_issuers"`
 }
+
+// SourceLineageGroup holds analytics for one discovery source.
+type SourceLineageGroup struct {
+	Source            string         `json:"source"`
+	CertCount         int            `json:"cert_count"`
+	ExpiredCount      int            `json:"expired_count"`
+	Expiring30dCount  int            `json:"expiring_30d_count"`
+	GradeDistribution map[string]int `json:"grade_distribution"`
+	KeyAlgorithms     map[string]int `json:"key_algorithms"`
+	AvgScore          float64        `json:"avg_score"`
+	FirstSeen         string         `json:"first_seen"`
+	LastSeen          string         `json:"last_seen"`
+}
+
+// SourceLineageResponse is the API response for source lineage analytics.
+type SourceLineageResponse struct {
+	Sources    []SourceLineageGroup `json:"sources"`
+	TotalCerts int                  `json:"total_certs"`
+}

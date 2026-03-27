@@ -1563,6 +1563,124 @@ func (s *PostgresStore) GetExpiryForecast(ctx context.Context) (*model.ExpiryFor
 	return resp, nil
 }
 
+func (s *PostgresStore) GetSourceLineage(ctx context.Context) (*model.SourceLineageResponse, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT
+			c.source_discovery,
+			COUNT(*) as cert_count,
+			COUNT(*) FILTER (WHERE c.not_after < NOW()) as expired_count,
+			COUNT(*) FILTER (WHERE c.not_after BETWEEN NOW() AND NOW() + INTERVAL '30 days') as expiring_30d_count,
+			COALESCE(AVG(h.score)::numeric(5,1), 0) as avg_score,
+			to_char(MIN(c.first_seen), 'YYYY-MM-DD') as first_seen,
+			to_char(MAX(c.last_seen), 'YYYY-MM-DD') as last_seen
+		FROM certificates c
+		LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint
+		GROUP BY c.source_discovery
+		ORDER BY cert_count DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	resp := &model.SourceLineageResponse{
+		Sources: []model.SourceLineageGroup{},
+	}
+
+	type sourceRow struct {
+		source                                    string
+		certCount, expiredCount, expiring30dCount int
+		avgScore                                  float64
+		firstSeen, lastSeen                       string
+	}
+	var sources []sourceRow
+
+	for rows.Next() {
+		var r sourceRow
+		if err := rows.Scan(&r.source, &r.certCount, &r.expiredCount,
+			&r.expiring30dCount, &r.avgScore, &r.firstSeen, &r.lastSeen); err != nil {
+			return nil, err
+		}
+		sources = append(sources, r)
+		resp.TotalCerts += r.certCount
+	}
+
+	// Get per-source grade distribution
+	gradeRows, err := s.pool.Query(ctx, `
+		SELECT c.source_discovery, COALESCE(h.grade, '?') as grade, COUNT(*) as cnt
+		FROM certificates c
+		LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint
+		GROUP BY c.source_discovery, grade
+		ORDER BY c.source_discovery
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer gradeRows.Close()
+
+	gradeMap := map[string]map[string]int{}
+	for gradeRows.Next() {
+		var source, grade string
+		var cnt int
+		if err := gradeRows.Scan(&source, &grade, &cnt); err != nil {
+			return nil, err
+		}
+		if gradeMap[source] == nil {
+			gradeMap[source] = map[string]int{}
+		}
+		gradeMap[source][grade] = cnt
+	}
+
+	// Get per-source key algorithm distribution
+	algoRows, err := s.pool.Query(ctx, `
+		SELECT c.source_discovery, c.key_algorithm, COUNT(*) as cnt
+		FROM certificates c
+		GROUP BY c.source_discovery, c.key_algorithm
+		ORDER BY c.source_discovery
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer algoRows.Close()
+
+	algoMap := map[string]map[string]int{}
+	for algoRows.Next() {
+		var source, algo string
+		var cnt int
+		if err := algoRows.Scan(&source, &algo, &cnt); err != nil {
+			return nil, err
+		}
+		if algoMap[source] == nil {
+			algoMap[source] = map[string]int{}
+		}
+		algoMap[source][algo] = cnt
+	}
+
+	// Assemble response
+	for _, r := range sources {
+		group := model.SourceLineageGroup{
+			Source:            r.source,
+			CertCount:         r.certCount,
+			ExpiredCount:      r.expiredCount,
+			Expiring30dCount:  r.expiring30dCount,
+			GradeDistribution: gradeMap[r.source],
+			KeyAlgorithms:     algoMap[r.source],
+			AvgScore:          r.avgScore,
+			FirstSeen:         r.firstSeen,
+			LastSeen:          r.lastSeen,
+		}
+		if group.GradeDistribution == nil {
+			group.GradeDistribution = map[string]int{}
+		}
+		if group.KeyAlgorithms == nil {
+			group.KeyAlgorithms = map[string]int{}
+		}
+		resp.Sources = append(resp.Sources, group)
+	}
+
+	return resp, nil
+}
+
 // ── Ingestion State ─────────────────────────────────────────────────────────
 
 func (s *PostgresStore) GetIngestionState(ctx context.Context, sourceName string) (*model.IngestionState, error) {
