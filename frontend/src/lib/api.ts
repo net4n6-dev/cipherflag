@@ -276,6 +276,48 @@ export interface DeploymentResponse {
 	total_domains: number;
 }
 
+export interface CipherCount {
+	suite: string;
+	strength: string;
+	count: number;
+}
+
+export interface TLSCipherRow {
+	tls_version: string;
+	strength: string;
+	count: number;
+}
+
+export interface CipherStats {
+	suite_distribution: CipherCount[];
+	strength_distribution: Record<string, number>;
+	tls_version_distribution: Record<string, number>;
+	tls_cipher_matrix: TLSCipherRow[];
+}
+
+export interface KeyAlgoCount {
+	algorithm: string;
+	count: number;
+}
+
+export interface KeySizeCount {
+	algorithm: string;
+	size_bits: number;
+	count: number;
+}
+
+export interface SigAlgoCount {
+	algorithm: string;
+	count: number;
+}
+
+export interface CryptoPostureResponse {
+	key_algorithms: KeyAlgoCount[];
+	key_sizes: KeySizeCount[];
+	signature_algorithms: SigAlgoCount[];
+	total_certs: number;
+}
+
 export const api = {
 	getLandscape: () => fetchJSON<GraphResponse>('/graph/landscape'),
 	getChainGraph: (fp: string) => fetchJSON<GraphResponse>(`/graph/chain/${fp}`),
@@ -306,4 +348,6 @@ export const api = {
 	getChainFlow: () => fetchJSON<ChainFlowResponse>('/stats/chain-flow'),
 	getOwnership: () => fetchJSON<OwnershipResponse>('/stats/ownership'),
 	getDeployment: () => fetchJSON<DeploymentResponse>('/stats/deployment'),
+	getCiphers: () => fetchJSON<CipherStats>('/stats/ciphers'),
+	getCryptoPosture: () => fetchJSON<CryptoPostureResponse>('/stats/crypto-posture'),
 };
