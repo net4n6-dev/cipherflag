@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { sankey, sankeyLinkHorizontal, type SankeyNode, type SankeyLink } from 'd3-sankey';
-	import { select } from 'd3-selection';
 	import type { ChainFlowNode, ChainFlowLink } from '$lib/api';
 	import { gradeColor } from './analytics-types';
-	import 'd3-transition';
 
 	interface Props {
 		nodes: ChainFlowNode[];
@@ -30,8 +28,90 @@
 	let tooltipX = $state(0);
 	let tooltipY = $state(0);
 
+	// Categorical palette — 16 distinct colors for root CA families
+	const ORG_PALETTE = [
+		'#38bdf8', '#f472b6', '#a78bfa', '#fb923c',
+		'#34d399', '#facc15', '#f87171', '#60a5fa',
+		'#c084fc', '#4ade80', '#fbbf24', '#e879f9',
+		'#22d3ee', '#a3e635', '#f97316', '#94a3b8',
+	];
+
+	// Map each root CA to a color; intermediates/leaves inherit from their root
+	let rootColorMap: Map<string, string> = $state(new Map());
+
+	interface LegendEntry {
+		label: string;
+		color: string;
+		certCount: number;
+	}
+	let legendEntries: LegendEntry[] = $state([]);
+
+	function buildColorMap() {
+		const roots = nodes.filter(n => n.type === 'root');
+		const map = new Map<string, string>();
+
+		// Assign colors to roots
+		roots.forEach((r, i) => {
+			map.set(r.id, ORG_PALETTE[i % ORG_PALETTE.length]);
+		});
+
+		// Walk links to propagate root color to intermediates and leaf-aggregates
+		// Build a parent map: target → source for root-to-intermediate links
+		const parentOf = new Map<string, string>();
+		for (const link of links) {
+			const srcNode = nodes.find(n => n.id === link.source);
+			if (srcNode && (srcNode.type === 'root' || srcNode.type === 'intermediate')) {
+				parentOf.set(link.target, link.source);
+			}
+		}
+
+		// Trace each node back to its root
+		function findRoot(nodeId: string): string | undefined {
+			const visited = new Set<string>();
+			let current = nodeId;
+			while (parentOf.has(current) && !visited.has(current)) {
+				visited.add(current);
+				current = parentOf.get(current)!;
+			}
+			return map.has(current) ? current : undefined;
+		}
+
+		for (const n of nodes) {
+			if (!map.has(n.id)) {
+				const rootId = findRoot(n.id);
+				if (rootId) {
+					map.set(n.id, map.get(rootId)!);
+				} else {
+					map.set(n.id, '#64748b');
+				}
+			}
+		}
+
+		rootColorMap = map;
+
+		// Build legend from roots, sorted by cert count
+		legendEntries = roots
+			.map(r => ({
+				label: r.label.length > 32 ? r.label.slice(0, 30) + '...' : r.label,
+				color: map.get(r.id) ?? '#64748b',
+				certCount: r.cert_count,
+			}))
+			.sort((a, b) => b.certCount - a.certCount);
+	}
+
+	function nodeColor(nodeId: string): string {
+		return rootColorMap.get(nodeId) ?? '#64748b';
+	}
+
+	function linkColor(link: SLink): string {
+		const srcId = typeof link.source === 'object' ? (link.source as unknown as ChainFlowNode).id : String(link.source);
+		return rootColorMap.get(srcId) ?? '#64748b';
+	}
+
 	function computeLayout() {
 		if (nodes.length === 0) return;
+
+		buildColorMap();
 
 		const nodeMap = new Map(nodes.map((n, i) => [n.id, i]));
 		const validLinks = links.filter(l => nodeMap.has(l.source) && nodeMap.has(l.target) && l.value > 0);
@@ -103,15 +183,13 @@
 <div class="sankey-container" bind:this={containerEl}>
 	<svg {width} {height}>
 		{#each sankeyLinks as link, i (i)}
-			{@const src = link.source as SNode}
-			{@const tgt = link.target as SNode}
 			<path
 				class="sankey-link"
 				d={linkPath(link)}
 				fill="none"
-				stroke={gradeColor((link as unknown as ChainFlowLink).worst_grade)}
-				stroke-opacity={hoveredLink === link ? 0.8 : 0.4}
-				stroke-width={Math.max(link.width ?? 1, 1)}
+				stroke={linkColor(link)}
+				stroke-opacity={hoveredLink === link ? 0.85 : 0.45}
+				stroke-width={Math.max(link.width ?? 1, 3)}
 				onpointerenter={(e) => handleLinkHover(link, e)}
 				onpointerleave={() => handleLinkHover(null)}
 			/>
@@ -119,6 +197,7 @@
 
 		{#each sankeyNodes as node, i (i)}
 			{@const d = node as unknown as ChainFlowNode}
+			{@const color = nodeColor(d.id)}
 			<g
 				class="sankey-node"
 				transform="translate({node.x0 ?? 0},{node.y0 ?? 0})"
@@ -131,10 +210,10 @@
 				<rect
 					width={(node.x1 ?? 0) - (node.x0 ?? 0)}
 					height={(node.y1 ?? 0) - (node.y0 ?? 0)}
-					fill={gradeColor(d.grade)}
-					fill-opacity={0.25}
-					stroke={gradeColor(d.grade)}
-					stroke-width={1}
+					fill={color}
+					fill-opacity={0.3}
+					stroke={color}
+					stroke-width={1.5}
 					rx={3}
 				/>
 				{#if ((node.y1 ?? 0) - (node.y0 ?? 0)) > 14}
@@ -158,6 +237,19 @@
 		<span style="left: {width / 2}px; transform: translateX(-50%)">Intermediates</span>
 		<span style="right: 60px">Leaf Certificates</span>
 	</div>
+
+	<!-- Legend: root CA color reference -->
+	{#if legendEntries.length > 0}
+		<div class="sankey-legend">
+			{#each legendEntries as entry}
+				<div class="legend-item">
+					<span class="legend-dot" style="background: {entry.color}"></span>
+					<span class="legend-label">{entry.label}</span>
+					<span class="legend-count">{entry.certCount.toLocaleString()}</span>
+				</div>
+			{/each}
+		</div>
+	{/if}
 
 	{#if hoveredLink}
 		{@const src = hoveredLink.source as unknown as ChainFlowNode}
@@ -213,6 +305,40 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		color: #64748b;
+	}
+
+	/* Legend */
+	.sankey-legend {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem 1.25rem;
+		padding: 0.75rem 60px;
+		margin-top: 0.5rem;
+		border-top: 1px solid rgba(56, 189, 248, 0.08);
+	}
+
+	.legend-item {
+		display: flex;
+		align-items: center;
+		gap: 0.375rem;
+	}
+
+	.legend-dot {
+		width: 10px;
+		height: 10px;
+		border-radius: 2px;
+		flex-shrink: 0;
+	}
+
+	.legend-label {
+		font-size: 0.75rem;
+		color: #cbd5e1;
+	}
+
+	.legend-count {
+		font-size: 0.7rem;
+		color: #64748b;
+		font-variant-numeric: tabular-nums;
 	}
 
 	.sankey-tooltip {
