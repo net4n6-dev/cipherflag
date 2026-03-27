@@ -318,6 +318,25 @@ export interface CryptoPostureResponse {
 	total_certs: number;
 }
 
+export interface ExpiryIssuerCount {
+	issuer_org: string;
+	count: number;
+}
+
+export interface ExpiryForecastBucket {
+	week_start: string;
+	total_count: number;
+	by_issuer: ExpiryIssuerCount[];
+	by_grade: Record<string, number>;
+}
+
+export interface ExpiryForecastResponse {
+	buckets: ExpiryForecastBucket[];
+	already_expired: number;
+	total_expiring: number;
+	top_issuers: string[];
+}
+
 export const api = {
 	getLandscape: () => fetchJSON<GraphResponse>('/graph/landscape'),
 	getChainGraph: (fp: string) => fetchJSON<GraphResponse>(`/graph/chain/${fp}`),
@@ -350,4 +369,5 @@ export const api = {
 	getDeployment: () => fetchJSON<DeploymentResponse>('/stats/deployment'),
 	getCiphers: () => fetchJSON<CipherStats>('/stats/ciphers'),
 	getCryptoPosture: () => fetchJSON<CryptoPostureResponse>('/stats/crypto-posture'),
+	getExpiryForecast: () => fetchJSON<ExpiryForecastResponse>('/stats/expiry-forecast'),
 };

@@ -4,11 +4,13 @@
 	import ChainFlowTab from '$lib/components/analytics/ChainFlowTab.svelte';
 	import OwnershipTab from '$lib/components/analytics/OwnershipTab.svelte';
 	import CryptoPostureTab from '$lib/components/analytics/CryptoPostureTab.svelte';
+	import ExpiryForecastTab from '$lib/components/analytics/ExpiryForecastTab.svelte';
 
 	const TABS = [
 		{ id: 'chain-flow', label: 'Chain Flow' },
 		{ id: 'ownership', label: 'Ownership' },
 		{ id: 'crypto-posture', label: 'Crypto Posture' },
+		{ id: 'expiry-forecast', label: 'Expiry Forecast' },
 	] as const;
 
 	type TabId = typeof TABS[number]['id'];
@@ -44,6 +46,8 @@
 			<OwnershipTab />
 		{:else if activeTab === 'crypto-posture'}
 			<CryptoPostureTab />
+		{:else if activeTab === 'expiry-forecast'}
+			<ExpiryForecastTab />
 		{/if}
 	</div>
 </div>
