@@ -160,7 +160,7 @@
 				<div class="tt-total">{hoveredBucket.total_count} certificates expiring</div>
 				{#if hoveredBucket.by_issuer.length > 0}
 					<div class="tt-breakdown">
-						{#each hoveredBucket.by_issuer.sort((a, b) => b.count - a.count).slice(0, 6) as item}
+						{#each [...hoveredBucket.by_issuer].sort((a, b) => b.count - a.count).slice(0, 6) as item}
 							<div class="tt-issuer-row">
 								<span class="tt-dot" style="background: {issuerColor(item.issuer_org)}"></span>
 								<span class="tt-issuer-name">{item.issuer_org}</span>
