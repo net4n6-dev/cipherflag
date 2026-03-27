@@ -36,6 +36,7 @@
 	let width = $state(0);
 	let height = $state(0);
 	let transform = $state({ x: 0, y: 0, k: 1 });
+	let tickCounter = $state(0); // drives Svelte re-renders without triggering $effect loops
 	let sim: Simulation<ForceNode, ForceEdge>;
 	let zoomBehavior: ZoomBehavior<SVGSVGElement, unknown>;
 	let resizeObserver: ResizeObserver;
@@ -50,8 +51,9 @@
 		sim = createSimulation(width, height, () => {
 			if (animFrame) cancelAnimationFrame(animFrame);
 			animFrame = requestAnimationFrame(() => {
-				nodes = [...nodes];
-				edges = [...edges];
+				// Increment a counter to trigger Svelte re-render
+				// WITHOUT reassigning nodes/edges (which would loop)
+				tickCounter++;
 			});
 
 			// Auto-fit once the simulation has nearly settled
@@ -113,12 +115,13 @@
 		select(svgEl).selectAll<SVGCircleElement, ForceNode>('.graph-node').call(dragBehavior);
 	}
 
-	$effect(() => {
-		if (sim && nodes && edges) {
+	// Called by parent when nodes/edges are added or removed (expand, collapse, blast radius)
+	export function refreshSimulation() {
+		if (sim) {
 			updateSimulation(sim, nodes, edges);
 			requestAnimationFrame(setupDrag);
 		}
-	});
+	}
 
 	export function zoomIn() {
 		select(svgEl).transition().duration(300).call(zoomBehavior.scaleBy, 1.4);
@@ -169,7 +172,7 @@
 	}
 </script>
 
-<svg bind:this={svgEl} class="force-graph-svg" {width} {height}>
+<svg bind:this={svgEl} class="force-graph-svg" {width} {height} data-tick={tickCounter}>
 	<g transform="translate({transform.x},{transform.y}) scale({transform.k})">
 		{#each edges as edge (edge.id)}
 			<line

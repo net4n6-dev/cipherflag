@@ -128,6 +128,7 @@
 
 			const parentNode = nodes.find(n => n.id === fingerprint);
 			if (parentNode) parentNode.isExpanded = true;
+			graphComponent.refreshSimulation();
 		} catch (e) {
 			console.error('Failed to expand CA:', e);
 		}
@@ -165,6 +166,7 @@
 
 		const parentNode = nodes.find(n => n.id === fingerprint);
 		if (parentNode) parentNode.isExpanded = false;
+		graphComponent.refreshSimulation();
 	}
 
 	async function activateBlastRadius(fingerprint: string) {
@@ -195,6 +197,7 @@
 				}
 				nodes = [...nodes, ...newNodes];
 				edges = [...edges, ...newEdges];
+				graphComponent.refreshSimulation();
 			}
 		} catch (e) {
 			console.error('Failed to load blast radius:', e);
