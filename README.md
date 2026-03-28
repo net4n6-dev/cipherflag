@@ -1,6 +1,7 @@
 # CipherFlag
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Release](https://img.shields.io/github/v/release/cyberflag-ai/cipherflag)](https://github.com/cyberflag-ai/cipherflag/releases)
 
 CipherFlag is an open-source certificate intelligence platform that discovers TLS certificates from network traffic, scores their health, and provides interactive analytics for enterprise PKI management. It uses [Zeek](https://zeek.org/) for passive discovery, grades certificates A+ through F against 16 security rules, and visualizes certificate chains, ownership, and crypto posture with D3.js.
 
@@ -123,8 +124,9 @@ See [docs/configuration.md](docs/configuration.md) for a complete reference of a
 | [User Guide](docs/cipherflag-user-guide.md) | Comprehensive usage and operations guide |
 | [Quick Start Guide](docs/quickstart.md) | Step-by-step Docker Compose deployment |
 | [Configuration Reference](docs/configuration.md) | All config options for `.env` and `cipherflag.toml` |
-| [Venafi Export Guide](docs/venafi-export.md) | Setting up Venafi TPP integration |
+| [Venafi Integration Guide](docs/venafi-export.md) | Setting up Venafi Cloud or TPP integration |
 | [Architecture](docs/architecture.md) | System design, data flow, and data model |
+| [Changelog](CHANGELOG.md) | Release history and version notes |
 
 ---
 
