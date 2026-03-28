@@ -46,7 +46,10 @@ Open [http://localhost:8443](http://localhost:8443) to access the dashboard.
 
 ### Export & Integration
 
-- **Venafi TPP export** -- Automated push of discovered certificates to Venafi Trust Protection Platform via REST API with OAuth2 token refresh
+- **Venafi Cloud** -- Automated push of discovered certificates to Venafi TLS Protect Cloud (SaaS) via API key authentication. Batch import with endpoint metadata.
+- **Venafi TPP** -- Automated push to on-prem Venafi Trust Protection Platform via OAuth2 and the Discovery/Import API. Includes host, IP, port, and TLS version from network observations.
+- **Unified push scheduler** -- Background goroutine pushes new/updated certificates on a configurable interval (default 60 min). Per-certificate failure tracking with exponential backoff and dead-lettering after 5 failures.
+- **Push status API** -- `GET /api/v1/venafi/status` shows pending, pushed, failed, and dead-lettered counts.
 - **CSV/JSON export** -- Manual download of certificate inventory in formats compatible with Venafi bulk import
 
 ---
@@ -156,6 +159,11 @@ cipherflag/
 | GET | `/api/v1/graph/landscape/aggregated` | CA-only graph with aggregate stats |
 | GET | `/api/v1/graph/ca/{fp}/children` | On-demand children of a CA |
 | GET | `/api/v1/graph/ca/{fp}/blast-radius` | Full downstream subgraph of a CA |
+
+### Venafi Integration
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/venafi/status` | Push scheduler status (pending, pushed, failed, dead-lettered) |
 
 ### Analytics
 | Method | Path | Description |

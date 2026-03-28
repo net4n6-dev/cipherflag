@@ -15,11 +15,14 @@ These variables are used by `docker-compose.yml` and passed to containers at run
 |----------|---------|-------------|
 | `NETWORK_INTERFACE` | *(empty)* | Network interface for Zeek live capture (e.g., `eth0`, `en0`). Leave empty for PCAP-only mode. |
 | `POSTGRES_PASSWORD` | `changeme` | PostgreSQL password. Change for non-local deployments. |
-| `VENAFI_ENABLED` | `false` | Enable automated push to Venafi TPP. |
-| `VENAFI_BASE_URL` | *(empty)* | Venafi TPP server URL (e.g., `https://tpp.example.com/vedsdk`). |
-| `VENAFI_CLIENT_ID` | *(empty)* | Venafi OAuth2 client ID. |
-| `VENAFI_REFRESH_TOKEN` | *(empty)* | Venafi OAuth2 refresh token. |
-| `VENAFI_FOLDER` | `\VED\Policy\Discovered\CipherFlag` | Target policy folder in Venafi for imported certificates. |
+| `VENAFI_ENABLED` | `false` | Enable automated push to Venafi. |
+| `VENAFI_PLATFORM` | `cloud` | Venafi platform: `cloud` (TLS Protect Cloud) or `tpp` (on-prem TPP). |
+| `VENAFI_API_KEY` | *(empty)* | Venafi Cloud API key (Cloud only). |
+| `VENAFI_REGION` | `us` | Venafi Cloud region: `us` or `eu` (Cloud only). |
+| `VENAFI_BASE_URL` | *(empty)* | Venafi TPP server URL, e.g., `https://tpp.example.com` (TPP only). |
+| `VENAFI_CLIENT_ID` | *(empty)* | Venafi TPP OAuth2 client ID (TPP only). |
+| `VENAFI_REFRESH_TOKEN` | *(empty)* | Venafi TPP OAuth2 refresh token (TPP only). |
+| `VENAFI_FOLDER` | `\VED\Policy\Discovered\CipherFlag` | Target policy folder (TPP only). |
 
 ---
 
@@ -78,16 +81,19 @@ Corelight sensor integration (placeholder for v1.1).
 
 ### `[export.venafi]`
 
-Controls automated certificate push to Venafi TPP.
+Controls automated certificate push to Venafi (Cloud or TPP).
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `enabled` | `false` | Enable Venafi TPP export. |
-| `base_url` | *(empty)* | Venafi TPP server URL (e.g., `https://tpp.example.com/vedsdk`). |
-| `client_id` | *(empty)* | OAuth2 client ID registered in Venafi. |
-| `refresh_token` | *(empty)* | OAuth2 refresh token for token lifecycle management. |
-| `folder` | `\VED\Policy\Discovered\CipherFlag` | Policy folder path in Venafi where certificates are imported. |
-| `push_interval_minutes` | `60` | How often to push new/updated certificates to Venafi (minutes). |
+| `enabled` | `false` | Enable Venafi export. |
+| `platform` | `cloud` | Venafi platform: `cloud` (TLS Protect Cloud SaaS) or `tpp` (on-prem TPP). |
+| `api_key` | *(empty)* | Venafi Cloud API key. Required when `platform = "cloud"`. |
+| `region` | `us` | Venafi Cloud region: `us` (`api.venafi.cloud`) or `eu` (`api.venafi.eu`). |
+| `base_url` | *(empty)* | Venafi TPP server URL (e.g., `https://tpp.example.com`). Required when `platform = "tpp"`. |
+| `client_id` | *(empty)* | TPP OAuth2 client ID. Required when `platform = "tpp"`. |
+| `refresh_token` | *(empty)* | TPP OAuth2 refresh token. Required when `platform = "tpp"`. |
+| `folder` | `\VED\Policy\Discovered\CipherFlag` | Policy folder in Venafi TPP where certificates are imported. TPP only. |
+| `push_interval_minutes` | `60` | How often to push new/updated certificates (minutes). |
 
 ### `[pcap]`
 
