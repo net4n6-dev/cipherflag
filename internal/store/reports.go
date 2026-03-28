@@ -265,10 +265,11 @@ func (s *PostgresStore) GetCAReport(ctx context.Context, fingerprint string, iss
 				COALESCE(h.grade, '?'), c.is_ca, c.issuer_cn
 			FROM certificates c
 			LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint
-			WHERE c.subject_cn = $1 AND c.is_ca = true
+			WHERE c.subject_cn ILIKE $1 AND c.is_ca = true
+			ORDER BY c.subject_cn
 			LIMIT 1
 		`
-		caArgs = []any{issuerCN}
+		caArgs = []any{"%" + issuerCN + "%"}
 	}
 
 	err := s.pool.QueryRow(ctx, caQuery, caArgs...).Scan(
