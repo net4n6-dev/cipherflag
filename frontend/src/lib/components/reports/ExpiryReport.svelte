@@ -11,9 +11,9 @@
 
 	let { days = 30 }: Props = $props();
 
-	let report: ExpiryReport | null = $state(null);
+	let report = $state<ExpiryReport | null>(null);
 	let loading = $state(true);
-	let error: string | null = $state(null);
+	let error = $state<string | null>(null);
 	let activeDays = $state(days);
 
 	async function loadReport(d: number) {
@@ -33,15 +33,21 @@
 	});
 
 	let sortedCerts = $derived(
-		report ? [...report.certificates].sort((a, b) => a.days_remaining - b.days_remaining) : []
+		report?.certificates
+			? [...report.certificates].sort((a, b) => a.days_remaining - b.days_remaining)
+			: []
 	);
 
 	let sortedByIssuer = $derived(
-		report ? [...report.by_issuer].sort((a, b) => b.count - a.count) : []
+		report?.by_issuer
+			? [...report.by_issuer].sort((a, b) => b.count - a.count)
+			: []
 	);
 
 	let sortedByOwner = $derived(
-		report ? [...report.by_owner].sort((a, b) => b.count - a.count) : []
+		report?.by_owner
+			? [...report.by_owner].sort((a, b) => b.count - a.count)
+			: []
 	);
 
 	function daysColor(d: number): string {

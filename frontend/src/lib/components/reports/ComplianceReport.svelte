@@ -5,9 +5,9 @@
 	import ReportToolbar from './ReportToolbar.svelte';
 	import { gradeColor, severityColor, exportCSV } from './report-types';
 
-	let report: ComplianceReport | null = $state(null);
+	let report = $state<ComplianceReport | null>(null);
 	let loading = $state(true);
-	let error: string | null = $state(null);
+	let error = $state<string | null>(null);
 
 	onMount(async () => {
 		try {
@@ -18,22 +18,24 @@
 		loading = false;
 	});
 
-	let scoreColor = $derived(() => {
-		if (!report) return '#64748b';
-		const s = report.compliance_score;
-		if (s > 90) return '#22c55e';
-		if (s > 70) return '#eab308';
-		if (s > 50) return '#f97316';
+	function getScoreColor(score: number): string {
+		if (score > 90) return '#22c55e';
+		if (score > 70) return '#eab308';
+		if (score > 50) return '#f97316';
 		return '#ef4444';
-	});
+	}
+
+	let scoreColor = $derived(report ? getScoreColor(report.compliance_score) : '#64748b');
 
 	let sortedPriorities = $derived(
-		report ? [...report.remediation_priorities].sort((a, b) => {
-			const order: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4 };
-			const sevDiff = (order[a.severity] ?? 5) - (order[b.severity] ?? 5);
-			if (sevDiff !== 0) return sevDiff;
-			return b.affected_count - a.affected_count;
-		}) : []
+		report?.remediation_priorities
+			? [...report.remediation_priorities].sort((a, b) => {
+					const order: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4 };
+					const sevDiff = (order[a.severity] ?? 5) - (order[b.severity] ?? 5);
+					if (sevDiff !== 0) return sevDiff;
+					return b.affected_count - a.affected_count;
+				})
+			: []
 	);
 
 	const CATEGORIES = ['key_strength', 'signature', 'wildcard', 'agility', 'chain', 'revocation', 'transparency'];
@@ -63,8 +65,8 @@
 	<div class="report-content">
 		<!-- 1. Compliance Score Banner -->
 		<section class="report-section">
-			<div class="score-banner" style:border-color={scoreColor()}>
-				<div class="score-circle" style:color={scoreColor()}>
+			<div class="score-banner" style:border-color={scoreColor}>
+				<div class="score-circle" style:color={scoreColor}>
 					{report.compliance_score}<span class="score-percent">%</span>
 				</div>
 				<div class="score-detail">

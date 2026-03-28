@@ -28,6 +28,7 @@
 			<a href="/pki" class="nav-link" class:active={isActive('/pki')}>PKI Explorer</a>
 			<a href="/certificates" class="nav-link" class:active={isActive('/certificates')}>Certificates</a>
 			<a href="/upload" class="nav-link" class:active={isActive('/upload')}>Upload</a>
+			<a href="/reports" class="nav-link" class:active={isActive('/reports')}>Reports</a>
 			<a href="/analytics" class="nav-link" class:active={isActive('/analytics')}>Analytics</a>
 		</div>
 		<GlobalSearch />

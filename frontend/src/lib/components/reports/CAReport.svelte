@@ -12,9 +12,9 @@
 
 	let { fingerprint, issuerCN }: Props = $props();
 
-	let report: CAReport | null = $state(null);
+	let report = $state<CAReport | null>(null);
 	let loading = $state(true);
-	let error: string | null = $state(null);
+	let error = $state<string | null>(null);
 
 	onMount(async () => {
 		try {
@@ -29,18 +29,22 @@
 	});
 
 	let sortedCerts = $derived(
-		report ? [...report.certificates].sort((a, b) => a.days_remaining - b.days_remaining) : []
+		report?.certificates
+			? [...report.certificates].sort((a, b) => a.days_remaining - b.days_remaining)
+			: []
 	);
 
 	let sortedFindings = $derived(
-		report ? [...report.findings].sort((a, b) => {
-			const order: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4 };
-			return (order[a.severity] ?? 5) - (order[b.severity] ?? 5);
-		}) : []
+		report?.findings
+			? [...report.findings].sort((a, b) => {
+					const order: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4 };
+					return (order[a.severity] ?? 5) - (order[b.severity] ?? 5);
+				})
+			: []
 	);
 
 	let reportTitle = $derived(
-		report ? `CA Report: ${report.ca.subject_cn}` : 'CA Report'
+		report?.ca ? `CA Report: ${report.ca.subject_cn}` : 'CA Report'
 	);
 
 	function daysColor(days: number): string {
