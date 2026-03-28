@@ -31,6 +31,7 @@ func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcap
 	exportH := handler.NewExportHandler(st)
 	pcapH := handler.NewPCAPHandler(st, pcapInputDir, pcapMaxSizeMB)
 	venafiH := handler.NewVenafiHandler(st, venafiEnabled, venafiPushInterval)
+	reportsH := handler.NewReportsHandler(st)
 
 	// Health check
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +82,12 @@ func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcap
 		r.Post("/pcap/upload", pcapH.Upload)
 		r.Get("/pcap/jobs/{id}", pcapH.GetJob)
 		r.Get("/pcap/jobs", pcapH.ListJobs)
+
+		// Reports
+		r.Get("/reports/domain", reportsH.DomainReport)
+		r.Get("/reports/ca", reportsH.CAReport)
+		r.Get("/reports/compliance", reportsH.ComplianceReport)
+		r.Get("/reports/expiry", reportsH.ExpiryReport)
 
 		// Venafi
 		r.Get("/venafi/status", venafiH.Status)
