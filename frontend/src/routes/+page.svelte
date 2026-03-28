@@ -1,164 +1,199 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type SummaryStats, type IssuerStat, type ExpiryBucket } from '$lib/api';
+	import { goto } from '$app/navigation';
+	import { api, type SummaryStats, type IssuerStat, type PKITreeResponse, type ComplianceReportPriority } from '$lib/api';
+	import RadialTree from '$lib/components/dashboard/RadialTree.svelte';
 
 	let stats: SummaryStats | null = $state(null);
 	let issuers: IssuerStat[] = $state([]);
-	let expiryBuckets: ExpiryBucket[] = $state([]);
-	let alreadyExpired = $state(0);
+	let pki: PKITreeResponse | null = $state(null);
+	let complianceScore = $state(0);
+	let complianceByCategory = $state<Record<string, number>>({});
+	let priorities: ComplianceReportPriority[] = $state([]);
+	let cryptoAlgos = $state<{algorithm: string; count: number}[]>([]);
+	let sigAlgos = $state<{algorithm: string; count: number}[]>([]);
 	let loading = $state(true);
 	let error: string | null = $state(null);
 
 	const GRADE_COLORS: Record<string, string> = {
 		'A+': '#22c55e', 'A': '#22c55e', 'B': '#84cc16',
-		'C': '#eab308', 'D': '#f97316', 'F': '#ef4444'
+		'C': '#eab308', 'D': '#f97316', 'F': '#ef4444', '?': '#64748b',
+	};
+	const GRADE_ORDER = ['A+', 'A', 'B', 'C', 'D', 'F'];
+	const CATEGORY_LABELS: Record<string, string> = {
+		key_strength: 'Key Strength', signature: 'Signature', expiration: 'Expiration',
+		chain: 'Chain Trust', revocation: 'Revocation', transparency: 'CT/SCT',
+		wildcard: 'Wildcards', agility: 'Crypto Agility',
+	};
+	const CATEGORY_ORDER = ['key_strength', 'signature', 'expiration', 'chain', 'revocation', 'transparency', 'wildcard', 'agility'];
+
+	function gradeColor(g: string): string { return GRADE_COLORS[g] ?? '#64748b'; }
+
+	function riskLevel(score: number): {label: string; color: string} {
+		if (score >= 85) return { label: 'LOW', color: '#22c55e' };
+		if (score >= 70) return { label: 'MODERATE', color: '#84cc16' };
+		if (score >= 50) return { label: 'ELEVATED', color: '#eab308' };
+		return { label: 'HIGH', color: '#ef4444' };
+	}
+
+	function gaugeArc(pct: number, r: number, cx: number, cy: number): string {
+		const startAngle = -Math.PI * 0.75;
+		const endAngle = startAngle + (pct / 100) * Math.PI * 1.5;
+		const x1 = cx + r * Math.cos(startAngle);
+		const y1 = cy + r * Math.sin(startAngle);
+		const x2 = cx + r * Math.cos(endAngle);
+		const y2 = cy + r * Math.sin(endAngle);
+		const large = (endAngle - startAngle) > Math.PI ? 1 : 0;
+		return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
+	}
+
+	function donutArc(startAngle: number, endAngle: number, r: number, cx: number, cy: number): string {
+		const x1 = cx + r * Math.cos(startAngle - Math.PI / 2);
+		const y1 = cy + r * Math.sin(startAngle - Math.PI / 2);
+		const x2 = cx + r * Math.cos(endAngle - Math.PI / 2);
+		const y2 = cy + r * Math.sin(endAngle - Math.PI / 2);
+		const large = endAngle - startAngle > Math.PI ? 1 : 0;
+		return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
+	}
+
+	const ALGO_COLORS: Record<string, string> = {
+		'RSA': '#38bdf8', 'ECDSA': '#a78bfa', 'Ed25519': '#34d399', 'Unknown': '#64748b',
 	};
 
-	const GRADE_ORDER = ['A+', 'A', 'B', 'C', 'D', 'F'];
-
-	onMount(() => {
-		(async () => {
-			try {
-				const [s, iss, exp] = await Promise.all([
-					api.getSummary(),
-					api.getIssuers(),
-					api.getExpiryTimeline()
-				]);
-				stats = s;
-				issuers = iss.issuers ?? [];
-				expiryBuckets = exp.buckets ?? [];
-				alreadyExpired = exp.already_expired;
-			} catch (e) {
-				error = e instanceof Error ? e.message : 'Failed to load dashboard';
-			}
-			loading = false;
-		})();
+	onMount(async () => {
+		try {
+			const [s, iss, pkiData, compliance, crypto] = await Promise.all([
+				api.getSummary(),
+				api.getIssuers(),
+				api.getPKITree(),
+				api.getComplianceReport(),
+				api.getCryptoPosture(),
+			]);
+			stats = s;
+			issuers = (iss as any).issuers ?? [];
+			pki = pkiData;
+			complianceScore = compliance.compliance_score;
+			complianceByCategory = compliance.by_category ?? {};
+			priorities = compliance.remediation_priorities ?? [];
+			cryptoAlgos = crypto.key_algorithms ?? [];
+			sigAlgos = crypto.signature_algorithms ?? [];
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Failed to load dashboard';
+		}
+		loading = false;
 	});
 
-	function gradeTotal(): number {
-		if (!stats) return 1;
-		return Object.values(stats.grade_distribution).reduce((a, b) => a + b, 0) || 1;
-	}
-
-	function gradePct(grade: string): number {
-		if (!stats) return 0;
-		return ((stats.grade_distribution[grade] ?? 0) / gradeTotal()) * 100;
-	}
-
-	function maxBucketCount(): number {
-		return Math.max(...expiryBuckets.map(b => b.count), 1);
-	}
-
-	function bucketColor(b: ExpiryBucket): string {
-		if (b.critical > 0) return 'var(--cf-risk-critical)';
-		if (b.count >= 10) return 'var(--cf-risk-high)';
-		if (b.count >= 5) return 'var(--cf-risk-medium)';
-		return 'var(--cf-accent)';
-	}
-
-	function formatWeek(d: string): string {
-		const date = new Date(d + 'T00:00:00');
-		return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-	}
-
-	// Treemap: top 12 issuers, rest grouped as "Other"
-	function treemapData(): { label: string; count: number; score: number; pct: number }[] {
-		const top = issuers.slice(0, 12);
-		const otherCount = issuers.slice(12).reduce((s, i) => s + i.cert_count, 0);
-		const total = issuers.reduce((s, i) => s + i.cert_count, 0) || 1;
-		const items = top.map(i => ({
-			label: i.issuer_cn.length > 28 ? i.issuer_cn.slice(0, 26) + '...' : i.issuer_cn,
-			count: i.cert_count,
-			score: i.avg_score,
-			pct: (i.cert_count / total) * 100
-		}));
-		if (otherCount > 0) {
-			items.push({ label: 'Other', count: otherCount, score: 0, pct: (otherCount / total) * 100 });
-		}
-		return items;
-	}
-
-	function scoreColor(score: number): string {
-		if (score >= 85) return '#22c55e';
-		if (score >= 70) return '#84cc16';
-		if (score >= 50) return '#eab308';
-		if (score >= 20) return '#f97316';
-		return '#ef4444';
-	}
+	let risk = $derived(riskLevel(complianceScore));
 </script>
 
 <div class="dashboard">
 	{#if loading}
-		<div class="loading">Loading dashboard...</div>
+		<div class="loading">Loading command center...</div>
 	{:else if error}
 		<div class="error">{error}</div>
 	{:else if stats}
+		<!-- Header -->
 		<div class="dash-header">
-			<h1>Certificate Landscape</h1>
-			<div class="header-meta">
-				<span class="meta-item">{stats.total_certs.toLocaleString()} certificates</span>
-				<span class="meta-sep">|</span>
-				<span class="meta-item">{stats.total_observations.toLocaleString()} observations</span>
+			<div class="header-left">
+				<h1>Certificate Landscape</h1>
+				<span class="header-meta">{stats.total_certs.toLocaleString()} certificates · {stats.total_observations.toLocaleString()} observations</span>
+			</div>
+			<div class="header-right">
+				<div class="risk-indicator">
+					<span class="risk-label">RISK LEVEL</span>
+					<span class="risk-value" style="color: {risk.color}">{risk.label}</span>
+				</div>
 			</div>
 		</div>
 
 		<!-- Risk Signal Cards -->
 		<div class="risk-row">
-			<a href="/certificates?expired=true" class="risk-card critical">
-				<div class="risk-num">{stats.expired}</div>
-				<div class="risk-label">Expired</div>
+			<a href="/certificates?expired=true" class="risk-card">
+				<div class="risk-num critical">{stats.expired}</div>
+				<div class="risk-lbl">Expired</div>
 			</a>
-			<a href="/certificates?expiring_within_days=30" class="risk-card high">
-				<div class="risk-num">{stats.expiring_in_30_days}</div>
-				<div class="risk-label">Expiring &lt;30d</div>
+			<a href="/reports?type=expiry&days=30" class="risk-card">
+				<div class="risk-num high">{stats.expiring_in_30_days}</div>
+				<div class="risk-lbl">Expiring &lt;30d</div>
 			</a>
-			<a href="/certificates?expiring_within_days=90" class="risk-card medium">
-				<div class="risk-num">{stats.expiring_in_90_days}</div>
-				<div class="risk-label">Expiring &lt;90d</div>
+			<a href="/reports?type=expiry&days=90" class="risk-card">
+				<div class="risk-num medium">{stats.expiring_in_90_days}</div>
+				<div class="risk-lbl">Expiring &lt;90d</div>
 			</a>
-			<a href="/certificates?grade=F" class="risk-card critical">
-				<div class="risk-num">{stats.critical_findings}</div>
-				<div class="risk-label">Grade F</div>
+			<a href="/certificates?grade=F" class="risk-card">
+				<div class="risk-num critical">{stats.critical_findings}</div>
+				<div class="risk-lbl">Grade F</div>
 			</a>
-			<div class="risk-card info">
-				<div class="risk-num">{stats.total_findings}</div>
-				<div class="risk-label">With Findings</div>
-			</div>
+			<a href="/reports?type=compliance" class="risk-card">
+				<div class="risk-num info">{stats.total_findings}</div>
+				<div class="risk-lbl">With Findings</div>
+			</a>
 		</div>
 
-		<div class="panels-grid">
+		<!-- Main Grid: 3 columns -->
+		<div class="main-grid">
+			<!-- Compliance Scorecard -->
+			<div class="panel">
+				<h2>Compliance Scorecard</h2>
+				<div class="gauge-wrap">
+					<svg viewBox="0 0 140 100" class="gauge-svg">
+						<path d={gaugeArc(100, 48, 70, 68)} fill="none" stroke="rgba(100,116,139,0.15)" stroke-width="10" stroke-linecap="round" />
+						<path d={gaugeArc(complianceScore, 48, 70, 68)} fill="none" stroke={risk.color} stroke-width="10" stroke-linecap="round" />
+						<text x="70" y="64" text-anchor="middle" fill="#e2e8f0" font-size="20" font-weight="700">{complianceScore.toFixed(0)}%</text>
+						<text x="70" y="78" text-anchor="middle" fill="#64748b" font-size="7">compliant</text>
+					</svg>
+				</div>
+				<div class="category-bars">
+					{#each CATEGORY_ORDER as cat}
+						{@const count = complianceByCategory[cat] ?? 0}
+						{#if count > 0}
+							{@const maxCat = Math.max(...Object.values(complianceByCategory), 1)}
+							<div class="cat-row">
+								<span class="cat-label">{CATEGORY_LABELS[cat] ?? cat}</span>
+								<div class="cat-track">
+									<div class="cat-fill" style="width: {(count / maxCat) * 100}%; background: {count > maxCat * 0.5 ? '#ef4444' : count > maxCat * 0.2 ? '#eab308' : '#38bdf8'}"></div>
+								</div>
+								<span class="cat-count">{count}</span>
+							</div>
+						{/if}
+					{/each}
+				</div>
+				<button class="panel-link" onclick={() => goto('/reports?type=compliance')}>Full Report →</button>
+			</div>
+
 			<!-- Grade Distribution -->
 			<div class="panel">
 				<h2>Grade Distribution</h2>
-				<div class="grade-donut-row">
-					<div class="donut-wrapper">
-						<svg viewBox="0 0 36 36" class="donut">
-							{#each GRADE_ORDER as grade, i}
-								{@const pct = gradePct(grade)}
-								{@const offset = GRADE_ORDER.slice(0, i).reduce((s, g) => s + gradePct(g), 0)}
-								{#if pct > 0}
-									<circle cx="18" cy="18" r="15.9155"
-										fill="none"
-										stroke={GRADE_COLORS[grade]}
-										stroke-width="3.5"
-										stroke-dasharray="{pct} {100 - pct}"
-										stroke-dashoffset={-offset}
-										transform="rotate(-90 18 18)" />
-								{/if}
-							{/each}
-							<text x="18" y="17" text-anchor="middle" class="donut-total">{stats.total_certs}</text>
-							<text x="18" y="22" text-anchor="middle" class="donut-label">total</text>
-						</svg>
-					</div>
+				<div class="donut-row">
+					<svg viewBox="0 0 120 120" class="donut-svg">
+						{#each GRADE_ORDER as grade, i}
+							{@const count = stats.grade_distribution[grade] ?? 0}
+							{@const total = Object.values(stats.grade_distribution).reduce((a, b) => a + b, 0) || 1}
+							{@const startAngle = GRADE_ORDER.slice(0, i).reduce((s, g) => s + ((stats!.grade_distribution[g] ?? 0) / total) * Math.PI * 2, 0)}
+							{@const endAngle = startAngle + (count / total) * Math.PI * 2}
+							{#if count > 0}
+								<path
+									d={donutArc(startAngle, Math.min(endAngle, startAngle + Math.PI * 2 - 0.01), 45, 60, 60)}
+									fill="none"
+									stroke={gradeColor(grade)}
+									stroke-width="14"
+									stroke-linecap="round"
+								/>
+							{/if}
+						{/each}
+						<text x="60" y="56" text-anchor="middle" fill="#e2e8f0" font-size="14" font-weight="700">{stats.total_certs}</text>
+						<text x="60" y="70" text-anchor="middle" fill="#64748b" font-size="8">total</text>
+					</svg>
 					<div class="grade-legend">
 						{#each GRADE_ORDER as grade}
 							{@const count = stats.grade_distribution[grade] ?? 0}
+							{@const total = Object.values(stats.grade_distribution).reduce((a, b) => a + b, 0) || 1}
 							{#if count > 0}
-								<a href="/certificates?grade={grade}" class="grade-row">
-									<span class="grade-dot" style="background: {GRADE_COLORS[grade]}"></span>
-									<span class="grade-name">{grade}</span>
-									<span class="grade-count">{count}</span>
-									<span class="grade-pct">{gradePct(grade).toFixed(0)}%</span>
+								<a href="/certificates?grade={grade}" class="gl-row">
+									<span class="gl-dot" style="background: {gradeColor(grade)}"></span>
+									<span class="gl-grade">{grade}</span>
+									<span class="gl-count">{count}</span>
+									<span class="gl-pct">{(count / total * 100).toFixed(0)}%</span>
 								</a>
 							{/if}
 						{/each}
@@ -166,45 +201,61 @@
 				</div>
 			</div>
 
-			<!-- Expiry Timeline -->
+			<!-- Algorithm Landscape -->
 			<div class="panel">
-				<h2>Expiry Timeline (52 weeks)</h2>
-				{#if alreadyExpired > 0}
-					<div class="expired-banner">
-						{alreadyExpired} certificate{alreadyExpired > 1 ? 's' : ''} already expired
-					</div>
-				{/if}
-				<div class="timeline-bars">
-					{#each expiryBuckets as bucket}
-						<div class="tl-bar-col" title="{formatWeek(bucket.week_start)}: {bucket.count} expiring">
-							<div class="tl-bar"
-								style="height: {(bucket.count / maxBucketCount()) * 100}%; background: {bucketColor(bucket)}">
+				<h2>Algorithm Landscape</h2>
+				<div class="algo-section">
+					<span class="algo-heading">Key Algorithms</span>
+					{#each cryptoAlgos as algo}
+						{@const maxAlgo = Math.max(...cryptoAlgos.map(a => a.count), 1)}
+						<div class="algo-row">
+							<span class="algo-name">{algo.algorithm}</span>
+							<div class="algo-track">
+								<div class="algo-fill" style="width: {(algo.count / maxAlgo) * 100}%; background: {ALGO_COLORS[algo.algorithm] ?? '#64748b'}"></div>
+							</div>
+							<span class="algo-count">{algo.count}</span>
+						</div>
+					{/each}
+				</div>
+				<div class="algo-section" style="margin-top: 0.75rem;">
+					<span class="algo-heading">Signature Algorithms</span>
+					{#each sigAlgos.slice(0, 5) as sa}
+						{@const maxSig = Math.max(...sigAlgos.map(s => s.count), 1)}
+						{@const isWeak = sa.algorithm.includes('SHA1') || sa.algorithm.includes('MD5')}
+						<div class="algo-row">
+							<span class="algo-name" class:weak={isWeak}>{sa.algorithm}</span>
+							<div class="algo-track">
+								<div class="algo-fill" style="width: {(sa.count / maxSig) * 100}%; background: {isWeak ? '#ef4444' : '#38bdf8'}"></div>
+							</div>
+							<span class="algo-count">{sa.count}</span>
+						</div>
+					{/each}
+				</div>
+				<button class="panel-link" onclick={() => goto('/analytics?tab=crypto-posture')}>Crypto Posture →</button>
+			</div>
+		</div>
+
+		<!-- Priority Actions + Sources row -->
+		<div class="secondary-grid">
+			<div class="panel">
+				<h2>Priority Actions</h2>
+				<div class="priority-list">
+					{#each priorities.slice(0, 5) as p, i}
+						{@const sevColor = p.severity === 'Critical' ? '#ef4444' : p.severity === 'High' ? '#f97316' : p.severity === 'Medium' ? '#eab308' : '#64748b'}
+						<div class="priority-item">
+							<span class="pi-num">{i + 1}</span>
+							<div class="pi-info">
+								<span class="pi-title">{p.title}</span>
+								<span class="pi-meta">
+									<span style="color: {sevColor}">{p.severity}</span> · {p.affected_count} certs
+								</span>
 							</div>
 						</div>
 					{/each}
 				</div>
-				<div class="timeline-labels">
-					{#each expiryBuckets.filter((_, i) => i % Math.max(Math.floor(expiryBuckets.length / 6), 1) === 0) as bucket}
-						<span>{formatWeek(bucket.week_start)}</span>
-					{/each}
-				</div>
+				<button class="panel-link" onclick={() => goto('/reports?type=compliance')}>View All →</button>
 			</div>
 
-			<!-- Issuer Treemap -->
-			<div class="panel panel-wide">
-				<h2>Certificates by Issuer</h2>
-				<div class="treemap">
-					{#each treemapData() as item}
-						<div class="treemap-cell"
-							style="flex: {Math.max(item.pct, 3)}; background: {item.score ? scoreColor(item.score) : 'var(--cf-bg-tertiary)'}22; border-color: {item.score ? scoreColor(item.score) : 'var(--cf-border)'}">
-							<span class="tm-label">{item.label}</span>
-							<span class="tm-count">{item.count}</span>
-						</div>
-					{/each}
-				</div>
-			</div>
-
-			<!-- Discovery Sources -->
 			<div class="panel">
 				<h2>Discovery Sources</h2>
 				<div class="source-list">
@@ -215,292 +266,122 @@
 						</div>
 					{/each}
 				</div>
+				<button class="panel-link" onclick={() => goto('/analytics?tab=source-lineage')}>Source Lineage →</button>
+			</div>
+
+			<div class="panel">
+				<h2>Top Issuers</h2>
+				<div class="issuer-list">
+					{#each issuers.slice(0, 6) as issuer}
+						<button class="issuer-row" onclick={() => goto(`/reports?type=ca&issuer_cn=${encodeURIComponent(issuer.issuer_cn)}`)}>
+							<span class="is-name">{issuer.issuer_cn.length > 24 ? issuer.issuer_cn.slice(0, 22) + '...' : issuer.issuer_cn}</span>
+							<span class="is-count">{issuer.cert_count}</span>
+							<span class="is-grade" style="color: {gradeColor(issuer.min_grade)}">{issuer.min_grade}</span>
+						</button>
+					{/each}
+				</div>
+				<button class="panel-link" onclick={() => goto('/analytics?tab=chain-flow')}>Chain Flow →</button>
 			</div>
 		</div>
+
+		<!-- Radial PKI Tree -->
+		{#if pki}
+			<div class="panel panel-tree">
+				<h2>PKI Hierarchy · {pki.total_cas} CAs · {pki.total_leaves.toLocaleString()} Certificates</h2>
+				<RadialTree roots={pki.roots} totalLeaves={pki.total_leaves} />
+			</div>
+		{/if}
 	{/if}
 </div>
 
 <style>
-	.dashboard {
-		padding: 1.5rem;
-		max-width: 1400px;
-		margin: 0 auto;
-		overflow-y: auto;
-		height: 100%;
-	}
+	.dashboard { padding: 1.25rem; max-width: 1400px; margin: 0 auto; overflow-y: auto; height: 100%; }
 
-	.dash-header {
-		display: flex;
-		align-items: baseline;
-		gap: 1rem;
-		margin-bottom: 1.25rem;
-	}
-
-	h1 {
-		font-size: 1.4rem;
-		font-weight: 700;
-		margin: 0;
-		color: var(--cf-text-primary);
-	}
-
-	.header-meta {
-		display: flex;
-		gap: 0.5rem;
-		font-size: 0.8rem;
-		color: var(--cf-text-muted);
-	}
-
-	.meta-sep { opacity: 0.4; }
-
-	h2 {
-		font-size: 0.8rem;
-		font-weight: 600;
-		color: var(--cf-text-muted);
-		text-transform: uppercase;
-		letter-spacing: 0.04em;
-		margin: 0 0 0.75rem;
-	}
+	.dash-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+	.header-left h1 { margin: 0; font-size: 1.3rem; font-weight: 700; color: var(--cf-text-primary); }
+	.header-meta { font-size: 0.75rem; color: var(--cf-text-muted); }
+	.risk-indicator { text-align: right; }
+	.risk-label { display: block; font-size: 0.55rem; color: var(--cf-text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
+	.risk-value { font-size: 1rem; font-weight: 800; letter-spacing: 0.05em; }
 
 	/* Risk cards */
-	.risk-row {
-		display: grid;
-		grid-template-columns: repeat(5, 1fr);
-		gap: 0.75rem;
-		margin-bottom: 1.25rem;
-	}
-
-	.risk-card {
-		background: var(--cf-bg-secondary);
-		border: 1px solid var(--cf-border);
-		border-radius: 8px;
-		padding: 0.875rem;
-		text-align: center;
-		text-decoration: none;
-		transition: border-color 0.15s;
-	}
-
+	.risk-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.625rem; margin-bottom: 1rem; }
+	.risk-card { background: var(--cf-bg-secondary); border: 1px solid var(--cf-border); border-radius: 8px; padding: 0.625rem; text-align: center; text-decoration: none; transition: border-color 0.15s; }
 	.risk-card:hover { border-color: var(--cf-border-hover); }
-	.risk-card.critical .risk-num { color: var(--cf-risk-critical); }
-	.risk-card.high .risk-num { color: var(--cf-risk-high); }
-	.risk-card.medium .risk-num { color: var(--cf-risk-medium); }
-	.risk-card.info .risk-num { color: var(--cf-accent); }
+	.risk-num { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+	.risk-num.critical { color: var(--cf-risk-critical); }
+	.risk-num.high { color: var(--cf-risk-high); }
+	.risk-num.medium { color: var(--cf-risk-medium); }
+	.risk-num.info { color: var(--cf-accent); }
+	.risk-lbl { font-size: 0.65rem; color: var(--cf-text-muted); margin-top: 0.125rem; }
 
-	.risk-num {
-		font-size: 1.75rem;
-		font-weight: 700;
-		font-variant-numeric: tabular-nums;
-	}
+	/* Main grid */
+	.main-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem; }
+	.secondary-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; margin-bottom: 0.75rem; }
 
-	.risk-label {
-		font-size: 0.75rem;
-		color: var(--cf-text-muted);
-		margin-top: 0.125rem;
-	}
+	.panel { background: var(--cf-bg-secondary); border: 1px solid var(--cf-border); border-radius: 8px; padding: 1rem; }
+	.panel-tree { margin-bottom: 1rem; }
 
-	/* Panels */
-	.panels-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1rem;
-	}
+	h2 { margin: 0 0 0.75rem; font-size: 0.7rem; font-weight: 600; color: var(--cf-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 
-	.panel {
-		background: var(--cf-bg-secondary);
-		border: 1px solid var(--cf-border);
-		border-radius: 8px;
-		padding: 1.25rem;
-	}
+	.panel-link { display: block; width: 100%; margin-top: 0.75rem; padding: 0.375rem; font-size: 0.7rem; background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.12); border-radius: 4px; color: var(--cf-accent); cursor: pointer; text-align: center; transition: all 0.15s; }
+	.panel-link:hover { background: rgba(56, 189, 248, 0.1); }
 
-	.panel-wide {
-		grid-column: 1 / -1;
-	}
+	/* Gauge */
+	.gauge-wrap { display: flex; justify-content: center; margin-bottom: 0.5rem; }
+	.gauge-svg { width: 140px; height: 100px; }
+
+	/* Category bars */
+	.category-bars { display: flex; flex-direction: column; gap: 0.3rem; }
+	.cat-row { display: flex; align-items: center; gap: 0.5rem; }
+	.cat-label { width: 85px; font-size: 0.65rem; color: var(--cf-text-secondary); flex-shrink: 0; }
+	.cat-track { flex: 1; height: 8px; background: var(--cf-bg-tertiary); border-radius: 4px; overflow: hidden; }
+	.cat-fill { height: 100%; border-radius: 4px; opacity: 0.7; }
+	.cat-count { width: 28px; text-align: right; font-size: 0.7rem; color: var(--cf-text-muted); font-variant-numeric: tabular-nums; }
 
 	/* Grade donut */
-	.grade-donut-row {
-		display: flex;
-		align-items: center;
-		gap: 1.5rem;
-	}
+	.donut-row { display: flex; align-items: center; gap: 1rem; }
+	.donut-svg { width: 110px; height: 110px; flex-shrink: 0; }
+	.grade-legend { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+	.gl-row { display: flex; align-items: center; gap: 0.375rem; text-decoration: none; padding: 0.15rem 0.25rem; border-radius: 3px; transition: background 0.15s; }
+	.gl-row:hover { background: var(--cf-bg-tertiary); }
+	.gl-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+	.gl-grade { font-weight: 600; font-size: 0.8rem; color: var(--cf-text-primary); width: 18px; }
+	.gl-count { font-size: 0.8rem; color: var(--cf-text-secondary); font-variant-numeric: tabular-nums; flex: 1; }
+	.gl-pct { font-size: 0.7rem; color: var(--cf-text-muted); font-variant-numeric: tabular-nums; }
 
-	.donut-wrapper {
-		width: 120px;
-		height: 120px;
-		flex-shrink: 0;
-	}
+	/* Algorithm landscape */
+	.algo-section { }
+	.algo-heading { font-size: 0.6rem; color: var(--cf-text-muted); text-transform: uppercase; letter-spacing: 0.04em; display: block; margin-bottom: 0.25rem; }
+	.algo-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem; }
+	.algo-name { width: 90px; font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: var(--cf-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+	.algo-name.weak { color: #ef4444; }
+	.algo-track { flex: 1; height: 8px; background: var(--cf-bg-tertiary); border-radius: 4px; overflow: hidden; }
+	.algo-fill { height: 100%; border-radius: 4px; opacity: 0.7; }
+	.algo-count { width: 30px; text-align: right; font-size: 0.7rem; color: var(--cf-text-muted); font-variant-numeric: tabular-nums; }
 
-	.donut { width: 100%; height: 100%; }
-
-	.donut-total {
-		font-size: 7px;
-		font-weight: 700;
-		fill: var(--cf-text-primary);
-	}
-
-	.donut-label {
-		font-size: 3.5px;
-		fill: var(--cf-text-muted);
-	}
-
-	.grade-legend {
-		display: flex;
-		flex-direction: column;
-		gap: 0.375rem;
-		flex: 1;
-	}
-
-	.grade-row {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		text-decoration: none;
-		padding: 0.25rem 0.5rem;
-		border-radius: 4px;
-		transition: background 0.15s;
-	}
-
-	.grade-row:hover { background: var(--cf-bg-tertiary); }
-
-	.grade-dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		flex-shrink: 0;
-	}
-
-	.grade-name {
-		font-weight: 600;
-		font-size: 0.85rem;
-		color: var(--cf-text-primary);
-		width: 20px;
-	}
-
-	.grade-count {
-		font-variant-numeric: tabular-nums;
-		font-size: 0.85rem;
-		color: var(--cf-text-secondary);
-		flex: 1;
-	}
-
-	.grade-pct {
-		font-size: 0.75rem;
-		color: var(--cf-text-muted);
-		font-variant-numeric: tabular-nums;
-	}
-
-	/* Expiry timeline */
-	.expired-banner {
-		padding: 0.375rem 0.625rem;
-		background: rgba(239, 68, 68, 0.12);
-		border: 1px solid rgba(239, 68, 68, 0.25);
-		border-radius: 6px;
-		font-size: 0.8rem;
-		color: var(--cf-risk-critical);
-		margin-bottom: 0.75rem;
-	}
-
-	.timeline-bars {
-		display: flex;
-		gap: 2px;
-		height: 80px;
-		align-items: flex-end;
-	}
-
-	.tl-bar-col {
-		flex: 1;
-		height: 100%;
-		display: flex;
-		align-items: flex-end;
-		cursor: default;
-	}
-
-	.tl-bar {
-		width: 100%;
-		min-height: 2px;
-		border-radius: 2px 2px 0 0;
-		transition: height 0.3s ease;
-	}
-
-	.timeline-labels {
-		display: flex;
-		justify-content: space-between;
-		font-size: 0.65rem;
-		color: var(--cf-text-muted);
-		margin-top: 0.375rem;
-		padding: 0 2px;
-	}
-
-	/* Treemap */
-	.treemap {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 4px;
-		min-height: 60px;
-	}
-
-	.treemap-cell {
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		align-items: center;
-		padding: 0.5rem;
-		border-radius: 6px;
-		border: 1px solid;
-		min-width: 80px;
-		min-height: 48px;
-		text-align: center;
-		gap: 0.125rem;
-	}
-
-	.tm-label {
-		font-size: 0.7rem;
-		color: var(--cf-text-secondary);
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		max-width: 100%;
-	}
-
-	.tm-count {
-		font-size: 0.85rem;
-		font-weight: 700;
-		color: var(--cf-text-primary);
-		font-variant-numeric: tabular-nums;
-	}
+	/* Priority actions */
+	.priority-list { display: flex; flex-direction: column; gap: 0.375rem; }
+	.priority-item { display: flex; align-items: flex-start; gap: 0.5rem; }
+	.pi-num { width: 18px; height: 18px; background: rgba(56, 189, 248, 0.1); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; font-weight: 700; color: var(--cf-accent); flex-shrink: 0; }
+	.pi-info { flex: 1; }
+	.pi-title { display: block; font-size: 0.75rem; color: var(--cf-text-primary); }
+	.pi-meta { font-size: 0.65rem; color: var(--cf-text-muted); }
 
 	/* Sources */
-	.source-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0.375rem;
-	}
+	.source-list { display: flex; flex-direction: column; gap: 0.25rem; }
+	.source-row { display: flex; justify-content: space-between; padding: 0.3rem 0.5rem; background: var(--cf-bg-tertiary); border-radius: 4px; }
+	.source-name { font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--cf-text-primary); }
+	.source-count { font-weight: 600; color: var(--cf-accent); font-variant-numeric: tabular-nums; font-size: 0.75rem; }
 
-	.source-row {
-		display: flex;
-		justify-content: space-between;
-		padding: 0.375rem 0.625rem;
-		background: var(--cf-bg-tertiary);
-		border-radius: 6px;
-	}
+	/* Issuers */
+	.issuer-list { display: flex; flex-direction: column; gap: 0.25rem; }
+	.issuer-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.5rem; background: none; border: none; color: inherit; text-align: left; width: 100%; cursor: pointer; border-radius: 4px; transition: background 0.1s; }
+	.issuer-row:hover { background: rgba(56, 189, 248, 0.06); }
+	.is-name { flex: 1; font-size: 0.7rem; color: var(--cf-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.is-count { font-size: 0.7rem; color: var(--cf-text-muted); font-variant-numeric: tabular-nums; }
+	.is-grade { font-size: 0.7rem; font-weight: 700; }
 
-	.source-name {
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 0.8rem;
-		color: var(--cf-text-primary);
-	}
-
-	.source-count {
-		font-weight: 600;
-		color: var(--cf-accent);
-		font-variant-numeric: tabular-nums;
-	}
-
-	.loading, .error {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		height: 50vh;
-		color: var(--cf-text-muted);
-	}
-
+	.loading, .error { display: flex; align-items: center; justify-content: center; height: 50vh; color: var(--cf-text-muted); }
 	.error { color: var(--cf-risk-critical); }
 </style>
