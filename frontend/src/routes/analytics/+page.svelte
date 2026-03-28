@@ -62,5 +62,5 @@
 	.tab { padding: 0.75rem 1.25rem; font-size: 0.85rem; font-weight: 500; color: var(--cf-text-secondary); background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.15s; }
 	.tab:hover { color: var(--cf-text-primary); }
 	.tab.active { color: var(--cf-accent); border-bottom-color: var(--cf-accent); }
-	.tab-content { flex: 1; overflow: hidden; }
+	.tab-content { flex: 1; overflow: auto; }
 </style>

@@ -139,7 +139,7 @@
 		<div class="panels-grid">
 			<!-- Key Algorithm Donut -->
 			<div class="panel">
-				<h3>Key Algorithm</h3>
+				<h3>Key Algorithm <span class="hint">click to explore</span></h3>
 				<div class="donut-row">
 					<svg viewBox="0 0 120 120" class="donut-svg">
 						{#each crypto.key_algorithms as algo, i}
@@ -177,7 +177,7 @@
 
 			<!-- Key Size Distribution -->
 			<div class="panel">
-				<h3>Key Size Distribution</h3>
+				<h3>Key Size Distribution <span class="hint">click to explore</span></h3>
 				<div class="bar-list">
 					{#each crypto.key_sizes as ks}
 						{@const maxCount = Math.max(...crypto.key_sizes.map(k => k.count), 1)}
@@ -223,7 +223,7 @@
 
 			<!-- Signature Algorithm -->
 			<div class="panel">
-				<h3>Signature Algorithm</h3>
+				<h3>Signature Algorithm <span class="hint">click to explore</span></h3>
 				<div class="bar-list">
 					{#each crypto.signature_algorithms as sa}
 						{@const maxCount = Math.max(...crypto.signature_algorithms.map(s => s.count), 1)}
@@ -337,7 +337,13 @@
 	}
 
 	h3 { margin: 0 0 0.75rem; font-size: 0.75rem; font-weight: 600;
-		color: var(--cf-text-muted, #64748b); text-transform: uppercase; letter-spacing: 0.04em; }
+		color: var(--cf-text-muted, #64748b); text-transform: uppercase; letter-spacing: 0.04em;
+		display: flex; align-items: center; gap: 0.5rem; }
+
+	.hint {
+		font-size: 0.6rem; font-weight: 400; text-transform: none; letter-spacing: normal;
+		color: var(--cf-accent, #38bdf8); opacity: 0.6;
+	}
 
 	/* Donut */
 	.donut-row { display: flex; align-items: center; gap: 1.5rem; }
@@ -349,9 +355,9 @@
 		background: none; border: none; color: inherit;
 		width: 100%; text-align: left; padding: 0.25rem 0.375rem; border-radius: 4px;
 	}
-	.legend-row.clickable { cursor: pointer; transition: background 0.1s; }
-	.legend-row.clickable:hover { background: rgba(56, 189, 248, 0.08); }
-	.legend-row.active { background: rgba(56, 189, 248, 0.12); }
+	.legend-row.clickable { cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
+	.legend-row.clickable:hover { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); }
+	.legend-row.active { background: rgba(56, 189, 248, 0.15); border-color: var(--cf-accent, #38bdf8); }
 
 	.legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 	.legend-name { font-size: 0.85rem; font-weight: 600; color: var(--cf-text-primary, #e2e8f0); flex: 1; }
@@ -366,9 +372,9 @@
 		background: none; border: none; color: inherit;
 		width: 100%; text-align: left; padding: 0.25rem 0.375rem; border-radius: 4px;
 	}
-	.bar-row.clickable { cursor: pointer; transition: background 0.1s; }
-	.bar-row.clickable:hover { background: rgba(56, 189, 248, 0.08); }
-	.bar-row.active { background: rgba(56, 189, 248, 0.12); }
+	.bar-row.clickable { cursor: pointer; transition: all 0.15s; border: 1px solid transparent; border-radius: 4px; }
+	.bar-row.clickable:hover { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); }
+	.bar-row.active { background: rgba(56, 189, 248, 0.15); border-color: var(--cf-accent, #38bdf8); }
 
 	.bar-label { width: 140px; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
 		color: var(--cf-text-primary, #e2e8f0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
