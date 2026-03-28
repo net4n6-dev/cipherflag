@@ -42,7 +42,7 @@ Open [http://localhost:8443](http://localhost:8443) to access the dashboard.
 
 ### Analysis & Scoring
 
-- **Health scoring** -- 16 rules covering expiration, key strength, signature algorithm, chain trust, revocation, and CT compliance. Grades from A+ (95+) to F
+- **Health scoring** -- 24 rules covering expiration, key strength, signature algorithm, chain trust, revocation, CT compliance, wildcard detection, and crypto agility. Grades from A+ (95+) to F
 - **Certificate chain validation** -- Walks issuer chains from leaf to root, identifies orphaned and incomplete chains
 - **Blast radius analysis** -- Select any CA to see every certificate it signed, recursively, with aggregate risk stats
 
@@ -55,6 +55,16 @@ Open [http://localhost:8443](http://localhost:8443) to access the dashboard.
 - **Crypto Posture** -- Key algorithm donut, key size distribution, TLS version x cipher strength heatmap, signature algorithm breakdown
 - **Expiry Forecast** -- 52-week stacked bar chart of upcoming expirations, broken down by issuer organization
 - **Source Lineage** -- Discovery source cards with per-source grade distribution, key algorithm breakdown, and observation timeline
+- **Global Search** -- Search bar in the top nav searches across certificate names, fingerprints, SANs, serial numbers, server names, and IPs
+
+### Reports
+
+- **Domain Certificate Report** -- Enter a domain, see every cert associated (exact, wildcard, SAN, subdomain matches), deployment locations, health findings, and wildcard coverage
+- **CA Authority Report** -- Select a CA to see everything it signed: cert count, grade distribution, crypto breakdown, chain context, and findings
+- **Crypto Compliance Report** -- Full inventory scan showing compliance score, critical issues, remediation priority list, non-agile certificates, and wildcard inventory
+- **Expiry Risk Report** -- Certificates expiring in 30/60/90 days, grouped by issuer and owner, with ghost certs (expired but still observed) and deployments at risk
+
+All reports include Print and Download CSV buttons.
 
 ### Export & Integration
 
@@ -173,6 +183,14 @@ cipherflag/
 | GET | `/api/v1/graph/landscape/aggregated` | CA-only graph with aggregate stats |
 | GET | `/api/v1/graph/ca/{fp}/children` | On-demand children of a CA |
 | GET | `/api/v1/graph/ca/{fp}/blast-radius` | Full downstream subgraph of a CA |
+
+### Reports
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/reports/domain?q=...` | Domain certificate report |
+| GET | `/api/v1/reports/ca?issuer_cn=...` | CA authority report (supports partial match) |
+| GET | `/api/v1/reports/compliance` | Crypto compliance report |
+| GET | `/api/v1/reports/expiry?days=30` | Expiry risk report |
 
 ### Venafi Integration
 | Method | Path | Description |

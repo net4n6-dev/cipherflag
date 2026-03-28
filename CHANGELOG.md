@@ -2,6 +2,27 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [0.35] - 2026-03-28
+
+### Added
+- **Reports page** with 4 report types: Domain Certificate, CA Authority, Crypto Compliance, Expiry Risk
+- **Domain Report** — enter a domain, see all certs (exact, wildcard, SAN, subdomain matches), deployments, findings, wildcard coverage
+- **CA Report** — select a CA (partial name match), see issued certs, grade distribution, crypto breakdown, chain context
+- **Crypto Compliance Report** — compliance score, critical issues, remediation priorities, non-agile certs, wildcard inventory
+- **Expiry Risk Report** — 30/60/90 day window, grouped by issuer and owner, ghost certs, deployments at risk
+- Report toolbar with Print and Download CSV on every report
+- **8 new health scoring rules** (24 total, up from 16):
+  - WLD-001/002: Wildcard certificate detection (medium/high/critical)
+  - EXP-006: Validity >200 days (2026 industry direction)
+  - KEY-002 updated: RSA 2048 below 3072 recommendation
+  - KEY-005: RSA 3072 info acknowledgment
+  - AGI-001/002/003: Crypto agility (non-ACME, unusual ACME validity, FIPS readiness)
+
+### Fixed
+- Compliance score rounded to 1 decimal place
+- CA report supports partial name matching (ILIKE)
+- NULL raw_pem no longer crashes certificate scans
+
 ## [0.34] - 2026-03-28
 
 ### Added
