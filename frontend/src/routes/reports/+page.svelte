@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { api, type DeploymentGroup, type IssuerStat } from '$lib/api';
+	import { hierarchy, treemap, treemapSquarify } from 'd3-hierarchy';
 	import DomainReport from '$lib/components/reports/DomainReport.svelte';
 	import CAReport from '$lib/components/reports/CAReport.svelte';
 	import ComplianceReport from '$lib/components/reports/ComplianceReport.svelte';
@@ -61,65 +62,56 @@
 					expiryBuckets = Object.entries(monthMap).map(([month, count]) => ({ month, count }));
 				} catch {}
 			} catch {}
+			computeTreemap();
 			landingLoading = false;
 		}
 	});
 
-	// Bubble chart layout — pack circles by cert count
-	function bubbleLayout(items: DeploymentGroup[], width: number, height: number): {x: number; y: number; r: number; domain: string; count: number; grade: string; ips: number; expired: number; score: number}[] {
-		if (items.length === 0) return [];
-
-		const maxCount = Math.max(...items.map(d => d.cert_count), 1);
-		const minR = 18;
-		const maxR = Math.min(width, height) * 0.15;
-
-		// Simple force-like placement
-		const bubbles = items.slice(0, 30).map((d, i) => {
-			const r = minR + (d.cert_count / maxCount) * (maxR - minR);
-			// Spiral placement
-			const angle = i * 2.4; // golden angle
-			const dist = 30 + i * 12;
-			return {
-				x: width / 2 + Math.cos(angle) * dist,
-				y: height / 2 + Math.sin(angle) * dist,
-				r,
-				domain: d.domain,
-				count: d.cert_count,
-				grade: d.worst_grade,
-				ips: d.unique_ips,
-				expired: d.expired_count,
-				score: d.avg_score,
-			};
-		});
-
-		// Simple collision resolution (3 passes)
-		for (let pass = 0; pass < 5; pass++) {
-			for (let i = 0; i < bubbles.length; i++) {
-				for (let j = i + 1; j < bubbles.length; j++) {
-					const dx = bubbles[j].x - bubbles[i].x;
-					const dy = bubbles[j].y - bubbles[i].y;
-					const dist = Math.sqrt(dx * dx + dy * dy);
-					const minDist = bubbles[i].r + bubbles[j].r + 3;
-					if (dist < minDist && dist > 0) {
-						const push = (minDist - dist) / 2;
-						const nx = dx / dist;
-						const ny = dy / dist;
-						bubbles[i].x -= nx * push;
-						bubbles[i].y -= ny * push;
-						bubbles[j].x += nx * push;
-						bubbles[j].y += ny * push;
-					}
-				}
-				// Keep in bounds
-				bubbles[i].x = Math.max(bubbles[i].r, Math.min(width - bubbles[i].r, bubbles[i].x));
-				bubbles[i].y = Math.max(bubbles[i].r, Math.min(height - bubbles[i].r, bubbles[i].y));
-			}
-		}
-
-		return bubbles;
+	// Treemap layout for domain overview
+	interface DomainRect {
+		x: number; y: number; w: number; h: number;
+		domain: string; count: number; grade: string;
+		ips: number; expired: number; score: number;
+		showLabel: boolean;
 	}
 
-	let hoveredBubble = $state<{domain: string; count: number; grade: string; ips: number; expired: number; score: number} | null>(null);
+	let domainRects = $state<DomainRect[]>([]);
+	let treemapWidth = 800;
+	let treemapHeight = 280;
+
+	function computeTreemap() {
+		if (domains.length === 0) { domainRects = []; return; }
+
+		const root = hierarchy({ children: domains.map(d => ({ ...d, value: d.cert_count })) })
+			.sum((d: any) => d.value ?? 0)
+			.sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+
+		treemap<any>()
+			.size([treemapWidth, treemapHeight])
+			.paddingOuter(3)
+			.paddingInner(2)
+			.tile(treemapSquarify)
+			(root);
+
+		const totalArea = treemapWidth * treemapHeight;
+		domainRects = root.leaves().map((leaf: any) => {
+			const d = leaf.data;
+			const w = (leaf.x1 ?? 0) - (leaf.x0 ?? 0);
+			const h = (leaf.y1 ?? 0) - (leaf.y0 ?? 0);
+			return {
+				x: leaf.x0 ?? 0, y: leaf.y0 ?? 0, w, h,
+				domain: d.domain ?? '',
+				count: d.cert_count ?? 0,
+				grade: d.worst_grade ?? '?',
+				ips: d.unique_ips ?? 0,
+				expired: d.expired_count ?? 0,
+				score: d.avg_score ?? 0,
+				showLabel: (w * h) / totalArea > 0.015 && w > 50 && h > 24,
+			};
+		});
+	}
+
+	let hoveredDomain = $state<DomainRect | null>(null);
 	let tooltipX = $state(0);
 	let tooltipY = $state(0);
 
@@ -157,62 +149,59 @@
 			</div>
 
 			<div class="dashboard-grid">
-				<!-- Domain Overview Bubble Chart -->
-				<div class="dash-panel bubble-panel">
-					<h2>Domain Overview</h2>
-					<div class="bubble-layout">
-						<svg class="bubble-svg" viewBox="0 0 500 320">
-							{#each bubbleLayout(domains, 500, 320) as bubble}
-								<g
-									class="bubble-group"
-									onclick={() => goto(`/reports?type=domain&q=${encodeURIComponent(bubble.domain)}`)}
-									onpointerenter={(e) => { hoveredBubble = bubble; tooltipX = e.clientX; tooltipY = e.clientY; }}
-									onpointerleave={() => hoveredBubble = null}
-									role="button"
-									tabindex="-1"
-								>
-									<circle
-										cx={bubble.x} cy={bubble.y} r={bubble.r}
-										fill={gradeColor(bubble.grade)}
-										fill-opacity="0.2"
-										stroke={gradeColor(bubble.grade)}
-										stroke-width="1.5"
-									/>
-									{#if bubble.r > 25}
-										<text x={bubble.x} y={bubble.y - 4} text-anchor="middle" fill="#e2e8f0" font-size="8" font-weight="600">
-											{bubble.domain.length > bubble.r / 4 ? bubble.domain.slice(0, Math.floor(bubble.r / 4)) + '...' : bubble.domain}
-										</text>
-										<text x={bubble.x} y={bubble.y + 8} text-anchor="middle" fill={gradeColor(bubble.grade)} font-size="7">
-											{bubble.count}
+				<!-- Domain Overview Treemap -->
+				<div class="dash-panel treemap-panel">
+					<h2>Domain Overview <span class="panel-hint">click any domain for report</span></h2>
+					<svg class="treemap-svg" viewBox="0 0 {treemapWidth} {treemapHeight}">
+						{#each domainRects as rect}
+							<g
+								class="tm-group"
+								onclick={() => goto(`/reports?type=domain&q=${encodeURIComponent(rect.domain)}`)}
+								onpointerenter={(e) => { hoveredDomain = rect; tooltipX = e.clientX; tooltipY = e.clientY; }}
+								onpointermove={(e) => { tooltipX = e.clientX; tooltipY = e.clientY; }}
+								onpointerleave={() => hoveredDomain = null}
+								role="button"
+								tabindex="-1"
+							>
+								<rect
+									x={rect.x} y={rect.y} width={rect.w} height={rect.h}
+									fill={gradeColor(rect.grade)}
+									fill-opacity={hoveredDomain === rect ? 0.35 : 0.2}
+									stroke={gradeColor(rect.grade)}
+									stroke-opacity={hoveredDomain === rect ? 0.8 : 0.5}
+									stroke-width={hoveredDomain === rect ? 2 : 1}
+									rx="3"
+								/>
+								{#if rect.showLabel}
+									<text x={rect.x + 5} y={rect.y + 14} fill="#e2e8f0" font-size="9" font-weight="600">
+										{rect.domain.length > rect.w / 6.5 ? rect.domain.slice(0, Math.floor(rect.w / 6.5)) + '...' : rect.domain}
+									</text>
+									{#if rect.h > 36}
+										<text x={rect.x + 5} y={rect.y + 26} fill={gradeColor(rect.grade)} font-size="8">
+											{rect.count} certs · {rect.grade}
 										</text>
 									{/if}
-								</g>
-							{/each}
-						</svg>
-						<div class="bubble-legend">
-							{#each domains.slice(0, 10) as d}
-								<button class="legend-entry" onclick={() => goto(`/reports?type=domain&q=${encodeURIComponent(d.domain)}`)}>
-									<span class="le-dot" style="background: {gradeColor(d.worst_grade)}"></span>
-									<span class="le-name">{d.domain}</span>
-									<span class="le-count">{d.cert_count}</span>
-								</button>
-							{/each}
-							{#if domains.length > 10}
-								<span class="le-more">+{domains.length - 10} more</span>
-							{/if}
-						</div>
-					</div>
+									{#if rect.h > 50 && rect.expired > 0}
+										<text x={rect.x + 5} y={rect.y + 38} fill="#ef4444" font-size="7">
+											{rect.expired} expired
+										</text>
+									{/if}
+								{/if}
+							</g>
+						{/each}
+					</svg>
 
-					{#if hoveredBubble}
-						<div class="bubble-tooltip" style="left:{tooltipX + 12}px; top:{tooltipY - 8}px">
-							<div class="bt-domain">{hoveredBubble.domain}</div>
-							<div class="bt-stats">
-								<span>{hoveredBubble.count} certs</span>
-								<span>{hoveredBubble.ips} IPs</span>
-								<span style="color: {gradeColor(hoveredBubble.grade)}">Grade {hoveredBubble.grade}</span>
-								{#if hoveredBubble.expired > 0}<span class="bt-expired">{hoveredBubble.expired} expired</span>{/if}
+					{#if hoveredDomain}
+						<div class="tm-tooltip" style="left:{tooltipX + 12}px; top:{tooltipY - 8}px">
+							<div class="tt-domain">{hoveredDomain.domain}</div>
+							<div class="tt-stats">
+								<span>{hoveredDomain.count} certs</span>
+								<span>{hoveredDomain.ips} IPs</span>
+								<span style="color: {gradeColor(hoveredDomain.grade)}">Grade {hoveredDomain.grade}</span>
+								<span>Score: {hoveredDomain.score.toFixed(0)}</span>
+								{#if hoveredDomain.expired > 0}<span class="tt-expired">{hoveredDomain.expired} expired</span>{/if}
 							</div>
-							<div class="bt-hint">Click for full report</div>
+							<div class="tt-hint">Click for full report</div>
 						</div>
 					{/if}
 				</div>
@@ -333,42 +322,25 @@
 		color: var(--cf-text-muted); text-transform: uppercase; letter-spacing: 0.04em;
 	}
 
-	.bubble-panel { grid-column: 1 / -1; position: relative; }
+	.treemap-panel { grid-column: 1 / -1; position: relative; }
 
-	/* Bubble chart */
-	.bubble-layout { display: flex; gap: 1rem; align-items: flex-start; }
-	.bubble-svg { flex: 1; min-width: 0; }
-	.bubble-group { cursor: pointer; }
-	.bubble-group:hover circle { fill-opacity: 0.35; stroke-width: 2.5; }
-	.bubble-group text { pointer-events: none; user-select: none; }
+	.panel-hint { font-size: 0.6rem; font-weight: 400; text-transform: none; letter-spacing: normal; color: var(--cf-accent); opacity: 0.6; }
 
-	.bubble-legend {
-		width: 200px; flex-shrink: 0; display: flex; flex-direction: column; gap: 0.2rem;
-	}
+	/* Treemap */
+	.treemap-svg { width: 100%; display: block; }
+	.tm-group { cursor: pointer; }
+	.tm-group text { pointer-events: none; user-select: none; }
 
-	.legend-entry {
-		display: flex; align-items: center; gap: 0.375rem;
-		padding: 0.25rem 0.375rem; background: none; border: none;
-		color: inherit; text-align: left; cursor: pointer;
-		border-radius: 4px; transition: background 0.1s;
-	}
-	.legend-entry:hover { background: rgba(56, 189, 248, 0.08); }
-
-	.le-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-	.le-name { flex: 1; font-size: 0.7rem; color: var(--cf-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-	.le-count { font-size: 0.7rem; color: var(--cf-text-muted); font-variant-numeric: tabular-nums; }
-	.le-more { font-size: 0.65rem; color: var(--cf-text-muted); padding-left: 0.375rem; }
-
-	.bubble-tooltip {
+	.tm-tooltip {
 		position: fixed; background: rgba(15, 23, 42, 0.97);
 		border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px;
 		padding: 0.5rem 0.75rem; z-index: 50; pointer-events: none;
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 	}
-	.bt-domain { font-size: 0.8rem; font-weight: 600; color: #e2e8f0; margin-bottom: 0.25rem; }
-	.bt-stats { display: flex; gap: 0.75rem; font-size: 0.7rem; color: #94a3b8; }
-	.bt-expired { color: #ef4444; }
-	.bt-hint { font-size: 0.6rem; color: var(--cf-accent); margin-top: 0.25rem; }
+	.tt-domain { font-size: 0.8rem; font-weight: 600; color: #e2e8f0; margin-bottom: 0.25rem; }
+	.tt-stats { display: flex; gap: 0.75rem; font-size: 0.7rem; color: #94a3b8; }
+	.tt-expired { color: #ef4444; }
+	.tt-hint { font-size: 0.6rem; color: var(--cf-accent); margin-top: 0.25rem; }
 
 	/* CA bars */
 	.ca-bars { display: flex; flex-direction: column; gap: 0.3rem; }
