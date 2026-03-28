@@ -67,7 +67,7 @@
 		<section class="report-section">
 			<div class="score-banner" style:border-color={scoreColor}>
 				<div class="score-circle" style:color={scoreColor}>
-					{report.compliance_score}<span class="score-percent">%</span>
+					{report.compliance_score.toFixed(1)}<span class="score-percent">%</span>
 				</div>
 				<div class="score-detail">
 					<span class="score-title">Compliance Score</span>
