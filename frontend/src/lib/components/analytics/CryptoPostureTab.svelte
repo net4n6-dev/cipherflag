@@ -379,8 +379,8 @@
 	.bar-label { width: 140px; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
 		color: var(--cf-text-primary, #e2e8f0); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
 	.bar-label.weak-algo { color: #ef4444; }
-	.bar-track { flex: 1; height: 16px; background: var(--cf-bg-tertiary, rgba(30, 41, 59, 0.5)); border-radius: 3px; overflow: hidden; }
-	.bar-fill { height: 100%; border-radius: 3px; opacity: 0.7; transition: width 0.3s ease; }
+	.bar-track { flex: 1; height: 16px; background: var(--cf-bg-tertiary, rgba(30, 41, 59, 0.5)); border-radius: 3px; overflow: hidden; pointer-events: none; }
+	.bar-fill { height: 100%; border-radius: 3px; opacity: 0.7; transition: width 0.3s ease; pointer-events: none; }
 	.bar-count { width: 50px; text-align: right; font-size: 0.8rem; color: var(--cf-text-secondary, #94a3b8); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 	.bar-pct { width: 45px; text-align: right; font-size: 0.75rem; color: var(--cf-text-muted, #64748b); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
