@@ -179,6 +179,12 @@ type CertStore interface {
 	MarkVenafiPushFailure(ctx context.Context, fingerprints []string) error
 	GetVenafiPushStats(ctx context.Context) (*model.VenafiPushStats, error)
 
+	// Reports
+	GetDomainReport(ctx context.Context, domain string) (*model.DomainReport, error)
+	GetCAReport(ctx context.Context, fingerprint string, issuerCN string) (*model.CAReport, error)
+	GetComplianceReport(ctx context.Context) (*model.ComplianceReport, error)
+	GetExpiryReport(ctx context.Context, days int) (*model.ExpiryReport, error)
+
 	// Global search
 	GlobalSearch(ctx context.Context, query string, limit int) (*model.GlobalSearchResult, error)
 
