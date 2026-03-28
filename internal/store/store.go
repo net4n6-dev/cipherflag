@@ -9,11 +9,16 @@ import (
 
 // CertSearchQuery defines search/filter/pagination for certificate listing.
 type CertSearchQuery struct {
-	Search   string // Full-text search across CN, SANs, fingerprint, org
-	Grade    string // Filter by grade (e.g., "F", "D,F")
-	Source   string // Filter by discovery source
-	IssuerCN string // Filter by issuer common name
-	IsCA     *bool  // Filter CA certs
+	Search        string // Full-text search across CN, SANs, fingerprint, org
+	Grade         string // Filter by grade (e.g., "F", "D,F")
+	Source        string // Filter by discovery source
+	IssuerCN      string // Filter by issuer common name
+	SubjectOU     string // Filter by subject organizational unit
+	IssuerOrg     string // Filter by issuer organization
+	KeyAlgorithm  string // Filter by key algorithm (RSA, ECDSA, Ed25519)
+	SignatureAlgo string // Filter by signature algorithm
+	ServerName    string // Filter by observed server name (joins observations)
+	IsCA          *bool  // Filter CA certs
 	Expired  *bool  // Filter expired only
 	ExpiringWithinDays *int // Filter certs expiring within N days
 	SortBy   string // "expiry", "grade", "cn", "last_seen"

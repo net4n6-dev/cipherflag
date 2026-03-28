@@ -198,6 +198,32 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 		args = append(args, q.IssuerCN)
 		argN++
 	}
+	if q.SubjectOU != "" {
+		conditions = append(conditions, fmt.Sprintf("c.subject_ou = $%d", argN))
+		args = append(args, q.SubjectOU)
+		argN++
+	}
+	if q.IssuerOrg != "" {
+		conditions = append(conditions, fmt.Sprintf("c.issuer_org = $%d", argN))
+		args = append(args, q.IssuerOrg)
+		argN++
+	}
+	if q.KeyAlgorithm != "" {
+		conditions = append(conditions, fmt.Sprintf("c.key_algorithm = $%d", argN))
+		args = append(args, q.KeyAlgorithm)
+		argN++
+	}
+	if q.SignatureAlgo != "" {
+		conditions = append(conditions, fmt.Sprintf("c.signature_algorithm = $%d", argN))
+		args = append(args, q.SignatureAlgo)
+		argN++
+	}
+	if q.ServerName != "" {
+		conditions = append(conditions, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM observations o WHERE o.cert_fingerprint = c.fingerprint_sha256 AND o.server_name ILIKE $%d)", argN))
+		args = append(args, "%"+q.ServerName+"%")
+		argN++
+	}
 	if q.IsCA != nil {
 		conditions = append(conditions, fmt.Sprintf("c.is_ca = $%d", argN))
 		args = append(args, *q.IsCA)

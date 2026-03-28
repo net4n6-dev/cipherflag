@@ -25,8 +25,13 @@ func (h *CertHandler) List(w http.ResponseWriter, r *http.Request) {
 		Search:   r.URL.Query().Get("search"),
 		Grade:    r.URL.Query().Get("grade"),
 		Source:   r.URL.Query().Get("source"),
-		IssuerCN: r.URL.Query().Get("issuer_cn"),
-		SortBy:   r.URL.Query().Get("sort_by"),
+		IssuerCN:      r.URL.Query().Get("issuer_cn"),
+		SubjectOU:     r.URL.Query().Get("subject_ou"),
+		IssuerOrg:     r.URL.Query().Get("issuer_org"),
+		KeyAlgorithm:  r.URL.Query().Get("key_algorithm"),
+		SignatureAlgo: r.URL.Query().Get("signature_algorithm"),
+		ServerName:    r.URL.Query().Get("server_name"),
+		SortBy:        r.URL.Query().Get("sort_by"),
 		SortDir:  r.URL.Query().Get("sort_dir"),
 	}
 
