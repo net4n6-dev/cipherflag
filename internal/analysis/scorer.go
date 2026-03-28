@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"time"
 
 	"github.com/cyberflag-ai/cipherflag/internal/model"
@@ -29,6 +30,12 @@ func ScoreCertificate(cert *model.Certificate) *model.HealthReport {
 
 	// ── Certificate Transparency ────────────────────────────────────
 	findings = append(findings, checkTransparency(cert)...)
+
+	// ── Wildcard & infrastructure ───────────────────────────────────
+	findings = append(findings, checkWildcard(cert)...)
+
+	// ── Crypto agility ──────────────────────────────────────────────
+	findings = append(findings, checkAgility(cert)...)
 
 	// Apply deductions
 	for _, f := range findings {
@@ -114,6 +121,18 @@ func checkExpiration(cert *model.Certificate) []model.HealthFinding {
 			Deduction:   10,
 		})
 	}
+	// 200-day limit (2026 industry direction)
+	if validityDays > 200 && validityDays <= 398 && !cert.IsCA {
+		findings = append(findings, model.HealthFinding{
+			RuleID:      "EXP-006",
+			Title:       "Certificate validity exceeds 200 days",
+			Severity:    model.SeverityLow,
+			Category:    model.CategoryExpiration,
+			Detail:      "Industry is moving toward 200-day maximum validity. Certificates over 200 days reduce crypto-agility.",
+			Remediation: "Consider issuing shorter-lived certificates to prepare for upcoming CA/B Forum requirements.",
+			Deduction:   3,
+		})
+	}
 
 	return findings
 }
@@ -136,15 +155,25 @@ func checkKeyStrength(cert *model.Certificate) []model.HealthFinding {
 				Deduction:     50,
 				ImmediateFail: true,
 			})
-		} else if cert.KeySizeBits < 4096 {
+		} else if cert.KeySizeBits < 3072 {
 			findings = append(findings, model.HealthFinding{
 				RuleID:      "KEY-002",
-				Title:       "RSA key is 2048 bits (acceptable, not ideal)",
+				Title:       "RSA key is 2048 bits (below 2026 recommendation)",
 				Severity:    model.SeverityLow,
 				Category:    model.CategoryKeyStrength,
-				Detail:      "2048-bit RSA meets minimum requirements but 4096-bit is recommended.",
-				Remediation: "Consider upgrading to 4096-bit RSA or ECDSA P-256+.",
-				Deduction:   2,
+				Detail:      "2048-bit RSA meets minimum requirements but 3072-bit is the 2026 NIST recommendation.",
+				Remediation: "Upgrade to 3072-bit or 4096-bit RSA, or switch to ECDSA P-256+.",
+				Deduction:   3,
+			})
+		} else if cert.KeySizeBits < 4096 {
+			findings = append(findings, model.HealthFinding{
+				RuleID:      "KEY-005",
+				Title:       "RSA key is 3072 bits (good, not maximum)",
+				Severity:    model.SeverityInfo,
+				Category:    model.CategoryKeyStrength,
+				Detail:      "3072-bit RSA meets 2026 recommendations. 4096-bit provides additional margin.",
+				Remediation: "No action required. Consider 4096-bit for high-value certificates.",
+				Deduction:   0,
 			})
 		}
 	case model.KeyECDSA:
@@ -285,6 +314,142 @@ func checkTransparency(cert *model.Certificate) []model.HealthFinding {
 			Detail:      "Chrome requires SCTs for Certificate Transparency compliance.",
 			Remediation: "Ensure your CA logs certificates to CT logs.",
 			Deduction:   10,
+		})
+	}
+
+	return findings
+}
+
+// ── Wildcard & Infrastructure ──────────────────────────────────────────────
+
+func checkWildcard(cert *model.Certificate) []model.HealthFinding {
+	var findings []model.HealthFinding
+
+	if cert.IsCA {
+		return findings
+	}
+
+	// Check CN for wildcard
+	hasWildcard := strings.HasPrefix(cert.Subject.CommonName, "*.")
+
+	// Check SANs for wildcards
+	wildcardSANs := 0
+	for _, san := range cert.SubjectAltNames {
+		if strings.HasPrefix(san, "*.") {
+			hasWildcard = true
+			wildcardSANs++
+		}
+	}
+
+	if hasWildcard {
+		detail := "Wildcard certificate detected."
+		if wildcardSANs > 1 {
+			detail = "Wildcard certificate with multiple wildcard SANs. Each wildcard SAN increases the blast radius if the private key is compromised."
+		}
+		severity := model.SeverityMedium
+		deduction := 5
+		if wildcardSANs > 3 {
+			severity = model.SeverityHigh
+			deduction = 10
+		}
+
+		findings = append(findings, model.HealthFinding{
+			RuleID:      "WLD-001",
+			Title:       "Wildcard certificate",
+			Severity:    severity,
+			Category:    model.CategoryWildcard,
+			Detail:      detail,
+			Remediation: "Consider using specific domain certificates instead of wildcards to reduce blast radius. Use separate certificates per service.",
+			Deduction:   deduction,
+		})
+	}
+
+	// Check for overly broad wildcard (e.g., *.com, *.co.uk — only one label before TLD)
+	if hasWildcard {
+		cn := cert.Subject.CommonName
+		if strings.HasPrefix(cn, "*.") {
+			parts := strings.Split(cn[2:], ".")
+			if len(parts) <= 1 {
+				findings = append(findings, model.HealthFinding{
+					RuleID:        "WLD-002",
+					Title:         "Overly broad wildcard certificate",
+					Severity:      model.SeverityCritical,
+					Category:      model.CategoryWildcard,
+					Detail:        "Wildcard covers an entire TLD or very broad domain.",
+					Remediation:   "Issue certificates for specific subdomains.",
+					Deduction:     30,
+					ImmediateFail: true,
+				})
+			}
+		}
+	}
+
+	return findings
+}
+
+// ── Crypto Agility ─────────────────────────────────────────────────────────
+
+func checkAgility(cert *model.Certificate) []model.HealthFinding {
+	var findings []model.HealthFinding
+
+	if cert.IsCA {
+		return findings
+	}
+
+	// Check if certificate is likely ACME-managed (Let's Encrypt, ZeroSSL, Buypass Go)
+	issuerOrg := strings.ToLower(cert.Issuer.Organization)
+	issuerCN := strings.ToLower(cert.Issuer.CommonName)
+	isACME := strings.Contains(issuerOrg, "let's encrypt") ||
+		strings.Contains(issuerOrg, "zerossl") ||
+		strings.Contains(issuerOrg, "buypass") ||
+		strings.Contains(issuerCN, "let's encrypt") ||
+		strings.Contains(issuerCN, "zerossl")
+
+	// Certificates with > 1 year validity are likely not automated
+	validityDays := int(cert.NotAfter.Sub(cert.NotBefore).Hours() / 24)
+	if validityDays > 365 && !isACME {
+		findings = append(findings, model.HealthFinding{
+			RuleID:      "AGI-001",
+			Title:       "Certificate not using automated issuance",
+			Severity:    model.SeverityLow,
+			Category:    model.CategoryAgility,
+			Detail:      "Certificate has >1 year validity and is not from an ACME CA, suggesting manual issuance. Industry is moving toward 45-day certificates requiring automation.",
+			Remediation: "Implement ACME-based certificate automation (Let's Encrypt, ZeroSSL) or integrate with your CLM platform's auto-renewal.",
+			Deduction:   2,
+		})
+	}
+
+	// Short-lived certs from ACME CAs are good — no finding needed.
+	// But flag ACME certs with unusually long validity (> 90 days means something is off)
+	if isACME && validityDays > 100 {
+		findings = append(findings, model.HealthFinding{
+			RuleID:      "AGI-002",
+			Title:       "ACME certificate with unusually long validity",
+			Severity:    model.SeverityLow,
+			Category:    model.CategoryAgility,
+			Detail:      "This certificate appears to be from an ACME CA but has >100 day validity, which is unusual for automated issuance.",
+			Remediation: "Verify ACME renewal is configured correctly.",
+			Deduction:   2,
+		})
+	}
+
+	// FIPS 140-3 readiness: flag legacy curves and algorithms
+	if cert.KeyAlgorithm == model.KeyECDSA && cert.KeySizeBits < 256 {
+		// Already caught by KEY-003, skip
+	} else if cert.SignatureAlgorithm == model.SigSHA384WithRSA || cert.SignatureAlgorithm == model.SigSHA512WithRSA {
+		// Strong signatures, FIPS-ready — no finding
+	} else if cert.SignatureAlgorithm == model.SigSHA256WithRSA || cert.SignatureAlgorithm == model.SigECDSAWithSHA256 || cert.SignatureAlgorithm == model.SigECDSAWithSHA384 || cert.SignatureAlgorithm == model.SigEd25519Sig {
+		// Acceptable for FIPS 140-3 — no finding
+	} else if cert.SignatureAlgorithm != model.SigSHA1WithRSA && cert.SignatureAlgorithm != model.SigMD5WithRSA && cert.SignatureAlgorithm != model.SigUnknown {
+		// Catch anything not in the known-good or known-bad list
+		findings = append(findings, model.HealthFinding{
+			RuleID:      "AGI-003",
+			Title:       "Non-standard signature algorithm",
+			Severity:    model.SeverityLow,
+			Category:    model.CategoryAgility,
+			Detail:      "Signature algorithm may not be FIPS 140-3 validated.",
+			Remediation: "Verify this algorithm is approved for your compliance requirements.",
+			Deduction:   2,
 		})
 	}
 

@@ -34,6 +34,9 @@ const (
 	CategoryTransparency  FindingCategory = "transparency"
 	CategoryProtocol      FindingCategory = "protocol"
 	CategoryCipher        FindingCategory = "cipher"
+	CategoryWildcard      FindingCategory = "wildcard"
+	CategoryAgility       FindingCategory = "agility"
+	CategoryGovernance    FindingCategory = "governance"
 )
 
 type HealthFinding struct {
