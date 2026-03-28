@@ -59,12 +59,15 @@ Open [http://localhost:8443](http://localhost:8443) to access the dashboard.
 
 ### Reports
 
-- **Domain Certificate Report** -- Enter a domain, see every cert associated (exact, wildcard, SAN, subdomain matches), deployment locations, health findings, and wildcard coverage
-- **CA Authority Report** -- Select a CA to see everything it signed: cert count, grade distribution, crypto breakdown, chain context, and findings
-- **Crypto Compliance Report** -- Full inventory scan showing compliance score, critical issues, remediation priority list, non-agile certificates, and wildcard inventory
-- **Expiry Risk Report** -- Certificates expiring in 30/60/90 days, grouped by issuer and owner, with ghost certs (expired but still observed) and deployments at risk
+Visual dashboard with drill-down to detailed reports:
 
-All reports include Print and Download CSV buttons.
+- **Reports Dashboard** -- Treemap domain overview (sized by cert count, colored by grade), CA concentration bars, compliance gauge, and expiry timeline. Click any element to drill into a detailed report.
+- **Domain Certificate Report** -- Grade distribution donut, key algorithm bars, match type breakdown, certificates table, deployments, health findings, and wildcard coverage
+- **CA Authority Report** -- CA identity, issued cert inventory, crypto breakdown, chain context, and findings
+- **Crypto Compliance Report** -- Compliance score gauge, critical issues, remediation priorities, non-agile certs, wildcard inventory
+- **Expiry Risk Report** -- Certificates expiring in 30/60/90 days, grouped by issuer and owner, with ghost certs and deployments at risk
+
+All analytics tabs are drillable — click any chart element to see matching certificates. Reports include Print and Download CSV.
 
 ### Export & Integration
 

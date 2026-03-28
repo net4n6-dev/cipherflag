@@ -2,6 +2,25 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [0.36] - 2026-03-28
+
+### Added
+- **Reports visual dashboard** — treemap domain overview, CA concentration bars, compliance gauge, and expiry timeline replace the old card-based landing
+- **Drillable analytics** across all tabs:
+  - Crypto Posture: click any key algorithm, key size, signature algorithm, or TLS heatmap cell to see matching certificates
+  - Expiry Forecast: click any weekly bar to drill into expiring certificates for that week
+  - Deployment chart: click any domain bar to expand and see deployed certificates
+- **TLS version and cipher strength filters** on certificate search API (`tls_version`, `cipher_strength`)
+- **Domain report charts** — grade distribution donut, key algorithm bars, and match type breakdown
+- **Reports drill-down flow** — visual dashboard → click chart element → detailed report
+
+### Fixed
+- Bar track elements absorbing click events in crypto posture (pointer-events: none)
+- Drilldown panels rendering below fold (moved above strength summary, auto-scroll)
+- Compliance score rounded to 1 decimal place
+- CA report partial name matching (ILIKE)
+- Replaced unreadable bubble chart with treemap for domain overview
+
 ## [0.35] - 2026-03-28
 
 ### Added
