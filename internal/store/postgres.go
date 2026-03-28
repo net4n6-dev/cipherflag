@@ -1982,6 +1982,145 @@ func (s *PostgresStore) GetVenafiPushStats(ctx context.Context) (*model.VenafiPu
 	return stats, nil
 }
 
+// ── Global Search ───────────────────────────────────────────────────────────
+
+func (s *PostgresStore) GlobalSearch(ctx context.Context, query string, limit int) (*model.GlobalSearchResult, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 20
+	}
+
+	result := &model.GlobalSearchResult{
+		Certificates: []model.GlobalSearchCert{},
+		Observations: []model.GlobalSearchObs{},
+		Query:        query,
+	}
+
+	// Search 1: Full-text search on certificates (subject_cn, subject_org, issuer_cn, issuer_org, fingerprint, serial)
+	rows, err := s.pool.Query(ctx, `
+		SELECT c.fingerprint_sha256, c.subject_cn, c.subject_org, c.issuer_cn,
+			c.key_algorithm, to_char(c.not_after, 'YYYY-MM-DD') as not_after,
+			COALESCE(h.grade, '?') as grade, c.source_discovery,
+			'text_search' as match_field
+		FROM certificates c
+		LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint
+		WHERE search_vector @@ plainto_tsquery('english', $1)
+		ORDER BY ts_rank(search_vector, plainto_tsquery('english', $1)) DESC
+		LIMIT $2
+	`, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var c model.GlobalSearchCert
+		if err := rows.Scan(&c.Fingerprint, &c.SubjectCN, &c.SubjectOrg, &c.IssuerCN,
+			&c.KeyAlgorithm, &c.NotAfter, &c.Grade, &c.Source, &c.MatchField); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		result.Certificates = append(result.Certificates, c)
+	}
+	rows.Close()
+
+	// Search 2: Fingerprint prefix match (if query looks like hex)
+	if len(query) >= 6 && isHex(query) {
+		fpRows, err := s.pool.Query(ctx, `
+			SELECT c.fingerprint_sha256, c.subject_cn, c.subject_org, c.issuer_cn,
+				c.key_algorithm, to_char(c.not_after, 'YYYY-MM-DD') as not_after,
+				COALESCE(h.grade, '?') as grade, c.source_discovery,
+				'fingerprint' as match_field
+			FROM certificates c
+			LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint
+			WHERE c.fingerprint_sha256 LIKE $1
+			LIMIT $2
+		`, strings.ToLower(query)+"%", limit)
+		if err == nil {
+			for fpRows.Next() {
+				var c model.GlobalSearchCert
+				if err := fpRows.Scan(&c.Fingerprint, &c.SubjectCN, &c.SubjectOrg, &c.IssuerCN,
+					&c.KeyAlgorithm, &c.NotAfter, &c.Grade, &c.Source, &c.MatchField); err != nil {
+					break
+				}
+				if !certInResults(result.Certificates, c.Fingerprint) {
+					result.Certificates = append(result.Certificates, c)
+				}
+			}
+			fpRows.Close()
+		}
+	}
+
+	// Search 3: SAN match (subject_alt_names JSONB array)
+	sanRows, err := s.pool.Query(ctx, `
+		SELECT c.fingerprint_sha256, c.subject_cn, c.subject_org, c.issuer_cn,
+			c.key_algorithm, to_char(c.not_after, 'YYYY-MM-DD') as not_after,
+			COALESCE(h.grade, '?') as grade, c.source_discovery,
+			'san' as match_field
+		FROM certificates c
+		LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint
+		WHERE EXISTS (
+			SELECT 1 FROM jsonb_array_elements_text(c.subject_alt_names) san
+			WHERE san ILIKE $1
+		)
+		LIMIT $2
+	`, "%"+query+"%", limit)
+	if err == nil {
+		for sanRows.Next() {
+			var c model.GlobalSearchCert
+			if err := sanRows.Scan(&c.Fingerprint, &c.SubjectCN, &c.SubjectOrg, &c.IssuerCN,
+				&c.KeyAlgorithm, &c.NotAfter, &c.Grade, &c.Source, &c.MatchField); err != nil {
+				break
+			}
+			if !certInResults(result.Certificates, c.Fingerprint) {
+				result.Certificates = append(result.Certificates, c)
+			}
+		}
+		sanRows.Close()
+	}
+
+	// Search 4: Observation matches (server_name, server_ip)
+	obsRows, err := s.pool.Query(ctx, `
+		SELECT DISTINCT ON (o.cert_fingerprint, o.server_name)
+			o.cert_fingerprint, o.server_name, o.server_ip, o.server_port,
+			o.negotiated_version::text, c.subject_cn
+		FROM observations o
+		JOIN certificates c ON c.fingerprint_sha256 = o.cert_fingerprint
+		WHERE o.server_name ILIKE $1 OR o.server_ip LIKE $2
+		ORDER BY o.cert_fingerprint, o.server_name, o.observed_at DESC
+		LIMIT $3
+	`, "%"+query+"%", query+"%", limit)
+	if err == nil {
+		for obsRows.Next() {
+			var o model.GlobalSearchObs
+			if err := obsRows.Scan(&o.CertFingerprint, &o.ServerName, &o.ServerIP,
+				&o.ServerPort, &o.TLSVersion, &o.SubjectCN); err != nil {
+				break
+			}
+			result.Observations = append(result.Observations, o)
+		}
+		obsRows.Close()
+	}
+
+	result.Total = len(result.Certificates) + len(result.Observations)
+	return result, nil
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
+func certInResults(certs []model.GlobalSearchCert, fp string) bool {
+	for _, c := range certs {
+		if c.Fingerprint == fp {
+			return true
+		}
+	}
+	return false
+}
+
 func scanEndpointProfile(row pgx.Row) (*model.EndpointProfile, error) {
 	var ep model.EndpointProfile
 	var suitesJSON []byte

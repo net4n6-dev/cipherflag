@@ -141,3 +141,34 @@ type VenafiPushStats struct {
 	DeadLettered int        `json:"dead_lettered"`
 	NextPushAt   *time.Time `json:"next_push_at"`
 }
+
+// GlobalSearchResult holds results from a cross-entity search.
+type GlobalSearchResult struct {
+	Certificates []GlobalSearchCert `json:"certificates"`
+	Observations []GlobalSearchObs  `json:"observations"`
+	Total        int                `json:"total"`
+	Query        string             `json:"query"`
+}
+
+// GlobalSearchCert is a lightweight certificate match for global search.
+type GlobalSearchCert struct {
+	Fingerprint  string `json:"fingerprint"`
+	SubjectCN    string `json:"subject_cn"`
+	SubjectOrg   string `json:"subject_org"`
+	IssuerCN     string `json:"issuer_cn"`
+	KeyAlgorithm string `json:"key_algorithm"`
+	NotAfter     string `json:"not_after"`
+	Grade        string `json:"grade"`
+	Source       string `json:"source"`
+	MatchField   string `json:"match_field"`
+}
+
+// GlobalSearchObs is a lightweight observation match for global search.
+type GlobalSearchObs struct {
+	CertFingerprint string `json:"cert_fingerprint"`
+	ServerName      string `json:"server_name"`
+	ServerIP        string `json:"server_ip"`
+	ServerPort      int    `json:"server_port"`
+	TLSVersion      string `json:"tls_version"`
+	SubjectCN       string `json:"subject_cn"`
+}
