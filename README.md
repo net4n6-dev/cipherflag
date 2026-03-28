@@ -8,6 +8,17 @@ CipherFlag is an open-source certificate intelligence platform that discovers TL
 
 ## Quick Start
 
+### Option 1: Install Script (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cyberflag-ai/cipherflag/main/scripts/install.sh | sh
+cipherflag setup
+```
+
+The setup wizard walks you through network interface selection, Venafi integration, and starts the platform.
+
+### Option 2: Manual Setup
+
 ```bash
 git clone https://github.com/cyberflag-ai/cipherflag.git
 cd cipherflag

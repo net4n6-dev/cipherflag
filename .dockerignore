@@ -1,0 +1,16 @@
+.git
+.github
+.superpowers
+.firecrawl
+node_modules
+frontend/node_modules
+frontend/.svelte-kit
+frontend/build
+bin/
+data/
+*.db
+*.pcap
+*.pcapng
+docs/superpowers/
+.env
+.DS_Store
