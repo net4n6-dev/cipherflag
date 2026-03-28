@@ -18,6 +18,8 @@ type CertSearchQuery struct {
 	KeyAlgorithm  string // Filter by key algorithm (RSA, ECDSA, Ed25519)
 	SignatureAlgo string // Filter by signature algorithm
 	ServerName    string // Filter by observed server name (joins observations)
+	TLSVersion    string // Filter by observed TLS version (joins observations)
+	CipherStrength string // Filter by observed cipher strength (joins observations)
 	IsCA          *bool  // Filter CA certs
 	Expired  *bool  // Filter expired only
 	ExpiringWithinDays *int // Filter certs expiring within N days

@@ -224,6 +224,18 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 		args = append(args, "%"+q.ServerName+"%")
 		argN++
 	}
+	if q.TLSVersion != "" {
+		conditions = append(conditions, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM observations o WHERE o.cert_fingerprint = c.fingerprint_sha256 AND o.negotiated_version = $%d)", argN))
+		args = append(args, q.TLSVersion)
+		argN++
+	}
+	if q.CipherStrength != "" {
+		conditions = append(conditions, fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM observations o WHERE o.cert_fingerprint = c.fingerprint_sha256 AND o.cipher_strength = $%d)", argN))
+		args = append(args, q.CipherStrength)
+		argN++
+	}
 	if q.IsCA != nil {
 		conditions = append(conditions, fmt.Sprintf("c.is_ca = $%d", argN))
 		args = append(args, *q.IsCA)

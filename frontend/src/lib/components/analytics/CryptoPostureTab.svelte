@@ -96,6 +96,32 @@
 		expandedLoading = false;
 	}
 
+	async function drillDownHeatmap(version: string, strength: string) {
+		const key = `hm-${version}-${strength}`;
+		if (expandedPanel === key) {
+			expandedPanel = null;
+			expandedCerts = [];
+			return;
+		}
+		expandedPanel = key;
+		expandedLabel = `${version} + ${strength}`;
+		expandedLoading = true;
+		expandedCerts = [];
+
+		requestAnimationFrame(() => {
+			document.getElementById('crypto-drilldown')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+		});
+
+		try {
+			const params = new URLSearchParams({ tls_version: version, cipher_strength: strength, page_size: '20' });
+			const result = await api.searchCerts(params.toString());
+			expandedCerts = result.certificates ?? [];
+		} catch {
+			expandedCerts = [];
+		}
+		expandedLoading = false;
+	}
+
 	async function drillDownSigAlgo(algo: string) {
 		await drillDown(`sig-${algo}`, `Signature: ${algo}`, 'signature_algorithm', algo);
 	}
@@ -200,7 +226,7 @@
 
 			<!-- TLS x Cipher Heatmap -->
 			<div class="panel">
-				<h3>TLS Version x Cipher Strength</h3>
+				<h3>TLS Version x Cipher Strength <span class="hint">click cells to explore</span></h3>
 				<div class="heatmap-container">
 					<div class="heatmap-grid" style="grid-template-columns: auto repeat({STRENGTH_ORDER.length}, 1fr);">
 						<div class="heatmap-corner"></div>
@@ -211,15 +237,19 @@
 							<div class="heatmap-row-header">{version}</div>
 							{#each STRENGTH_ORDER as strength}
 								{@const count = heatmapValue(version, strength)}
-								<div
+								<button
 									class="heatmap-cell"
+									class:clickable={count > 0}
+									class:active={expandedPanel === `hm-${version}-${strength}`}
 									style="background: {count > 0 ? strengthColor(strength) : 'rgba(30,41,59,0.3)'}; opacity: {heatmapOpacity(count)}"
 									title="{version} + {strength}: {count}"
+									onclick={() => { if (count > 0) drillDownHeatmap(version, strength); }}
+									disabled={count === 0}
 								>
 									{#if count > 0}
 										<span>{count.toLocaleString()}</span>
 									{/if}
-								</div>
+								</button>
 							{/each}
 						{/each}
 					</div>
@@ -399,10 +429,14 @@
 	.heatmap-cell {
 		display: flex; align-items: center; justify-content: center;
 		border-radius: 4px; min-height: 36px; font-size: 0.75rem;
-		font-weight: 600; color: #e2e8f0; cursor: default; transition: opacity 0.15s;
+		font-weight: 600; color: #e2e8f0; cursor: default; transition: all 0.15s;
+		border: 1px solid transparent;
 	}
-	.heatmap-cell:hover { opacity: 1 !important; }
-	.heatmap-cell span { text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+	.heatmap-cell.clickable { cursor: pointer; }
+	.heatmap-cell.clickable:hover { opacity: 1 !important; border-color: rgba(255,255,255,0.3); }
+	.heatmap-cell.active { opacity: 1 !important; border-color: white; }
+	.heatmap-cell:disabled { cursor: default; }
+	.heatmap-cell span { text-shadow: 0 1px 2px rgba(0,0,0,0.5); pointer-events: none; }
 
 	/* Strength summary */
 	.strength-summary {

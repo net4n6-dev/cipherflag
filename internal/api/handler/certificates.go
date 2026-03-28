@@ -30,7 +30,9 @@ func (h *CertHandler) List(w http.ResponseWriter, r *http.Request) {
 		IssuerOrg:     r.URL.Query().Get("issuer_org"),
 		KeyAlgorithm:  r.URL.Query().Get("key_algorithm"),
 		SignatureAlgo: r.URL.Query().Get("signature_algorithm"),
-		ServerName:    r.URL.Query().Get("server_name"),
+		ServerName:     r.URL.Query().Get("server_name"),
+		TLSVersion:    r.URL.Query().Get("tls_version"),
+		CipherStrength: r.URL.Query().Get("cipher_strength"),
 		SortBy:        r.URL.Query().Get("sort_by"),
 		SortDir:  r.URL.Query().Get("sort_dir"),
 	}
