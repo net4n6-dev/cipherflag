@@ -86,20 +86,34 @@ func runServe(ctx context.Context, cfg *config.Config) {
 		pushCtx, pushCancel := context.WithCancel(ctx)
 		defer pushCancel()
 
-		authBase := cfg.Export.Venafi.BaseURL
-		sdkBase := cfg.Export.Venafi.BaseURL
-		if len(authBase) > 6 && authBase[len(authBase)-6:] == "vedsdk" {
-			authBase = authBase[:len(authBase)-6] + "vedauth"
+		var venafiClient venafi.VenafiClient
+
+		if cfg.Export.Venafi.Platform == "cloud" {
+			venafiClient = venafi.NewCloudClient(cfg.Export.Venafi.Region, cfg.Export.Venafi.APIKey)
+			log.Info().
+				Str("platform", "cloud").
+				Str("region", cfg.Export.Venafi.Region).
+				Msg("venafi cloud client configured")
 		} else {
-			sdkBase = authBase + "/vedsdk"
-			authBase = authBase + "/vedauth"
+			authBase := cfg.Export.Venafi.BaseURL
+			sdkBase := cfg.Export.Venafi.BaseURL
+			if len(authBase) > 6 && authBase[len(authBase)-6:] == "vedsdk" {
+				authBase = authBase[:len(authBase)-6] + "vedauth"
+			} else {
+				sdkBase = authBase + "/vedsdk"
+				authBase = authBase + "/vedauth"
+			}
+			tppClient := venafi.NewClient(sdkBase, authBase, cfg.Export.Venafi.ClientID, cfg.Export.Venafi.RefreshToken)
+			venafiClient = venafi.NewTPPAdapter(tppClient, cfg.Export.Venafi.Folder)
+			log.Info().
+				Str("platform", "tpp").
+				Str("base_url", cfg.Export.Venafi.BaseURL).
+				Msg("venafi tpp client configured")
 		}
 
-		venafiClient := venafi.NewClient(sdkBase, authBase, cfg.Export.Venafi.ClientID, cfg.Export.Venafi.RefreshToken)
-		pusher := venafi.NewPusher(venafiClient, st, cfg.Export.Venafi.Folder, venafiInterval)
+		pusher := venafi.NewPusher(venafiClient, st, venafiInterval)
 		go pusher.Run(pushCtx)
 		log.Info().
-			Str("folder", cfg.Export.Venafi.Folder).
 			Int("interval_min", cfg.Export.Venafi.PushIntervalMinutes).
 			Msg("venafi push scheduler started")
 	}
