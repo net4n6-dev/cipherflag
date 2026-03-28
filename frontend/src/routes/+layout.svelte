@@ -2,6 +2,7 @@
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import { page } from '$app/state';
+	import GlobalSearch from '$lib/components/GlobalSearch.svelte';
 
 	let { children } = $props();
 
@@ -29,6 +30,7 @@
 			<a href="/upload" class="nav-link" class:active={isActive('/upload')}>Upload</a>
 			<a href="/analytics" class="nav-link" class:active={isActive('/analytics')}>Analytics</a>
 		</div>
+		<GlobalSearch />
 	</nav>
 	<main class="main-content">
 		{@render children()}

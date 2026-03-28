@@ -354,6 +354,34 @@ export interface SourceLineageResponse {
 	total_certs: number;
 }
 
+export interface GlobalSearchCert {
+	fingerprint: string;
+	subject_cn: string;
+	subject_org: string;
+	issuer_cn: string;
+	key_algorithm: string;
+	not_after: string;
+	grade: string;
+	source: string;
+	match_field: string;
+}
+
+export interface GlobalSearchObs {
+	cert_fingerprint: string;
+	server_name: string;
+	server_ip: string;
+	server_port: number;
+	tls_version: string;
+	subject_cn: string;
+}
+
+export interface GlobalSearchResult {
+	certificates: GlobalSearchCert[];
+	observations: GlobalSearchObs[];
+	total: number;
+	query: string;
+}
+
 export const api = {
 	getLandscape: () => fetchJSON<GraphResponse>('/graph/landscape'),
 	getChainGraph: (fp: string) => fetchJSON<GraphResponse>(`/graph/chain/${fp}`),
@@ -388,4 +416,5 @@ export const api = {
 	getCryptoPosture: () => fetchJSON<CryptoPostureResponse>('/stats/crypto-posture'),
 	getExpiryForecast: () => fetchJSON<ExpiryForecastResponse>('/stats/expiry-forecast'),
 	getSourceLineage: () => fetchJSON<SourceLineageResponse>('/stats/source-lineage'),
+	globalSearch: (q: string, limit = 20) => fetchJSON<GlobalSearchResult>(`/search?q=${encodeURIComponent(q)}&limit=${limit}`),
 };
