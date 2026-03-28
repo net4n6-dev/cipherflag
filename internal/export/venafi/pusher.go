@@ -2,7 +2,6 @@ package venafi
 
 import (
 	"context"
-	"encoding/base64"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -13,21 +12,19 @@ import (
 
 const pushBatchSize = 100
 
-// Pusher periodically pushes new certificates to Venafi TPP.
+// Pusher periodically pushes new certificates to Venafi (Cloud or TPP).
 type Pusher struct {
-	client   *Client
+	client   VenafiClient
 	store    store.CertStore
-	folder   string
 	interval time.Duration
 	logger   zerolog.Logger
 }
 
 // NewPusher creates a new Venafi push scheduler.
-func NewPusher(client *Client, st store.CertStore, folder string, interval time.Duration) *Pusher {
+func NewPusher(client VenafiClient, st store.CertStore, interval time.Duration) *Pusher {
 	return &Pusher{
 		client:   client,
 		store:    st,
-		folder:   folder,
 		interval: interval,
 		logger:   zerolog.New(zerolog.NewConsoleWriter()).With().Str("component", "venafi-pusher").Timestamp().Logger(),
 	}
@@ -37,7 +34,6 @@ func NewPusher(client *Client, st store.CertStore, folder string, interval time.
 func (p *Pusher) Run(ctx context.Context) {
 	p.logger.Info().Dur("interval", p.interval).Msg("venafi push scheduler started")
 
-	// Run immediately on start, then on interval
 	p.runCycle(ctx)
 
 	ticker := time.NewTicker(p.interval)
@@ -70,10 +66,7 @@ func (p *Pusher) runCycle(ctx context.Context) {
 		total += pushed
 		if err != nil {
 			p.logger.Error().Err(err).Int("batch_size", len(certs)).Msg("batch push failed")
-			fps := make([]string, len(certs))
-			for i, c := range certs {
-				fps[i] = c.FingerprintSHA256
-			}
+			fps := fingerprints(certs)
 			if markErr := p.store.MarkVenafiPushFailure(ctx, fps); markErr != nil {
 				p.logger.Error().Err(markErr).Msg("failed to mark push failures")
 			}
@@ -91,10 +84,7 @@ func (p *Pusher) runCycle(ctx context.Context) {
 }
 
 func (p *Pusher) pushBatch(ctx context.Context, certs []model.Certificate) (int, error) {
-	fps := make([]string, len(certs))
-	for i, c := range certs {
-		fps[i] = c.FingerprintSHA256
-	}
+	fps := fingerprints(certs)
 
 	observations, err := p.store.GetLatestObservationsForCerts(ctx, fps)
 	if err != nil {
@@ -102,14 +92,14 @@ func (p *Pusher) pushBatch(ctx context.Context, certs []model.Certificate) (int,
 		observations = map[string]*model.CertificateObservation{}
 	}
 
-	request := p.buildDiscoveryPayload(certs, observations)
+	imports := buildCertImports(certs, observations)
 
-	resp, err := p.client.ImportDiscovery(ctx, request)
+	result, err := p.client.ImportCertificates(ctx, imports)
 	if err != nil {
 		return 0, err
 	}
 
-	for _, w := range resp.Warnings {
+	for _, w := range result.Warnings {
 		p.logger.Warn().Str("warning", w).Msg("venafi import warning")
 	}
 
@@ -118,50 +108,37 @@ func (p *Pusher) pushBatch(ctx context.Context, certs []model.Certificate) (int,
 	}
 
 	p.logger.Debug().
-		Int("created_certs", resp.CreatedCertificates).
-		Int("updated_certs", resp.UpdatedCertificates).
-		Int("created_instances", resp.CreatedInstances).
-		Int("warnings", len(resp.Warnings)).
+		Int("imported", result.Imported).
+		Int("updated", result.Updated).
+		Int("existed", result.Existed).
+		Int("failed", result.Failed).
 		Msg("batch pushed to venafi")
 
 	return len(certs), nil
 }
 
-func (p *Pusher) buildDiscoveryPayload(certs []model.Certificate, observations map[string]*model.CertificateObservation) *DiscoveryImportRequest {
-	request := &DiscoveryImportRequest{
-		ZoneName:  p.folder,
-		Endpoints: make([]DiscoveryEndpoint, 0, len(certs)),
-	}
-
+func buildCertImports(certs []model.Certificate, observations map[string]*model.CertificateObservation) []CertImport {
+	imports := make([]CertImport, 0, len(certs))
 	for _, cert := range certs {
-		encoded := base64.StdEncoding.EncodeToString([]byte(cert.RawPEM))
-
-		endpoint := DiscoveryEndpoint{
-			Certificates: []DiscoveryCert{
-				{
-					Certificate: encoded,
-					Fingerprint: cert.FingerprintSHA256,
-				},
-			},
+		ci := CertImport{
+			PEM:         cert.RawPEM,
+			Fingerprint: cert.FingerprintSHA256,
 		}
-
 		if obs, ok := observations[cert.FingerprintSHA256]; ok {
-			endpoint.Host = obs.ServerName
-			if endpoint.Host == "" {
-				endpoint.Host = obs.ServerIP
-			}
-			endpoint.IP = obs.ServerIP
-			endpoint.Port = obs.ServerPort
-			endpoint.Protocols = []DiscoveryProto{
-				{
-					Certificates: []string{cert.FingerprintSHA256},
-					Protocol:     string(obs.NegotiatedVersion),
-				},
-			}
+			ci.ServerName = obs.ServerName
+			ci.ServerIP = obs.ServerIP
+			ci.ServerPort = obs.ServerPort
+			ci.TLSVersion = string(obs.NegotiatedVersion)
 		}
-
-		request.Endpoints = append(request.Endpoints, endpoint)
+		imports = append(imports, ci)
 	}
+	return imports
+}
 
-	return request
+func fingerprints(certs []model.Certificate) []string {
+	fps := make([]string, len(certs))
+	for i, c := range certs {
+		fps[i] = c.FingerprintSHA256
+	}
+	return fps
 }
