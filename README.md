@@ -134,7 +134,7 @@ See [docs/configuration.md](docs/configuration.md) for a complete reference of a
 
 ```
 cipherflag/
-├── cmd/cipherflag/          # CLI entrypoint (serve, migrate, seed)
+├── cmd/cipherflag/          # CLI entrypoint (serve, migrate, seed, setup)
 ├── config/                  # Runtime configuration (cipherflag.toml)
 ├── docker/zeek/             # Zeek sensor container
 ├── frontend/
@@ -165,6 +165,7 @@ cipherflag/
 | GET | `/api/v1/certificates/{fp}/chain` | Certificate chain (leaf to root) |
 | GET | `/api/v1/certificates/{fp}/health` | Health findings |
 | GET | `/api/v1/certificates/{fp}/observations` | TLS observation history |
+| GET | `/api/v1/search?q=...` | Global search (certs, SANs, fingerprints, IPs) |
 
 ### PKI Graph
 | Method | Path | Description |

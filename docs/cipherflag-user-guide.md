@@ -2,36 +2,35 @@
 
 ## What is CipherFlag?
 
-CipherFlag is a free, open-source tool that discovers TLS/SSL certificates on your network and builds an inventory of them. It works by passively watching network traffic -- it does not scan or probe your systems. You can also feed it packet capture (PCAP) files for offline analysis.
+CipherFlag is an open-source certificate intelligence platform that discovers TLS certificates from network traffic, scores their health, and provides interactive analytics for enterprise PKI management. It passively monitors traffic via Zeek, analyzes packet captures, and pushes discovered certificates to Venafi (Cloud or on-prem TPP) for lifecycle management.
 
-CipherFlag scores each certificate against 16 industry-standard rules (expiration, key strength, signature algorithm, chain trust, revocation, and Certificate Transparency compliance) and assigns a health grade from A+ to F. The results are available in an interactive dashboard and can be exported to Venafi Trust Protection Platform or downloaded as CSV/JSON files.
-
-This guide walks you through the complete process: from downloading CipherFlag to having a working certificate inventory with Venafi integration.
+This guide walks you through installation, configuration, and daily use.
 
 ---
 
 ## Table of Contents
 
 1. [Prerequisites](#1-prerequisites)
-2. [Download CipherFlag](#2-download-cipherflag)
-3. [Initial Configuration](#3-initial-configuration)
-4. [Deploy CipherFlag](#4-deploy-cipherflag)
-5. [Verify the Deployment](#5-verify-the-deployment)
-6. [Collect Network Traffic](#6-collect-network-traffic)
-7. [Upload PCAP Files for Offline Analysis](#7-upload-pcap-files-for-offline-analysis)
-8. [Explore the Dashboard](#8-explore-the-dashboard)
-9. [Export Certificate Inventory](#9-export-certificate-inventory)
-10. [Integrate with Venafi TPP](#10-integrate-with-venafi-tpp)
-11. [Generate Reports](#11-generate-reports)
-12. [Ongoing Operations](#12-ongoing-operations)
-13. [Troubleshooting](#13-troubleshooting)
-14. [Appendix: Configuration Reference](#appendix-configuration-reference)
+2. [Installation](#2-installation)
+3. [The Setup Wizard](#3-the-setup-wizard)
+4. [Manual Configuration](#4-manual-configuration)
+5. [Verifying Your Deployment](#5-verifying-your-deployment)
+6. [Network Capture](#6-network-capture)
+7. [Uploading PCAP Files](#7-uploading-pcap-files)
+8. [The Dashboard](#8-the-dashboard)
+9. [PKI Explorer](#9-pki-explorer)
+10. [Analytics](#10-analytics)
+11. [Global Search](#11-global-search)
+12. [Certificate Detail](#12-certificate-detail)
+13. [Venafi Integration](#13-venafi-integration)
+14. [Exporting Data](#14-exporting-data)
+15. [API Reference](#15-api-reference)
+16. [Ongoing Operations](#16-ongoing-operations)
+17. [Troubleshooting](#17-troubleshooting)
 
 ---
 
 ## 1. Prerequisites
-
-Before you begin, make sure you have the following on the machine where you will run CipherFlag.
 
 ### Required Software
 
@@ -41,23 +40,16 @@ Before you begin, make sure you have the following on the machine where you will
 | Docker Compose | v2+ | Orchestrates the three services |
 | A web browser | Any modern browser | Access the CipherFlag dashboard |
 
-**Installing Docker:** If Docker is not installed, follow the official guide for your operating system:
+**Installing Docker:** Follow the official guide for your OS:
 - Linux: https://docs.docker.com/engine/install/
 - macOS: https://docs.docker.com/desktop/install/mac-install/
 - Windows: https://docs.docker.com/desktop/install/windows-install/ (WSL2 backend recommended)
 
-After installation, verify Docker is working:
-
-```bash
-docker --version
-docker compose version
-```
-
 ### Network Requirements
 
-- **Port 8443** must be accessible from your browser (this is the CipherFlag web interface)
-- If using live network capture: the machine needs access to a **SPAN port**, **mirror port**, or **network TAP** that copies traffic to a network interface
-- If using PCAP upload only: no special network access is needed
+- **Port 8443** must be accessible from your browser
+- For live capture: access to a SPAN port, mirror port, or network TAP
+- For PCAP-only analysis: no special network access needed
 
 ### Hardware Recommendations
 
@@ -67,803 +59,521 @@ docker compose version
 | Small network (< 1 Gbps) | 4 cores | 8 GB | 50 GB |
 | Medium network (1-10 Gbps) | 8 cores | 16 GB | 100 GB |
 
-Disk usage depends on traffic volume and certificate diversity. Zeek logs and the PostgreSQL database are the primary consumers.
-
 ---
 
-## 2. Download CipherFlag
+## 2. Installation
 
-### Option A: Download from cyberflag.ai
-
-Go to [https://cyberflag.ai/download](https://cyberflag.ai/download) and download the latest release archive.
-
-Extract the archive:
+### Option A: Install Script (Recommended)
 
 ```bash
-tar xzf cipherflag-v1.0.0.tar.gz
+curl -fsSL https://raw.githubusercontent.com/cyberflag-ai/cipherflag/main/scripts/install.sh | sh
+```
+
+This downloads the `cipherflag` CLI binary for your platform (Linux or macOS, amd64 or arm64) and installs it to `/usr/local/bin`.
+
+Then run the setup wizard:
+
+```bash
+cipherflag setup
+```
+
+### Option B: Clone and Build
+
+```bash
+git clone https://github.com/cyberflag-ai/cipherflag.git
 cd cipherflag
-```
-
-### Option B: Clone from GitHub
-
-```bash
-git clone https://github.com/cipherflag/cipherflag.git
-cd cipherflag
-```
-
-### What You Get
-
-After downloading, the `cipherflag/` directory contains:
-
-```
-cipherflag/
-├── docker-compose.yml     # Deployment orchestration
-├── .env.example           # Environment variable template
-├── config/
-│   └── cipherflag.toml    # Application configuration
-├── docker/
-│   └── zeek/              # Zeek sensor container files
-├── Dockerfile             # CipherFlag container build
-├── docs/                  # Additional documentation
-└── LICENSE                # Apache 2.0 license
+docker-compose up -d
 ```
 
 ---
 
-## 3. Initial Configuration
+## 3. The Setup Wizard
 
-CipherFlag uses an environment file (`.env`) for deployment settings. Start by creating your configuration:
+The setup wizard (`cipherflag setup`) is the easiest way to get started. It walks through four steps:
 
-```bash
-cp .env.example .env
+### Step 1: Installation Directory
+
+Choose where CipherFlag writes its configuration files. Default: `./cipherflag`.
+
+```
+Step 1/4: Installation Directory
+Directory [./cipherflag]:
 ```
 
-Open `.env` in a text editor. Here are the settings you need to decide on:
+### Step 2: Network Interface
 
-### Database Password
+The wizard lists available network interfaces with their IP addresses. Select the one connected to your SPAN port or mirror.
 
-Change the default password for any deployment beyond local evaluation:
-
-```bash
-POSTGRES_PASSWORD=your-secure-password-here
+```
+Step 2/4: Network Capture
+Available interfaces:
+  1. eth0        10.0.1.5       up
+  2. ens192      172.16.0.10    up
+  3. lo          127.0.0.1      up (loopback)
+Select interface [1]: 2
 ```
 
-### Network Interface (Optional)
+### Step 3: Venafi Integration
 
-If you have a SPAN port or mirror port available, set the network interface that receives the mirrored traffic:
+Choose your Venafi platform or skip for now.
 
-```bash
-NETWORK_INTERFACE=eth1
+```
+Step 3/4: Venafi Integration
+  1. Venafi Cloud (SaaS)
+  2. Venafi TPP (on-prem)
+  3. Skip (configure later)
 ```
 
-To find available interfaces on Linux:
-```bash
-ip link show
+For Venafi Cloud, you'll need your API key (from Venafi Cloud > Preferences > API Keys). For TPP, you'll need the server URL, OAuth2 client ID, and refresh token. The wizard validates your credentials before proceeding.
+
+### Step 4: Deploy
+
+The wizard generates configuration files, pulls Docker images, and optionally starts the services.
+
 ```
+Start services now? [Y/n]: Y
+✓ Services started
 
-On macOS:
-```bash
-ifconfig -l
-```
-
-**Leave this blank** if you plan to use PCAP upload only. You can always add live capture later.
-
-### Venafi Integration (Optional)
-
-Leave the Venafi settings at their defaults for now. We will configure them in [Section 10](#10-integrate-with-venafi-tpp) after CipherFlag is running and collecting data.
-
-Your `.env` file should look something like this:
-
-```bash
-# Network capture
-NETWORK_INTERFACE=eth1          # or leave empty for PCAP-only mode
-
-# Database
-POSTGRES_PASSWORD=MySecurePass123
-
-# Venafi (configure later)
-VENAFI_ENABLED=false
-VENAFI_BASE_URL=
-VENAFI_CLIENT_ID=
-VENAFI_REFRESH_TOKEN=
-VENAFI_FOLDER=\VED\Policy\Discovered\CipherFlag
+══════════════════════════════════════
+Dashboard:  http://10.0.1.5:8443
+Venafi:     Cloud (us) — push every 60 min
+Interface:  ens192 (172.16.0.10)
+══════════════════════════════════════
 ```
 
 ---
 
-## 4. Deploy CipherFlag
+## 4. Manual Configuration
 
-Start all three services with a single command:
+If you prefer manual setup, CipherFlag uses two configuration files:
 
-```bash
-docker compose up -d
-```
-
-This downloads the required container images and starts:
-
-| Container | What It Does |
-|-----------|-------------|
-| **postgres** | Stores all certificate data, observations, and health reports |
-| **zeek** | Network sensor that watches for TLS handshakes and extracts certificate data |
-| **cipherflag** | The API server and web dashboard |
-
-The first startup takes 1-2 minutes while containers are downloaded and the database is initialized. On subsequent starts, it takes a few seconds.
-
-Watch the startup progress:
+### `.env` — Docker Compose variables
 
 ```bash
-docker compose logs -f
+NETWORK_INTERFACE=ens192
+POSTGRES_PASSWORD=your-secure-password
+VENAFI_ENABLED=true
+VENAFI_PLATFORM=cloud
+VENAFI_API_KEY=your-api-key
+VENAFI_REGION=us
 ```
 
-You will see messages like:
-```
-cipherflag  | CipherFlag API server starting addr=0.0.0.0:8443
-zeek        | Starting live capture on interface: eth1
-```
+### `config/cipherflag.toml` — Application settings
 
-Press `Ctrl+C` to stop watching logs (the containers continue running).
+See [Configuration Reference](configuration.md) for all options.
+
+Key sections:
+- `[server]` — listen address
+- `[storage]` — PostgreSQL connection
+- `[analysis]` — health scoring rules and thresholds
+- `[sources.zeek_file]` — Zeek log polling
+- `[export.venafi]` — Venafi Cloud or TPP integration
+- `[pcap]` — PCAP upload limits
 
 ---
 
-## 5. Verify the Deployment
+## 5. Verifying Your Deployment
 
-### Check that all containers are running
+After starting services, verify everything is running:
 
 ```bash
 docker compose ps
 ```
 
-All three services should show `Up` status. The postgres service should show `(healthy)`.
+All three services should show "Up":
+- `postgres` — database
+- `zeek` — network sensor
+- `cipherflag` — API server and dashboard
 
-### Test the API
+Check the Venafi push status:
 
 ```bash
-curl http://localhost:8443/healthz
+curl -s http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
 ```
 
-Expected response:
-```json
-{"status":"ok"}
-```
-
-### Open the Dashboard
-
-Open [http://localhost:8443](http://localhost:8443) in your web browser.
-
-You will see the CipherFlag dashboard. If you configured a network interface, certificates will begin appearing within seconds as Zeek detects TLS handshakes on the monitored traffic. If no interface is configured, the dashboard will be empty -- proceed to the next section to upload a PCAP file.
+Open the dashboard in your browser: `http://<your-ip>:8443`
 
 ---
 
-## 6. Collect Network Traffic
+## 6. Network Capture
 
-CipherFlag collects certificate data in two ways: live passive capture and PCAP file upload. You can use either or both.
+CipherFlag uses Zeek to passively extract certificates from TLS handshakes. No traffic is modified or interrupted.
 
-### Live Passive Capture
+### Setting Up a SPAN Port
 
-If you set `NETWORK_INTERFACE` in your `.env` file, CipherFlag is already collecting data. Zeek passively monitors the specified interface for TLS handshakes and extracts certificate information without affecting traffic flow.
+Connect the capture interface to a SPAN/mirror port on your switch or a network TAP. CipherFlag sees a copy of all traffic on that segment and extracts TLS certificates from the handshakes.
 
-**How to set up a SPAN port:**
+### What Gets Captured
 
-Most managed switches support port mirroring (also called SPAN). The general process is:
-
-1. Log into your switch management interface
-2. Configure a SPAN session that mirrors traffic from source ports (the ports carrying traffic you want to monitor) to a destination port
-3. Connect the destination port to a network interface on the CipherFlag host
-4. Set `NETWORK_INTERFACE` in `.env` to that interface name
-
-Consult your switch vendor's documentation for specific steps. Common platforms:
-- Cisco: `monitor session` commands
-- Juniper: Port mirroring configuration
-- Arista: `monitor session` commands
-- VMware vSwitch: Promiscuous mode on port group
-
-**What gets collected:**
-
-CipherFlag extracts the following from every observed TLS handshake:
-- The server certificate and any intermediate certificates in the chain
-- The TLS version and cipher suite negotiated
-- Server IP address and port
-- Server Name Indication (SNI)
+For each TLS connection, CipherFlag records:
+- The complete X.509 certificate chain (leaf + intermediates + root)
+- Server hostname (SNI), IP address, and port
+- Negotiated TLS version and cipher suite
 - JA3/JA3S fingerprints
-- Connection metadata (client IP, duration)
 
-No application payload data is captured or stored.
+### Monitoring Capture Activity
 
-### Verifying Collection
-
-After a few minutes of live capture, check the dashboard:
-- The **certificate count** on the dashboard should be increasing
-- The **PKI Explorer** page shows the certificate authority hierarchy
-- The **Analytics** page shows cipher suite and TLS version distributions
-
-You can also check Zeek's output directly:
+Watch the logs for certificate discovery:
 
 ```bash
-docker compose exec zeek ls -la /zeek-logs/
+docker compose logs -f cipherflag | grep -i "cert\|ingest"
 ```
-
-You should see `x509.log`, `ssl.log`, and `conn.log` files.
 
 ---
 
-## 7. Upload PCAP Files for Offline Analysis
+## 7. Uploading PCAP Files
 
-PCAP upload is useful for:
-- Evaluating CipherFlag before setting up live capture
-- Analyzing traffic from a different network segment
-- Processing historical captures
-- One-time audits
+For offline analysis, upload packet captures via the **Upload** page or API.
 
-### Capture Traffic (if you do not already have a PCAP file)
+### Via the UI
 
-On the machine where traffic flows (or on the CipherFlag host if it has a network interface):
+Navigate to the **Upload** tab in the dashboard. Drag and drop a `.pcap` or `.pcapng` file (up to 500 MB by default).
+
+### Via the API
 
 ```bash
-# Capture 60 seconds of TLS traffic
-sudo tcpdump -i eth0 -w capture.pcap -G 60 -W 1 port 443
-```
-
-Replace `eth0` with your network interface. This creates a file called `capture.pcap` containing 60 seconds of HTTPS traffic.
-
-### Upload via the Web Interface
-
-1. Open [http://localhost:8443](http://localhost:8443) in your browser
-2. Click **Upload** in the navigation bar
-3. Drag and drop your `.pcap` or `.pcapng` file onto the upload zone, or click to browse
-4. Wait for processing to complete (a progress indicator shows the current status)
-5. When complete, you will see a summary:
-   - **Certificates found** -- total certificates extracted from the capture
-   - **New certificates** -- certificates not previously seen by CipherFlag
-6. Click the link to view the discovered certificates
-
-### Upload via the API
-
-For automation or scripting, use the REST API:
-
-```bash
-# Upload a PCAP file
 curl -X POST http://localhost:8443/api/v1/pcap/upload \
   -F "file=@capture.pcap"
 ```
 
-This returns a job object with an ID. Poll for completion:
+Check job status:
 
 ```bash
-# Check job status (replace JOB_ID with the returned ID)
-curl http://localhost:8443/api/v1/pcap/jobs/JOB_ID
+curl http://localhost:8443/api/v1/pcap/jobs
 ```
-
-The job transitions through these states: `queued` -> `processing` -> `complete` (or `failed`).
-
-### File Size Limits
-
-The default maximum PCAP file size is 500 MB. For larger captures, split them with `tcpdump`:
-
-```bash
-# Split a large capture into 100 MB chunks
-tcpdump -r large-capture.pcap -w chunk.pcap -C 100
-```
-
-Upload each chunk separately. CipherFlag deduplicates certificates automatically.
 
 ---
 
-## 8. Explore the Dashboard
+## 8. The Dashboard
 
-Once CipherFlag has data, the dashboard provides several views:
+The dashboard (`/`) shows a high-level overview:
 
-### Dashboard (Home)
+- **Risk signal cards** — expired, expiring within 30/90 days, grade F, total findings
+- **Grade distribution** — donut chart showing A+ through F breakdown
+- **Expiry timeline** — 52-week forecast of upcoming expirations
+- **Issuer treemap** — certificates by issuer, sized by count
+- **Discovery sources** — where certificates were found
 
-The main dashboard shows:
-- **Certificate count** and **observation count**
-- **Grade distribution** pie chart (A+ through F)
-- **Expiry timeline** -- certificates expiring in the coming weeks
-- **Top issuers** -- which CAs issued the most certificates on your network
+Click any risk card to navigate to filtered certificate views.
 
-### PKI Explorer
+---
 
-A hierarchical tree view of your certificate authority structure:
-- Root CAs at the top
-- Intermediate CAs nested underneath
-- Leaf certificates grouped by issuer
-- Click any certificate to see its details, health report, and chain
+## 9. PKI Explorer
+
+The PKI Explorer (`/pki`) is an interactive force-directed graph showing your entire CA hierarchy.
+
+### Navigating the Graph
+
+- **Pan:** Click and drag the background
+- **Zoom:** Scroll wheel
+- **Hover:** Tooltip with CA name, grade, cert count, expiry stats
+
+### Inspecting a Node
+
+Click any node to open the **detail panel** on the right:
+- Grade, cert count, expired/expiring stats, avg score
+- Overview tab: key algorithm, fingerprint, validity dates, issuer
+- Findings tab: health findings with severity and remediation
+- Children tab: child certificates issued by this CA
+- Action buttons: "Expand in Graph" and "Blast Radius"
+
+### Blast Radius
+
+Right-click a CA node (or click "Blast Radius" in the detail panel) to see every certificate that CA signed, recursively. The graph dims non-affected nodes and shows a summary badge with total certs, expired count, and grade F count.
+
+### Search
+
+The toolbar search bar finds nodes in the graph (client-side) and certificates not yet loaded (server-side fallback). Click a result to open its detail panel.
+
+---
+
+## 10. Analytics
+
+The Analytics page (`/analytics`) has five tabs:
+
+### Chain Flow
+
+A Sankey diagram showing certificate trust flow: Root CAs → Intermediates → Leaf certificates. Each flow is colored by its root CA family. Link width represents certificate count.
+
+- Hover a link to see cert count, expired count, and worst grade
+- Click a CA node to navigate to the PKI Explorer
+- Click a leaf aggregate to see those certificates
+
+### Ownership
+
+Two views of certificate ownership:
+
+**By Certificate Metadata** — A treemap grouping certificates by issuer organization and subject organizational unit. Rectangle size = cert count, color = health grade.
+
+**By Deployment** — A horizontal bar chart showing the top 20 domains where certificates are observed (from network traffic). Each bar shows cert count, unique IPs, and worst grade.
+
+### Crypto Posture
+
+Four panels showing cryptographic health:
+
+- **Key Algorithm** — donut chart (RSA vs ECDSA vs Ed25519)
+- **Key Size Distribution** — bars by key size (RSA 2048, ECDSA 256, etc.)
+- **TLS Version x Cipher Strength** — heatmap showing where weak crypto exists
+- **Signature Algorithm** — bars with weak algorithms (SHA1, MD5) highlighted in red
+- **Cipher Strength Overview** — Best/Strong/Acceptable/Weak/Insecure distribution
+
+### Expiry Forecast
+
+A 52-week stacked bar chart showing upcoming certificate expirations, broken down by issuer organization. Hover any bar for a per-issuer and per-grade breakdown. An alert banner shows already-expired certificate count.
+
+### Source Lineage
+
+Cards for each discovery source (Zeek passive, active scan, manual upload, Corelight, etc.) with:
+- Category icon (network, upload, scan, cloud, repository)
+- Cert count, expired count, expiring <30d, average score
+- Grade distribution mini-bar
+- Key algorithm pills
+- First/last seen dates
+
+---
+
+## 11. Global Search
+
+The search bar in the top navigation searches across the entire CipherFlag dataset:
+
+- **Certificate names and organizations** — subject CN, subject org, issuer CN, issuer org
+- **Fingerprints** — SHA-256 fingerprint prefix matching
+- **Serial numbers** — exact or partial match
+- **Subject Alternative Names** — domain names in the SAN extension
+- **Server names and IPs** — from network observations
+
+Type 2+ characters to see results. Results are categorized:
+
+- **Certificates** — shows grade, CN, issuer, key algorithm, expiry, and which field matched
+- **Endpoints** — shows server name, IP:port, TLS version, and associated certificate
+
+Click any result to navigate to the certificate detail page.
+
+---
+
+## 12. Certificate Detail
+
+The certificate detail page (`/certificates/{fingerprint}`) shows:
+
+- Full certificate metadata (subject, issuer, validity, key info, extensions)
+- Health report with grade, score, and detailed findings
+- Certificate chain visualization (Cytoscape.js breadthfirst layout)
+- TLS observation history (server IP, port, cipher, TLS version, timestamps)
+
+Each health finding shows:
+- Severity (critical, high, medium, low)
+- Category (expiration, key_strength, signature, chain, revocation, transparency)
+- Point deduction
+- Remediation guidance
+
+---
+
+## 13. Venafi Integration
+
+CipherFlag pushes discovered certificates to Venafi automatically. See the [Venafi Integration Guide](venafi-export.md) for setup instructions.
+
+### How It Works
+
+1. CipherFlag discovers certificates via Zeek or PCAP upload
+2. The push scheduler runs every 60 minutes (configurable)
+3. New/updated certificates are batched (up to 100 per API call) and pushed to Venafi
+4. Per-certificate failure tracking with exponential backoff prevents hammering Venafi with consistently failing certs
+5. After 5 consecutive failures, a certificate is dead-lettered
+
+### Monitoring Push Status
+
+```bash
+curl http://localhost:8443/api/v1/venafi/status
+```
+
+| Field | Meaning |
+|-------|---------|
+| `pending` | Certificates not yet pushed |
+| `pushed` | Successfully pushed and up to date |
+| `failed` | 1-4 failures, will retry with backoff |
+| `dead_lettered` | 5+ failures, excluded from push |
+
+### Supported Platforms
+
+| Platform | Auth Method | API |
+|----------|-------------|-----|
+| Venafi Cloud (SaaS) | API key | `POST /outagedetection/v1/certificates` |
+| Venafi TPP (on-prem) | OAuth2 refresh token | `POST /vedsdk/Discovery/Import` |
+
+---
+
+## 14. Exporting Data
+
+### CSV Export
+
+```bash
+curl -o certificates.csv "http://localhost:8443/api/v1/export/certificates?format=csv"
+```
+
+### JSON Export
+
+```bash
+curl -o certificates.json "http://localhost:8443/api/v1/export/certificates?format=json"
+```
+
+### Filtered Exports
+
+```bash
+# Only grade F certificates
+curl -o failing.csv "http://localhost:8443/api/v1/export/certificates?format=csv&grade=F"
+
+# Expiring within 30 days
+curl -o expiring.csv "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
+
+# ECDSA certificates only
+curl -o ecdsa.json "http://localhost:8443/api/v1/export/certificates?format=json&key_algorithm=ECDSA"
+
+# Certificates from a specific issuer
+curl -o digicert.csv "http://localhost:8443/api/v1/export/certificates?format=csv&issuer_org=DigiCert+Inc"
+```
+
+---
+
+## 15. API Reference
+
+All endpoints are under `/api/v1/`.
 
 ### Certificates
 
-A searchable, filterable table of all discovered certificates:
-- **Search** by common name, organization, fingerprint, or serial number
-- **Filter** by grade (A+, A, B, C, D, F), discovery source, CA status, expiration
-- **Sort** by expiry date, grade, common name, or last seen
-- Click any certificate for full details including subject, issuer, key info, SANs, health findings, and observation history
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/certificates` | Search/filter certificates |
+| GET | `/certificates/{fp}` | Certificate detail + health |
+| GET | `/certificates/{fp}/chain` | Chain (leaf → root) |
+| GET | `/certificates/{fp}/health` | Health findings |
+| GET | `/certificates/{fp}/observations` | TLS observations |
+| GET | `/search?q=...` | Global search (certs, SANs, IPs, fingerprints) |
+
+### Certificate Search Parameters
+
+| Parameter | Example | Description |
+|-----------|---------|-------------|
+| `search` | `?search=acme` | Full-text search |
+| `grade` | `?grade=D,F` | Filter by grade (comma-separated) |
+| `source` | `?source=zeek_passive` | Filter by discovery source |
+| `issuer_cn` | `?issuer_cn=DigiCert` | Filter by issuer CN |
+| `issuer_org` | `?issuer_org=Amazon` | Filter by issuer organization |
+| `subject_ou` | `?subject_ou=Engineering` | Filter by subject OU |
+| `key_algorithm` | `?key_algorithm=ECDSA` | Filter by key algorithm |
+| `signature_algorithm` | `?signature_algorithm=SHA256WithRSA` | Filter by signature |
+| `server_name` | `?server_name=payments` | Filter by observed server (partial) |
+| `expired` | `?expired=true` | Only expired certs |
+| `expiring_within_days` | `?expiring_within_days=30` | Expiring within N days |
+| `is_ca` | `?is_ca=true` | Only CA certs |
+| `sort_by` | `?sort_by=expiry` | Sort: expiry, grade, cn, last_seen |
+| `sort_dir` | `?sort_dir=desc` | Sort direction: asc, desc |
+
+### PKI Graph
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/graph/landscape/aggregated` | CA-only graph with stats |
+| GET | `/graph/ca/{fp}/children` | Children of a CA |
+| GET | `/graph/ca/{fp}/blast-radius` | Full downstream subgraph |
 
 ### Analytics
 
-Cipher suite and protocol analytics:
-- TLS version distribution (how much TLS 1.0/1.1/1.2/1.3 traffic)
-- Cipher strength distribution (Best/Strong/Acceptable/Weak/Insecure)
-- Issuer breakdown with average health scores
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/stats/summary` | Dashboard stats |
+| GET | `/stats/chain-flow` | Sankey flow data |
+| GET | `/stats/ownership` | Issuer org x subject OU |
+| GET | `/stats/deployment` | Certs by deployment domain |
+| GET | `/stats/crypto-posture` | Key/sig algorithm stats |
+| GET | `/stats/expiry-forecast` | Weekly expiry by issuer |
+| GET | `/stats/source-lineage` | Per-source breakdowns |
+| GET | `/stats/ciphers` | TLS cipher analytics |
 
-### Certificate Detail
+### Venafi
 
-Click any certificate to see:
-- Full subject and issuer details
-- Validity period and days until expiry
-- Key algorithm and size
-- Subject Alternative Names
-- Health report with grade, score, and specific findings
-- Remediation recommendations for each finding
-- Observation history (where and when the certificate was seen)
-- Certificate chain visualization
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/venafi/status` | Push scheduler status |
 
----
+### Export
 
-## 9. Export Certificate Inventory
-
-CipherFlag supports exporting your certificate inventory in two formats.
-
-### Export from the Web Interface
-
-1. Navigate to the **Certificates** page
-2. Apply any filters you want (e.g., only Grade D and F certificates)
-3. Click the **Export** button in the top-right area
-4. Choose **CSV** or **JSON**
-5. Your browser downloads the file
-
-The export respects your current filters -- if you are viewing only expiring certificates, the export contains only those certificates.
-
-### Export via the API
-
-```bash
-# Export all certificates as CSV
-curl -o certificates.csv \
-  "http://localhost:8443/api/v1/export/certificates?format=csv"
-
-# Export all certificates as JSON
-curl -o certificates.json \
-  "http://localhost:8443/api/v1/export/certificates?format=json"
-
-# Export only failing certificates (Grade D and F)
-curl -o failing.csv \
-  "http://localhost:8443/api/v1/export/certificates?format=csv&grade=D,F"
-
-# Export certificates expiring within 30 days
-curl -o expiring.csv \
-  "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
-
-# Export certificates from a specific source
-curl -o zeek-certs.json \
-  "http://localhost:8443/api/v1/export/certificates?format=json&source=zeek_passive"
-```
-
-### CSV Format
-
-The CSV export is designed to be compatible with Venafi's bulk import template. Columns include:
-
-| Column | Description |
-|--------|------------|
-| Fingerprint SHA256 | Unique certificate identifier |
-| Subject CN | Common name (e.g., www.example.com) |
-| Subject Organization | Organization name |
-| Subject Full DN | Full distinguished name |
-| Issuer CN | Issuing CA common name |
-| Issuer Organization | Issuing CA organization |
-| Serial Number | Certificate serial |
-| Not Before / Not After | Validity period |
-| Key Algorithm / Size | e.g., RSA 2048, ECDSA 256 |
-| Signature Algorithm | e.g., SHA256WithRSA |
-| Subject Alt Names | All SANs, semicolon-separated |
-| Discovery Source | How the certificate was found |
-| First Seen / Last Seen | When CipherFlag first and last observed it |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/export/certificates?format=csv` | CSV download |
+| GET | `/export/certificates?format=json` | JSON download |
 
 ---
 
-## 10. Integrate with Venafi TPP
+## 16. Ongoing Operations
 
-CipherFlag can automatically push discovered certificates to Venafi Trust Protection Platform. This is the primary integration for building certificate inventory in Venafi from network-observed data.
-
-### What This Integration Does
-
-- CipherFlag periodically checks for new or updated certificates (default: every 60 minutes)
-- New certificates are pushed to a configurable policy folder in Venafi TPP
-- Each certificate includes its PEM data, discovery metadata, observed endpoints, and health grade
-- Venafi deduplicates by certificate thumbprint, so pushing the same certificate twice is safe
-
-### Step 1: Create an API Integration in Venafi
-
-1. Log into the Venafi TPP web console as an administrator
-2. Navigate to **API** > **API Integrations**
-3. Click **Create New Integration** and configure:
-   - **Name:** CipherFlag
-   - **Grant types:** Resource Owner, Refresh Token
-   - **Scope:** `certificate:manage` (minimum required)
-   - **Token refresh:** Enabled (recommended: 90-day lifetime)
-4. After creation, note the **Client ID** displayed
-
-### Step 2: Create the Target Policy Folder
-
-In Venafi TPP:
-1. Navigate to **Policy** > **Discovered** (or create your preferred folder structure)
-2. Create a folder called **CipherFlag** (or choose your own name)
-3. Ensure the service account used by CipherFlag has **Create** permission on this folder
-
-The folder path will look like: `\VED\Policy\Discovered\CipherFlag`
-
-### Step 3: Obtain a Refresh Token
-
-Run this command, replacing the placeholder values:
+### Checking Health
 
 ```bash
-curl -X POST "https://your-tpp-server.example.com/vedauth/authorize/oauth" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "client_id": "your-client-id-from-step-1",
-    "username": "your-tpp-username",
-    "password": "your-tpp-password",
-    "scope": "certificate:manage"
-  }'
+# Service status
+docker compose ps
+
+# CipherFlag logs
+docker compose logs -f cipherflag
+
+# Venafi push status
+curl http://localhost:8443/api/v1/venafi/status
 ```
-
-The response looks like:
-```json
-{
-  "access_token": "...",
-  "refresh_token": "ABC123...",
-  "expires": 3600
-}
-```
-
-Copy the `refresh_token` value. CipherFlag uses this to automatically obtain and renew short-lived access tokens. You will not need to manually refresh tokens.
-
-### Step 4: Configure CipherFlag
-
-Edit your `.env` file:
-
-```bash
-VENAFI_ENABLED=true
-VENAFI_BASE_URL=https://your-tpp-server.example.com/vedsdk
-VENAFI_CLIENT_ID=your-client-id-from-step-1
-VENAFI_REFRESH_TOKEN=ABC123...
-VENAFI_FOLDER=\VED\Policy\Discovered\CipherFlag
-```
-
-Restart CipherFlag to apply the configuration:
-
-```bash
-docker compose restart cipherflag
-```
-
-### Step 5: Verify the Integration
-
-Check the CipherFlag logs for Venafi activity:
-
-```bash
-docker compose logs -f cipherflag | grep -i venafi
-```
-
-You should see messages about certificate pushes. Then verify in Venafi TPP:
-1. Navigate to the policy folder you configured
-2. Certificates discovered by CipherFlag should appear within the push interval (default: 60 minutes)
-
-### Adjusting the Push Interval
-
-To change how often CipherFlag pushes to Venafi, edit `config/cipherflag.toml`:
-
-```toml
-[export.venafi]
-push_interval_minutes = 30    # Push every 30 minutes instead of 60
-```
-
-Then restart:
-```bash
-docker compose restart cipherflag
-```
-
----
-
-## 11. Generate Reports
-
-CipherFlag provides several ways to generate reports from your certificate inventory.
-
-### Dashboard Reports
-
-The dashboard itself serves as a live report. Key metrics available at a glance:
-- Total certificates and observations
-- Grade distribution (how many A+, A, B, C, D, F)
-- Certificates expiring in 30, 60, 90 days
-- Critical findings count
-
-### Expiration Report
-
-To get a list of certificates expiring soon:
-
-```bash
-# Certificates expiring within 30 days
-curl -o expiring-30d.csv \
-  "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
-
-# Certificates expiring within 90 days
-curl -o expiring-90d.csv \
-  "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=90"
-```
-
-### Compliance Report
-
-To identify certificates that do not meet your security policy:
-
-```bash
-# All failing certificates (Grade F -- expired, weak keys, broken signatures)
-curl -o compliance-failures.csv \
-  "http://localhost:8443/api/v1/export/certificates?format=csv&grade=F"
-
-# All certificates below Grade B
-curl -o below-threshold.csv \
-  "http://localhost:8443/api/v1/export/certificates?format=csv&grade=C,D,F"
-```
-
-### Issuer Report
-
-The Stats API provides issuer-level analytics:
-
-```bash
-curl http://localhost:8443/api/v1/stats/issuers | python3 -m json.tool
-```
-
-This returns each issuer with certificate count, average health score, and worst grade.
-
-### Cipher and Protocol Report
-
-```bash
-curl http://localhost:8443/api/v1/stats/ciphers | python3 -m json.tool
-```
-
-This shows TLS version distribution, cipher strength breakdown, and the full cipher-TLS matrix for your network.
-
-### Scheduled Reports
-
-CipherFlag does not have built-in report scheduling. To generate reports on a schedule, use a cron job:
-
-```bash
-# Add to crontab: daily expiration report at 7 AM
-0 7 * * * curl -s -o /reports/expiring-30d-$(date +\%Y\%m\%d).csv \
-  "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
-```
-
----
-
-## 12. Ongoing Operations
 
 ### Updating CipherFlag
 
-When a new version is released:
-
 ```bash
-cd cipherflag
-git pull                      # or download the new release
-docker compose build          # Rebuild containers
-docker compose up -d          # Restart with new version
-```
-
-Database migrations are applied automatically on startup. Your data is preserved.
-
-### Monitoring Health
-
-Check container status:
-```bash
-docker compose ps
-```
-
-Check disk usage (Zeek logs and database):
-```bash
-docker system df
-```
-
-View real-time logs:
-```bash
-docker compose logs -f cipherflag    # Application logs
-docker compose logs -f zeek          # Sensor logs
-```
-
-### Backup
-
-The certificate database is stored in a Docker volume. To back it up:
-
-```bash
-# Create a database dump
-docker compose exec postgres pg_dump -U cipherflag cipherflag > backup.sql
-
-# Restore from backup
-docker compose exec -T postgres psql -U cipherflag cipherflag < backup.sql
-```
-
-### Stopping and Starting
-
-```bash
-# Stop all services (data is preserved)
-docker compose down
-
-# Start again
+docker compose pull
 docker compose up -d
-
-# Stop and remove all data (fresh start)
-docker compose down -v
 ```
 
-### Security Considerations
+### Backing Up the Database
 
-CipherFlag v1 does not include built-in authentication. Protect your deployment with one of:
+```bash
+docker compose exec postgres pg_dump -U cipherflag cipherflag > backup.sql
+```
 
-- **Network segmentation** -- only allow access from a management VLAN or jump host
-- **Reverse proxy** -- place nginx or Caddy in front of CipherFlag with basic auth or SSO
-- **Firewall rules** -- restrict port 8443 to specific IP addresses
+### Resetting Dead-Lettered Certificates
+
+If certificates are stuck in dead-letter (5+ Venafi push failures):
+
+```sql
+docker compose exec postgres psql -U cipherflag -c \
+  "UPDATE certificates SET venafi_push_failures = 0, venafi_last_push_attempt = NULL WHERE venafi_push_failures >= 5;"
+```
 
 ---
 
-## 13. Troubleshooting
+## 17. Troubleshooting
 
-### Containers will not start
+### Dashboard not loading
 
-**Check Docker is running:**
-```bash
-docker info
-```
+- Verify services are running: `docker compose ps`
+- Check port 8443 is accessible: `curl http://localhost:8443/healthz`
+- Check logs: `docker compose logs cipherflag`
 
-**Check for port conflicts:**
-```bash
-# Is port 8443 already in use?
-lsof -i :8443
-```
+### No certificates appearing
 
-**Check container logs:**
-```bash
-docker compose logs postgres
-docker compose logs cipherflag
-docker compose logs zeek
-```
-
-### No certificates appearing (live capture)
-
-1. **Verify the network interface exists** and is receiving traffic:
-   ```bash
-   docker compose exec zeek ip link show
-   ```
-
-2. **Verify Zeek is running and producing logs:**
-   ```bash
-   docker compose exec zeek ls -la /zeek-logs/
-   ```
-   You should see `x509.log` and `ssl.log` files that are growing.
-
-3. **Check that traffic is reaching the interface:**
-   ```bash
-   docker compose exec zeek tcpdump -i $NETWORK_INTERFACE -c 10 port 443
-   ```
-   If no packets appear, the SPAN port or mirror is not configured correctly.
-
-4. **Check the CipherFlag poller logs:**
-   ```bash
-   docker compose logs cipherflag | grep -i "zeek\|poller\|ingest"
-   ```
-
-### PCAP upload stuck in "processing"
-
-1. **Check Zeek container logs:**
-   ```bash
-   docker compose logs zeek | tail -20
-   ```
-
-2. **Check if the sentinel file was created:**
-   ```bash
-   docker compose exec cipherflag ls /zeek-logs/
-   ```
-   Look for a directory matching the job ID with a `.done` file inside it.
-
-3. **Check for PCAP processing errors:**
-   ```bash
-   docker compose exec zeek ls /pcap-input/
-   ```
+- Verify Zeek is running: `docker compose logs zeek`
+- Confirm the network interface is correct and receiving traffic
+- For PCAP uploads, check job status: `curl http://localhost:8443/api/v1/pcap/jobs`
 
 ### Venafi push not working
 
-See the detailed troubleshooting section in the [Venafi Export Guide](venafi-export.md), covering:
-- Connection and timeout errors
-- Authentication (401) errors
-- Certificates not appearing in Venafi
-- Missing PEM data
+- Check status: `curl http://localhost:8443/api/v1/venafi/status`
+- Look for errors: `docker compose logs cipherflag | grep venafi`
+- For Cloud: verify API key and region match your Venafi Cloud account
+- For TPP: verify the refresh token hasn't expired
+- See the [Venafi Integration Guide](venafi-export.md) for detailed troubleshooting
 
-### Database connection errors
+### Search returns no results
 
-```bash
-# Check postgres is healthy
-docker compose exec postgres pg_isready -U cipherflag
+- The global search requires at least 2 characters
+- Full-text search indexes: subject CN, org, issuer CN, org, fingerprint, serial number
+- SAN search uses partial matching (ILIKE)
+- Server name search requires observation data (from network capture, not manual upload)
 
-# Check CipherFlag can reach postgres
-docker compose logs cipherflag | grep -i "database\|postgres\|connect"
-```
+### High memory usage
 
-### High disk usage
-
-Zeek logs accumulate over time. CipherFlag cleans up processed logs, but if disk is growing:
-
-```bash
-# Check Zeek log size
-docker compose exec zeek du -sh /zeek-logs/
-
-# Check database size
-docker compose exec postgres psql -U cipherflag -c "SELECT pg_size_pretty(pg_database_size('cipherflag'));"
-```
-
-To reduce log retention, edit `config/cipherflag.toml`:
-```toml
-[sources.zeek_file]
-poll_interval_seconds = 15    # Process logs faster
-```
-
----
-
-## Appendix: Configuration Reference
-
-### Environment Variables (.env)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `NETWORK_INTERFACE` | *(empty)* | Network interface for live capture. Leave empty for PCAP-only. |
-| `POSTGRES_PASSWORD` | `changeme` | Database password. Change for non-local deployments. |
-| `VENAFI_ENABLED` | `false` | Enable automated push to Venafi TPP. |
-| `VENAFI_BASE_URL` | *(empty)* | Venafi TPP SDK URL (e.g., `https://tpp.example.com/vedsdk`). |
-| `VENAFI_CLIENT_ID` | *(empty)* | OAuth2 client ID from Venafi API integration. |
-| `VENAFI_REFRESH_TOKEN` | *(empty)* | OAuth2 refresh token for authentication. |
-| `VENAFI_FOLDER` | `\VED\Policy\Discovered\CipherFlag` | Target policy folder in Venafi. |
-
-### Application Configuration (config/cipherflag.toml)
-
-| Section | Key | Default | Description |
-|---------|-----|---------|-------------|
-| `[server]` | `listen` | `0.0.0.0:8443` | API server listen address |
-| `[analysis]` | `recheck_interval_hours` | `6` | How often to re-score certificates |
-| `[analysis]` | `expiry_warning_days` | `[30, 60, 90, 180]` | Warning thresholds for expiration |
-| `[analysis.protocol_policy]` | `min_tls_version` | `1.2` | Minimum acceptable TLS version |
-| `[analysis.protocol_policy]` | `require_forward_secrecy` | `true` | Flag ciphers without FS |
-| `[analysis.protocol_policy]` | `require_aead` | `true` | Flag non-AEAD ciphers |
-| `[analysis.protocol_policy]` | `banned_ciphers` | `[RC4, DES, 3DES, NULL, EXPORT]` | Blocked cipher suites |
-| `[sources.zeek_file]` | `enabled` | `true` | Enable Zeek log polling |
-| `[sources.zeek_file]` | `log_dir` | `/var/log/zeek/current` | Zeek log directory |
-| `[sources.zeek_file]` | `poll_interval_seconds` | `30` | How often to check for new logs |
-| `[export.venafi]` | `push_interval_minutes` | `60` | How often to push to Venafi |
-| `[pcap]` | `max_file_size_mb` | `500` | Maximum PCAP upload size |
-| `[pcap]` | `retention_hours` | `24` | How long to keep processed PCAPs |
-
-### Health Scoring Rules
-
-| Rule | Severity | What It Checks |
-|------|----------|---------------|
-| EXP-001 | Critical | Certificate has expired |
-| EXP-002 | Critical | Expires within 7 days |
-| EXP-003 | High | Expires within 30 days |
-| EXP-004 | Medium | Expires within 90 days |
-| EXP-005 | Medium | Validity exceeds 398 days |
-| KEY-001 | Critical | RSA key < 2048 bits |
-| KEY-002 | Low | RSA key is 2048 bits (4096 recommended) |
-| KEY-003 | Critical | ECDSA key < 256 bits |
-| KEY-004 | Medium | Unknown key algorithm |
-| SIG-001 | Critical | SHA-1 signature (broken) |
-| SIG-002 | Critical | MD5 signature (broken) |
-| SIG-003 | Medium | Unknown signature algorithm |
-| CHN-001 | High | Self-signed end-entity certificate |
-| REV-001 | High | No OCSP or CRL endpoints |
-| REV-002 | Medium | No OCSP (CRL only) |
-| SCT-001 | Medium | No Certificate Transparency SCTs |
-
-### Grade Scale
-
-| Grade | Score Range | Meaning |
-|-------|------------|---------|
-| A+ | 95-100 | Excellent -- meets all best practices |
-| A | 85-94 | Good -- minor improvements possible |
-| B | 70-84 | Acceptable -- some issues to address |
-| C | 50-69 | Below standard -- action recommended |
-| D | 20-49 | Poor -- significant issues |
-| F | 0-19 or critical fail | Failing -- immediate action required |
-
----
-
-*CipherFlag is licensed under the Apache License 2.0. For questions, issues, or contributions, visit [https://github.com/cipherflag/cipherflag](https://github.com/cipherflag/cipherflag).*
+- Check PostgreSQL: `docker compose exec postgres psql -U cipherflag -c "SELECT pg_size_pretty(pg_database_size('cipherflag'));"`
+- Zeek logs accumulate — adjust retention in the Zeek container
+- PCAP files are retained for 24 hours by default (configurable in `cipherflag.toml`)

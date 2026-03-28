@@ -2,6 +2,18 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [0.34] - 2026-03-28
+
+### Added
+- **Global search bar** — searches across certificate names, organizations, fingerprints, serial numbers, SANs, server names, and IPs from the top nav on every page
+- **New search filters** — `subject_ou`, `issuer_org`, `key_algorithm`, `signature_algorithm`, `server_name` parameters on the certificate search API
+- **Global search API** — `GET /api/v1/search?q=...` with four search strategies: full-text, fingerprint prefix, SAN match, and observation match
+- **Comprehensive user guide** — rewritten to cover setup wizard, analytics tabs, PKI explorer, global search, Venafi Cloud/TPP, and all API endpoints
+
+### Fixed
+- NULL `raw_pem` crashes on certificate detail and list pages
+- Certificate search now works with all key algorithm and signature algorithm filters
+
 ## [0.33] - 2026-03-28
 
 ### Added
