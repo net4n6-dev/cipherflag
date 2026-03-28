@@ -25,8 +25,13 @@ func main() {
 
 	if len(os.Args) < 2 {
 		fmt.Println("Usage: cipherflag <command> [options]")
-		fmt.Println("Commands: serve, migrate, seed")
+		fmt.Println("Commands: serve, migrate, seed, setup")
 		os.Exit(1)
+	}
+
+	if os.Args[1] == "setup" {
+		runSetup()
+		return
 	}
 
 	configPath := "config/cipherflag.toml"
