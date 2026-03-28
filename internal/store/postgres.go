@@ -1832,6 +1832,7 @@ func scanCertificate(row pgx.Row) (*model.Certificate, error) {
 func scanCertificateRows(rows pgx.Rows) (*model.Certificate, error) {
 	var c model.Certificate
 	var sansJSON, kuJSON, ekuJSON, ocspJSON, crlJSON, sctsJSON []byte
+	var rawPEM *string
 	err := rows.Scan(
 		&c.ID, &c.FingerprintSHA256,
 		&c.Subject.CommonName, &c.Subject.Organization, &c.Subject.OrganizationalUnit,
@@ -1842,10 +1843,13 @@ func scanCertificateRows(rows pgx.Rows) (*model.Certificate, error) {
 		&c.KeyAlgorithm, &c.KeySizeBits, &c.SignatureAlgorithm,
 		&sansJSON, &c.IsCA, &c.BasicConstraintsPathLen,
 		&kuJSON, &ekuJSON, &ocspJSON, &crlJSON, &sctsJSON,
-		&c.SourceDiscovery, &c.FirstSeen, &c.LastSeen, &c.RawPEM,
+		&c.SourceDiscovery, &c.FirstSeen, &c.LastSeen, &rawPEM,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if rawPEM != nil {
+		c.RawPEM = *rawPEM
 	}
 	json.Unmarshal(sansJSON, &c.SubjectAltNames)
 	json.Unmarshal(kuJSON, &c.KeyUsage)
