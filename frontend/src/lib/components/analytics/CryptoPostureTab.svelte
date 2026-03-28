@@ -81,6 +81,11 @@
 		expandedLoading = true;
 		expandedCerts = [];
 
+		// Auto-scroll to drilldown panel after render
+		requestAnimationFrame(() => {
+			document.getElementById('crypto-drilldown')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+		});
+
 		try {
 			const params = new URLSearchParams({ [paramName]: paramValue, page_size: '20' });
 			const result = await api.searchCerts(params.toString());
@@ -241,30 +246,9 @@
 			</div>
 		</div>
 
-		<!-- Cipher Strength Overview -->
-		<div class="strength-summary">
-			<h3>Cipher Strength Overview</h3>
-			<div class="strength-bars">
-				{#each STRENGTH_ORDER as strength}
-					{@const count = ciphers.strength_distribution[strength] ?? 0}
-					{@const total = Object.values(ciphers.strength_distribution).reduce((s, c) => s + c, 0) || 1}
-					{#if count > 0}
-						<div class="strength-row">
-							<span class="strength-label" style="color: {strengthColor(strength)}">{strength}</span>
-							<div class="bar-track">
-								<div class="bar-fill" style="width: {(count / total) * 100}%; background: {strengthColor(strength)}"></div>
-							</div>
-							<span class="bar-count">{count.toLocaleString()}</span>
-							<span class="bar-pct">{(count / total * 100).toFixed(1)}%</span>
-						</div>
-					{/if}
-				{/each}
-			</div>
-		</div>
-
-		<!-- Expanded drilldown panel -->
+		<!-- Expanded drilldown panel (between grid and strength summary) -->
 		{#if expandedPanel}
-			<div class="drilldown-panel">
+			<div class="drilldown-panel" id="crypto-drilldown">
 				<div class="drilldown-header">
 					<h3>{expandedLabel}</h3>
 					<div class="drilldown-actions">
@@ -310,6 +294,28 @@
 				{/if}
 			</div>
 		{/if}
+
+		<!-- Cipher Strength Overview -->
+		<div class="strength-summary">
+			<h3>Cipher Strength Overview</h3>
+			<div class="strength-bars">
+				{#each STRENGTH_ORDER as strength}
+					{@const count = ciphers.strength_distribution[strength] ?? 0}
+					{@const total = Object.values(ciphers.strength_distribution).reduce((s, c) => s + c, 0) || 1}
+					{#if count > 0}
+						<div class="strength-row">
+							<span class="strength-label" style="color: {strengthColor(strength)}">{strength}</span>
+							<div class="bar-track">
+								<div class="bar-fill" style="width: {(count / total) * 100}%; background: {strengthColor(strength)}"></div>
+							</div>
+							<span class="bar-count">{count.toLocaleString()}</span>
+							<span class="bar-pct">{(count / total * 100).toFixed(1)}%</span>
+						</div>
+					{/if}
+				{/each}
+			</div>
+		</div>
+
 	{/if}
 </div>
 
