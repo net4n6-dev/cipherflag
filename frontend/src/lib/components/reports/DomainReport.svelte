@@ -24,6 +24,50 @@
 		loading = false;
 	});
 
+	const GRADE_ORDER = ['A+', 'A', 'B', 'C', 'D', 'F'];
+
+	// Compute grade distribution from certs
+	let gradeDistribution = $derived.by(() => {
+		const dist: Record<string, number> = {};
+		for (const c of report?.certificates ?? []) {
+			dist[c.grade] = (dist[c.grade] ?? 0) + 1;
+		}
+		return dist;
+	});
+
+	// Compute key algo distribution
+	let algoDistribution = $derived.by(() => {
+		const dist: Record<string, number> = {};
+		for (const c of report?.certificates ?? []) {
+			dist[c.key_algorithm] = (dist[c.key_algorithm] ?? 0) + 1;
+		}
+		return dist;
+	});
+
+	const ALGO_COLORS: Record<string, string> = {
+		'RSA': '#38bdf8', 'ECDSA': '#a78bfa', 'Ed25519': '#34d399', 'Unknown': '#64748b',
+	};
+
+	function algoColor(a: string): string { return ALGO_COLORS[a] ?? '#64748b'; }
+
+	function donutArc(startAngle: number, endAngle: number, r: number, cx: number, cy: number): string {
+		const x1 = cx + r * Math.cos(startAngle - Math.PI / 2);
+		const y1 = cy + r * Math.sin(startAngle - Math.PI / 2);
+		const x2 = cx + r * Math.cos(endAngle - Math.PI / 2);
+		const y2 = cy + r * Math.sin(endAngle - Math.PI / 2);
+		const large = endAngle - startAngle > Math.PI ? 1 : 0;
+		return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
+	}
+
+	// Compute match type distribution
+	let matchDistribution = $derived.by(() => {
+		const dist: Record<string, number> = {};
+		for (const c of report?.certificates ?? []) {
+			dist[c.match_type] = (dist[c.match_type] ?? 0) + 1;
+		}
+		return dist;
+	});
+
 	let sortedCerts = $derived(
 		report?.certificates
 			? [...report.certificates].sort((a, b) => a.days_remaining - b.days_remaining)
@@ -95,6 +139,83 @@
 				<div class="stat-card">
 					<span class="stat-label">Wildcards</span>
 					<span class="stat-value">{report.summary.wildcard_count}</span>
+				</div>
+			</div>
+		</section>
+
+		<!-- Charts Row -->
+		<section class="report-section">
+			<div class="charts-row">
+				<!-- Grade Distribution Donut -->
+				<div class="chart-panel">
+					<h3>Grade Distribution</h3>
+					<div class="donut-row">
+						<svg viewBox="0 0 120 120" class="donut-svg">
+							{#each GRADE_ORDER as grade, i}
+								{@const count = gradeDistribution[grade] ?? 0}
+								{@const total = report.summary.total_certs || 1}
+								{@const startAngle = GRADE_ORDER.slice(0, i).reduce((s, g) => s + ((gradeDistribution[g] ?? 0) / total) * Math.PI * 2, 0)}
+								{@const endAngle = startAngle + (count / total) * Math.PI * 2}
+								{#if count > 0}
+									<path
+										d={donutArc(startAngle, Math.min(endAngle, startAngle + Math.PI * 2 - 0.01), 45, 60, 60)}
+										fill="none"
+										stroke={gradeColor(grade)}
+										stroke-width="14"
+										stroke-linecap="round"
+									/>
+								{/if}
+							{/each}
+							<text x="60" y="56" text-anchor="middle" fill="#e2e8f0" font-size="14" font-weight="700">
+								{report.summary.total_certs}
+							</text>
+							<text x="60" y="70" text-anchor="middle" fill="#64748b" font-size="8">certs</text>
+						</svg>
+						<div class="donut-legend">
+							{#each GRADE_ORDER as grade}
+								{@const count = gradeDistribution[grade] ?? 0}
+								{#if count > 0}
+									<div class="legend-row">
+										<span class="legend-dot" style="background: {gradeColor(grade)}"></span>
+										<span class="legend-grade">{grade}</span>
+										<span class="legend-count">{count}</span>
+										<span class="legend-pct">{(count / (report.summary.total_certs || 1) * 100).toFixed(0)}%</span>
+									</div>
+								{/if}
+							{/each}
+						</div>
+					</div>
+				</div>
+
+				<!-- Key Algorithm Breakdown -->
+				<div class="chart-panel">
+					<h3>Key Algorithms</h3>
+					<div class="algo-bars">
+						{#each Object.entries(algoDistribution).sort((a, b) => b[1] - a[1]) as [algo, count]}
+							{@const maxCount = Math.max(...Object.values(algoDistribution), 1)}
+							<div class="algo-row">
+								<span class="algo-label">{algo}</span>
+								<div class="algo-track">
+									<div class="algo-fill" style="width: {(count / maxCount) * 100}%; background: {algoColor(algo)}"></div>
+								</div>
+								<span class="algo-count">{count}</span>
+							</div>
+						{/each}
+					</div>
+
+					<h3 style="margin-top: 1rem;">Match Types</h3>
+					<div class="algo-bars">
+						{#each Object.entries(matchDistribution).sort((a, b) => b[1] - a[1]) as [type, count]}
+							{@const maxMatch = Math.max(...Object.values(matchDistribution), 1)}
+							<div class="algo-row">
+								<span class="algo-label">{type}</span>
+								<div class="algo-track">
+									<div class="algo-fill" style="width: {(count / maxMatch) * 100}%; background: #38bdf8"></div>
+								</div>
+								<span class="algo-count">{count}</span>
+							</div>
+						{/each}
+					</div>
 				</div>
 			</div>
 		</section>
@@ -263,6 +384,29 @@
 		color: var(--cf-text-primary);
 		margin: 0 0 0.75rem 0;
 	}
+
+	/* Charts */
+	.charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+	.chart-panel {
+		background: var(--cf-bg-secondary); border: 1px solid var(--cf-border);
+		border-radius: 8px; padding: 1rem;
+	}
+	.chart-panel h3 { font-size: 0.75rem; font-weight: 600; color: var(--cf-text-muted);
+		text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.75rem; }
+	.donut-row { display: flex; align-items: center; gap: 1.5rem; }
+	.donut-svg { width: 120px; height: 120px; flex-shrink: 0; }
+	.donut-legend { display: flex; flex-direction: column; gap: 0.375rem; flex: 1; }
+	.legend-row { display: flex; align-items: center; gap: 0.5rem; }
+	.legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+	.legend-grade { font-weight: 600; font-size: 0.85rem; color: var(--cf-text-primary); width: 20px; }
+	.legend-count { font-size: 0.8rem; color: var(--cf-text-secondary); font-variant-numeric: tabular-nums; flex: 1; }
+	.legend-pct { font-size: 0.75rem; color: var(--cf-text-muted); font-variant-numeric: tabular-nums; }
+	.algo-bars { display: flex; flex-direction: column; gap: 0.375rem; }
+	.algo-row { display: flex; align-items: center; gap: 0.75rem; }
+	.algo-label { width: 80px; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: var(--cf-text-primary); flex-shrink: 0; }
+	.algo-track { flex: 1; height: 14px; background: var(--cf-bg-tertiary); border-radius: 3px; overflow: hidden; }
+	.algo-fill { height: 100%; border-radius: 3px; opacity: 0.7; }
+	.algo-count { width: 30px; text-align: right; font-size: 0.8rem; color: var(--cf-text-secondary); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
 	.stat-cards {
 		display: flex;
