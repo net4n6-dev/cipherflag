@@ -382,6 +382,232 @@ export interface GlobalSearchResult {
 	query: string;
 }
 
+// ── Report Types ────────────────────────────────────────────────────────────
+
+export interface DomainReportSummary {
+	domain: string;
+	total_certs: number;
+	worst_grade: string;
+	expired: number;
+	expiring_30d: number;
+	wildcard_count: number;
+}
+
+export interface DomainReportCert {
+	fingerprint: string;
+	subject_cn: string;
+	issuer_cn: string;
+	grade: string;
+	key_algorithm: string;
+	key_size_bits: number;
+	not_after: string;
+	days_remaining: number;
+	first_seen: string;
+	last_seen: string;
+	match_type: string;
+	source: string;
+}
+
+export interface DomainReportDeployment {
+	cert_fingerprint: string;
+	server_name: string;
+	server_ip: string;
+	server_port: number;
+	tls_version: string;
+	cipher: string;
+	last_observed: string;
+}
+
+export interface DomainReportFinding {
+	title: string;
+	severity: string;
+	category: string;
+	affected_count: number;
+	total_deduction: number;
+}
+
+export interface DomainReportWildcard {
+	fingerprint: string;
+	subject_cn: string;
+	sans: string[];
+	grade: string;
+	not_after: string;
+}
+
+export interface DomainReport {
+	summary: DomainReportSummary;
+	certificates: DomainReportCert[];
+	deployments: DomainReportDeployment[];
+	findings: DomainReportFinding[];
+	wildcards: DomainReportWildcard[];
+}
+
+export interface CAReportIdentity {
+	fingerprint: string;
+	subject_cn: string;
+	organization: string;
+	key_algorithm: string;
+	key_size_bits: number;
+	not_before: string;
+	not_after: string;
+	grade: string;
+	is_self_signed: boolean;
+	chain_position: string;
+}
+
+export interface CAReportSummary {
+	total_issued: number;
+	grade_distribution: Record<string, number>;
+	expired: number;
+	expiring_30d: number;
+	expiring_90d: number;
+	wildcard_count: number;
+}
+
+export interface CAReportCert {
+	fingerprint: string;
+	subject_cn: string;
+	grade: string;
+	key_algorithm: string;
+	key_size_bits: number;
+	not_after: string;
+	days_remaining: number;
+	first_seen: string;
+	last_seen: string;
+	source: string;
+	is_wildcard: boolean;
+}
+
+export interface CAReportCrypto {
+	key_algorithms: Record<string, number>;
+	signature_algorithms: Record<string, number>;
+	key_sizes: Record<string, number>;
+}
+
+export interface CAReportChainEntry {
+	fingerprint: string;
+	subject_cn: string;
+	type: string;
+}
+
+export interface CAReportChain {
+	issued_by: CAReportChainEntry | null;
+	issues_to: CAReportChainEntry[];
+}
+
+export interface CAReport {
+	ca: CAReportIdentity;
+	summary: CAReportSummary;
+	certificates: CAReportCert[];
+	crypto: CAReportCrypto;
+	chain: CAReportChain;
+	findings: DomainReportFinding[];
+}
+
+export interface ComplianceReportIssue {
+	fingerprint: string;
+	subject_cn: string;
+	grade: string;
+	rule_id: string;
+	title: string;
+	severity: string;
+	category: string;
+	remediation: string;
+}
+
+export interface ComplianceReportPriority {
+	rule_id: string;
+	title: string;
+	severity: string;
+	affected_count: number;
+	total_deduction: number;
+	remediation: string;
+}
+
+export interface ComplianceReportNonAgile {
+	fingerprint: string;
+	subject_cn: string;
+	issuer_cn: string;
+	validity_days: number;
+	key_algorithm: string;
+	source: string;
+}
+
+export interface ComplianceReportWildcard {
+	fingerprint: string;
+	subject_cn: string;
+	san_count: number;
+	grade: string;
+	not_after: string;
+	issuer_cn: string;
+}
+
+export interface ComplianceReport {
+	compliance_score: number;
+	total_certs: number;
+	compliant: number;
+	non_compliant: number;
+	critical_issues: ComplianceReportIssue[];
+	remediation_priorities: ComplianceReportPriority[];
+	non_agile: ComplianceReportNonAgile[];
+	wildcards: ComplianceReportWildcard[];
+	by_category: Record<string, number>;
+}
+
+export interface ExpiryReportCert {
+	fingerprint: string;
+	subject_cn: string;
+	issuer_cn: string;
+	grade: string;
+	days_remaining: number;
+	subject_org: string;
+	subject_ou: string;
+	key_algorithm: string;
+	source: string;
+	first_seen: string;
+	last_seen: string;
+}
+
+export interface ExpiryReportByIssuer {
+	issuer_org: string;
+	count: number;
+	worst_grade: string;
+}
+
+export interface ExpiryReportByOwner {
+	subject_org: string;
+	subject_ou: string;
+	count: number;
+}
+
+export interface ExpiryReportGhost {
+	fingerprint: string;
+	subject_cn: string;
+	issuer_cn: string;
+	expired_days_ago: number;
+	last_observed: string;
+	server_name: string;
+	server_ip: string;
+}
+
+export interface ExpiryReportDeployment {
+	server_name: string;
+	server_ip: string;
+	server_port: number;
+	cert_cn: string;
+	days_remaining: number;
+}
+
+export interface ExpiryReport {
+	days: number;
+	total_expiring: number;
+	certificates: ExpiryReportCert[];
+	by_issuer: ExpiryReportByIssuer[];
+	by_owner: ExpiryReportByOwner[];
+	already_expired: ExpiryReportGhost[];
+	deployments_at_risk: ExpiryReportDeployment[];
+}
+
 export const api = {
 	getLandscape: () => fetchJSON<GraphResponse>('/graph/landscape'),
 	getChainGraph: (fp: string) => fetchJSON<GraphResponse>(`/graph/chain/${fp}`),
@@ -417,4 +643,8 @@ export const api = {
 	getExpiryForecast: () => fetchJSON<ExpiryForecastResponse>('/stats/expiry-forecast'),
 	getSourceLineage: () => fetchJSON<SourceLineageResponse>('/stats/source-lineage'),
 	globalSearch: (q: string, limit = 20) => fetchJSON<GlobalSearchResult>(`/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+	getDomainReport: (domain: string) => fetchJSON<DomainReport>(`/reports/domain?q=${encodeURIComponent(domain)}`),
+	getCAReport: (params: string) => fetchJSON<CAReport>(`/reports/ca?${params}`),
+	getComplianceReport: () => fetchJSON<ComplianceReport>('/reports/compliance'),
+	getExpiryReport: (days: number) => fetchJSON<ExpiryReport>(`/reports/expiry?days=${days}`),
 };
