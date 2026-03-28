@@ -61,9 +61,15 @@ type ExportConfig struct {
 
 type VenafiExportConfig struct {
 	Enabled             bool   `toml:"enabled"`
+	Platform            string `toml:"platform"`
+	// Cloud settings
+	APIKey              string `toml:"api_key"`
+	Region              string `toml:"region"`
+	// TPP settings
 	BaseURL             string `toml:"base_url"`
 	ClientID            string `toml:"client_id"`
 	RefreshToken        string `toml:"refresh_token"`
+	// Common
 	Folder              string `toml:"folder"`
 	PushIntervalMinutes int    `toml:"push_interval_minutes"`
 }
@@ -98,6 +104,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Export.Venafi.PushIntervalMinutes == 0 {
 		cfg.Export.Venafi.PushIntervalMinutes = 60
+	}
+	if cfg.Export.Venafi.Platform == "" {
+		cfg.Export.Venafi.Platform = "cloud"
+	}
+	if cfg.Export.Venafi.Region == "" {
+		cfg.Export.Venafi.Region = "us"
 	}
 	if cfg.Export.Venafi.Folder == "" {
 		cfg.Export.Venafi.Folder = `\VED\Policy\Discovered\CipherFlag`

@@ -33,10 +33,19 @@ api_token = ""
 
 [export.venafi]
 enabled = false
-base_url = ""
-client_id = ""
-refresh_token = ""
+platform = "cloud"              # "cloud" (Venafi TLS Protect Cloud) or "tpp" (on-prem TPP)
+
+# Cloud settings (when platform = "cloud")
+api_key = ""                    # Venafi Cloud API key (from Preferences > API Keys)
+region = "us"                   # "us" (api.venafi.cloud) or "eu" (api.venafi.eu)
+
+# TPP settings (when platform = "tpp")
+base_url = ""                   # e.g., https://tpp.example.com
+client_id = ""                  # OAuth2 client ID
+refresh_token = ""              # OAuth2 refresh token
 folder = "\\VED\\Policy\\Discovered\\CipherFlag"
+
+# Push schedule
 push_interval_minutes = 60
 
 [pcap]
