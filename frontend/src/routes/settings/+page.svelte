@@ -26,6 +26,7 @@
 
 	const TABS = [
 		{ id: 'users', label: 'Users', adminOnly: true },
+		{ id: 'sources', label: 'Sources' },
 		{ id: 'venafi', label: 'Venafi' },
 		{ id: 'system', label: 'System' },
 		{ id: 'profile', label: 'Profile' },
@@ -45,6 +46,24 @@
 	let newRole = $state('viewer');
 	let userError = $state('');
 	let userSuccess = $state('');
+
+	// Sources tab
+	interface SourcesConfig {
+		zeek: { enabled: boolean; log_dir: string; poll_interval_seconds: number };
+		corelight: { enabled: boolean; api_url: string; has_token: boolean };
+		pcap: { max_file_size_mb: number; retention_hours: number; input_dir: string };
+	}
+	let sourcesConfig = $state<SourcesConfig | null>(null);
+	let srcZeekEnabled = $state(true);
+	let srcZeekLogDir = $state('');
+	let srcZeekPollInterval = $state(30);
+	let srcCorelightEnabled = $state(false);
+	let srcCorelightURL = $state('');
+	let srcCorelightToken = $state('');
+	let srcPcapMaxSize = $state(500);
+	let srcPcapRetention = $state(24);
+	let srcError = $state('');
+	let srcSuccess = $state('');
 
 	// Venafi tab
 	let venafiStatus = $state<VenafiStatus | null>(null);
@@ -72,6 +91,8 @@
 	async function loadTabData() {
 		if (activeTab === 'users' && currentUser?.role === 'admin') {
 			await loadUsers();
+		} else if (activeTab === 'sources') {
+			await loadSources();
 		} else if (activeTab === 'venafi') {
 			await loadVenafi();
 		} else if (activeTab === 'system') {
@@ -148,6 +169,50 @@
 			});
 			await loadUsers();
 		} catch {}
+	}
+
+	// Sources
+	async function loadSources() {
+		try {
+			const res = await fetch('/api/v1/config/sources');
+			if (res.ok) {
+				sourcesConfig = await res.json();
+				if (sourcesConfig) {
+					srcZeekEnabled = sourcesConfig.zeek.enabled;
+					srcZeekLogDir = sourcesConfig.zeek.log_dir;
+					srcZeekPollInterval = sourcesConfig.zeek.poll_interval_seconds;
+					srcCorelightEnabled = sourcesConfig.corelight.enabled;
+					srcCorelightURL = sourcesConfig.corelight.api_url;
+					srcPcapMaxSize = sourcesConfig.pcap.max_file_size_mb;
+					srcPcapRetention = sourcesConfig.pcap.retention_hours;
+				}
+			}
+		} catch {}
+	}
+
+	async function saveSources() {
+		srcError = ''; srcSuccess = '';
+		const body: any = {
+			zeek: { enabled: srcZeekEnabled, log_dir: srcZeekLogDir, poll_interval_seconds: srcZeekPollInterval },
+			corelight: { enabled: srcCorelightEnabled, api_url: srcCorelightURL },
+			pcap: { max_file_size_mb: srcPcapMaxSize, retention_hours: srcPcapRetention },
+		};
+		if (srcCorelightToken) body.corelight.api_token = srcCorelightToken;
+		try {
+			const res = await fetch('/api/v1/config/sources', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+			if (!res.ok) {
+				const err = await res.json();
+				srcError = err.error || 'Failed to save';
+				return;
+			}
+			srcSuccess = 'Configuration saved. Restart required for changes to take effect.';
+			srcCorelightToken = '';
+			await loadSources();
+		} catch { srcError = 'Failed to save'; }
 	}
 
 	// Venafi
@@ -388,6 +453,136 @@
 									{/each}
 								</tbody>
 							</table>
+						{/if}
+					</div>
+
+				<!-- Sources Tab -->
+				{:else if activeTab === 'sources'}
+					<div class="tab-section">
+						<h2>Discovery Sources</h2>
+
+						{#if srcError}<div class="msg error">{srcError}</div>{/if}
+						{#if srcSuccess}<div class="msg success">{srcSuccess}</div>{/if}
+
+						{#if currentUser?.role === 'admin'}
+							<!-- Zeek -->
+							<div class="source-card">
+								<div class="src-card-header">
+									<svg class="src-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M2 20h20"/><path d="M12 4v8"/><path d="M8 8l4-4 4 4"/><circle cx="12" cy="16" r="2"/><path d="M6 12c0-3.3 2.7-6 6-6s6 2.7 6 6"/>
+									</svg>
+									<div class="src-card-info">
+										<h3>Zeek File Poller</h3>
+										<p>Monitors Zeek log directory for x509 and ssl log files</p>
+									</div>
+									<label class="toggle-row">
+										<input type="checkbox" bind:checked={srcZeekEnabled} />
+										<span>{srcZeekEnabled ? 'Enabled' : 'Disabled'}</span>
+									</label>
+								</div>
+								{#if srcZeekEnabled}
+									<div class="src-card-body">
+										<div class="vf-field">
+											<span class="vf-label">Log Directory</span>
+											<input type="text" bind:value={srcZeekLogDir} placeholder="/var/log/zeek/current" />
+										</div>
+										<div class="vf-field">
+											<span class="vf-label">Poll Interval (seconds, 5–300)</span>
+											<input type="number" bind:value={srcZeekPollInterval} min="5" max="300" />
+										</div>
+									</div>
+								{/if}
+							</div>
+
+							<!-- Corelight -->
+							<div class="source-card">
+								<div class="src-card-header">
+									<svg class="src-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+									</svg>
+									<div class="src-card-info">
+										<h3>Corelight</h3>
+										<p>Ingest from Corelight sensor appliance via API</p>
+									</div>
+									<label class="toggle-row">
+										<input type="checkbox" bind:checked={srcCorelightEnabled} />
+										<span>{srcCorelightEnabled ? 'Enabled' : 'Disabled'}</span>
+									</label>
+								</div>
+								{#if srcCorelightEnabled}
+									<div class="src-card-body">
+										<div class="vf-field">
+											<span class="vf-label">API URL</span>
+											<input type="url" bind:value={srcCorelightURL} placeholder="https://corelight.example.com/api" />
+										</div>
+										<div class="vf-field">
+											<span class="vf-label">API Token {sourcesConfig?.corelight.has_token ? '(configured)' : '(not set)'}</span>
+											<input type="password" bind:value={srcCorelightToken} placeholder={sourcesConfig?.corelight.has_token ? '••••••••' : 'Enter API token'} />
+										</div>
+									</div>
+								{/if}
+							</div>
+
+							<!-- PCAP -->
+							<div class="source-card">
+								<div class="src-card-header">
+									<svg class="src-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+									</svg>
+									<div class="src-card-info">
+										<h3>PCAP Upload</h3>
+										<p>Settings for packet capture file processing</p>
+									</div>
+								</div>
+								<div class="src-card-body">
+									<div class="vf-field">
+										<span class="vf-label">Max File Size (MB, 1–5000)</span>
+										<input type="number" bind:value={srcPcapMaxSize} min="1" max="5000" />
+									</div>
+									<div class="vf-field">
+										<span class="vf-label">Retention (hours, 1–720)</span>
+										<input type="number" bind:value={srcPcapRetention} min="1" max="720" />
+									</div>
+									<div class="vf-field">
+										<span class="vf-label">Input Directory</span>
+										<span class="vf-readonly">{sourcesConfig?.pcap.input_dir ?? '/pcap-input'}</span>
+									</div>
+								</div>
+							</div>
+
+							<button class="submit-btn" style="margin-top: 1rem;" onclick={saveSources}>Save Source Configuration</button>
+							<p class="config-hint">Changes are saved to <code>config/cipherflag.toml</code>. Restart the service for changes to take effect.</p>
+						{:else}
+							<!-- Viewer: read-only display -->
+							{#if sourcesConfig}
+								<div class="source-card">
+									<div class="src-card-header">
+										<h3>Zeek File Poller</h3>
+										<span class="src-status" class:on={sourcesConfig.zeek.enabled}>{sourcesConfig.zeek.enabled ? 'Enabled' : 'Disabled'}</span>
+									</div>
+									<div class="src-card-body">
+										<div class="ro-row"><span>Log Dir:</span> <span>{sourcesConfig.zeek.log_dir}</span></div>
+										<div class="ro-row"><span>Poll Interval:</span> <span>{sourcesConfig.zeek.poll_interval_seconds}s</span></div>
+									</div>
+								</div>
+								<div class="source-card">
+									<div class="src-card-header">
+										<h3>Corelight</h3>
+										<span class="src-status" class:on={sourcesConfig.corelight.enabled}>{sourcesConfig.corelight.enabled ? 'Enabled' : 'Disabled'}</span>
+									</div>
+								</div>
+								<div class="source-card">
+									<div class="src-card-header">
+										<h3>PCAP Upload</h3>
+									</div>
+									<div class="src-card-body">
+										<div class="ro-row"><span>Max Size:</span> <span>{sourcesConfig.pcap.max_file_size_mb} MB</span></div>
+										<div class="ro-row"><span>Retention:</span> <span>{sourcesConfig.pcap.retention_hours}h</span></div>
+									</div>
+								</div>
+							{:else}
+								<div class="tab-loading">Loading sources...</div>
+							{/if}
 						{/if}
 					</div>
 
@@ -783,6 +978,27 @@
 		border-radius: 6px; color: var(--cf-text-primary); outline: none;
 	}
 	.pw-form input:focus { border-color: var(--cf-accent); }
+
+	/* Source cards */
+	.source-card {
+		background: var(--cf-bg-secondary); border: 1px solid var(--cf-border);
+		border-radius: 8px; margin-bottom: 0.75rem; overflow: hidden;
+	}
+	.src-card-header {
+		display: flex; align-items: center; gap: 0.75rem;
+		padding: 0.875rem 1rem;
+	}
+	.src-card-header h3 { margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--cf-text-primary); text-transform: none; letter-spacing: normal; }
+	.src-card-header p { margin: 0; font-size: 0.75rem; color: var(--cf-text-muted); }
+	.src-card-info { flex: 1; }
+	.src-icon { width: 28px; height: 28px; color: var(--cf-accent); flex-shrink: 0; }
+	.src-card-body { padding: 0 1rem 1rem; border-top: 1px solid var(--cf-border); padding-top: 0.75rem; }
+	.src-status { font-size: 0.7rem; text-transform: uppercase; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(100, 116, 139, 0.15); color: var(--cf-text-muted); }
+	.src-status.on { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+	.vf-readonly { font-size: 0.85rem; color: var(--cf-text-secondary); font-family: 'JetBrains Mono', monospace; }
+	.ro-row { display: flex; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.8rem; }
+	.ro-row span:first-child { color: var(--cf-text-muted); width: 100px; }
+	.ro-row span:last-child { color: var(--cf-text-primary); }
 
 	/* Venafi form */
 	.venafi-form { background: var(--cf-bg-secondary); border: 1px solid var(--cf-border); border-radius: 8px; padding: 1.25rem; margin-top: 1rem; }

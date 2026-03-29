@@ -32,6 +32,7 @@ func NewRouter(st store.CertStore, cfg *config.Config, cfgPath string, frontendU
 	pcapH := handler.NewPCAPHandler(st, pcapInputDir, pcapMaxSizeMB)
 	venafiH := handler.NewVenafiHandler(st, cfg, cfgPath)
 	reportsH := handler.NewReportsHandler(st)
+	configH := handler.NewConfigHandler(cfg, cfgPath)
 	authH := handler.NewAuthHandler(st, jwtSecret)
 
 	// Health check
@@ -120,6 +121,13 @@ func NewRouter(st store.CertStore, cfg *config.Config, cfgPath string, frontendU
 				r.Use(middleware.RequireAdmin)
 				r.Put("/config", venafiH.UpdateConfig)
 				r.Post("/test-connection", venafiH.TestConnection)
+			})
+
+			// Config
+			r.Get("/config/sources", configH.GetSources)
+			r.Route("/config", func(r chi.Router) {
+				r.Use(middleware.RequireAdmin)
+				r.Put("/sources", configH.UpdateSources)
 			})
 		})
 	})
