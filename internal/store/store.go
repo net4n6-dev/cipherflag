@@ -190,6 +190,17 @@ type CertStore interface {
 	// Global search
 	GlobalSearch(ctx context.Context, query string, limit int) (*model.GlobalSearchResult, error)
 
+	// Users
+	HasUsers(ctx context.Context) (bool, error)
+	GetUserByEmail(ctx context.Context, email string) (*model.User, error)
+	GetUserByID(ctx context.Context, id string) (*model.User, error)
+	ListUsers(ctx context.Context) ([]model.User, error)
+	CreateUser(ctx context.Context, user *model.User) error
+	UpdateUser(ctx context.Context, id string, displayName string, role string) error
+	UpdateUserPassword(ctx context.Context, id string, passwordHash string) error
+	UpdateUserLastLogin(ctx context.Context, id string) error
+	DeleteUser(ctx context.Context, id string) error
+
 	// Lifecycle
 	Migrate(ctx context.Context) error
 	Close() error
