@@ -151,10 +151,84 @@
 	}
 
 	// Venafi
+	interface VenafiConfig {
+		enabled: boolean; platform: string; region: string;
+		has_api_key: boolean; base_url: string; client_id: string;
+		has_refresh_token: boolean; folder: string; push_interval_minutes: number;
+	}
+	let venafiConfig = $state<VenafiConfig | null>(null);
+	let vfEnabled = $state(false);
+	let vfPlatform = $state('cloud');
+	let vfRegion = $state('us');
+	let vfAPIKey = $state('');
+	let vfBaseURL = $state('');
+	let vfClientID = $state('');
+	let vfRefreshToken = $state('');
+	let vfFolder = $state('\\VED\\Policy\\Discovered\\CipherFlag');
+	let vfInterval = $state(60);
+	let vfError = $state('');
+	let vfSuccess = $state('');
+	let vfTesting = $state(false);
+	let vfTestResult = $state<{connected: boolean; error?: string} | null>(null);
+
 	async function loadVenafi() {
 		try {
 			venafiStatus = await api.getVenafiStatus();
+			const res = await fetch('/api/v1/venafi/config');
+			if (res.ok) {
+				venafiConfig = await res.json();
+				if (venafiConfig) {
+					vfEnabled = venafiConfig.enabled;
+					vfPlatform = venafiConfig.platform;
+					vfRegion = venafiConfig.region;
+					vfBaseURL = venafiConfig.base_url;
+					vfClientID = venafiConfig.client_id;
+					vfFolder = venafiConfig.folder;
+					vfInterval = venafiConfig.push_interval_minutes;
+				}
+			}
 		} catch {}
+	}
+
+	async function saveVenafiConfig() {
+		vfError = ''; vfSuccess = '';
+		const body: Record<string, any> = {
+			enabled: vfEnabled,
+			platform: vfPlatform,
+			region: vfRegion,
+			push_interval_minutes: vfInterval,
+			folder: vfFolder,
+		};
+		if (vfPlatform === 'cloud' && vfAPIKey) body.api_key = vfAPIKey;
+		if (vfPlatform === 'tpp') {
+			if (vfBaseURL) body.base_url = vfBaseURL;
+			if (vfClientID) body.client_id = vfClientID;
+			if (vfRefreshToken) body.refresh_token = vfRefreshToken;
+		}
+		try {
+			const res = await fetch('/api/v1/venafi/config', {
+				method: 'PUT',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+			if (!res.ok) {
+				const err = await res.json();
+				vfError = err.error || 'Failed to save';
+				return;
+			}
+			vfSuccess = 'Configuration saved. Restart required for push scheduler changes.';
+			vfAPIKey = ''; vfRefreshToken = '';
+			await loadVenafi();
+		} catch { vfError = 'Failed to save'; }
+	}
+
+	async function testVenafiConnection() {
+		vfTesting = true; vfTestResult = null;
+		try {
+			const res = await fetch('/api/v1/venafi/test-connection', { method: 'POST' });
+			vfTestResult = await res.json();
+		} catch { vfTestResult = { connected: false, error: 'Request failed' }; }
+		vfTesting = false;
 	}
 
 	// System
@@ -322,50 +396,108 @@
 					<div class="tab-section">
 						<h2>Venafi Integration</h2>
 
+						{#if vfError}<div class="msg error">{vfError}</div>{/if}
+						{#if vfSuccess}<div class="msg success">{vfSuccess}</div>{/if}
+
+						<!-- Push Status -->
 						{#if venafiStatus}
-							<div class="status-card" class:enabled={venafiStatus.enabled} class:disabled={!venafiStatus.enabled}>
+							<div class="status-card" class:enabled={venafiStatus.enabled}>
 								<div class="sc-header">
 									<span class="sc-indicator" class:on={venafiStatus.enabled}></span>
-									<span class="sc-label">{venafiStatus.enabled ? 'Connected' : 'Not Configured'}</span>
+									<span class="sc-label">{venafiStatus.enabled ? 'Push Scheduler Active' : 'Push Scheduler Disabled'}</span>
 								</div>
-
 								{#if venafiStatus.enabled}
 									<div class="venafi-stats">
-										<div class="vs-row">
-											<span class="vs-label">Pending</span>
-											<span class="vs-val">{venafiStatus.pending.toLocaleString()}</span>
-										</div>
-										<div class="vs-row">
-											<span class="vs-label">Pushed</span>
-											<span class="vs-val pushed">{venafiStatus.pushed.toLocaleString()}</span>
-										</div>
-										<div class="vs-row">
-											<span class="vs-label">Failed</span>
-											<span class="vs-val" class:failed={venafiStatus.failed > 0}>{venafiStatus.failed}</span>
-										</div>
-										<div class="vs-row">
-											<span class="vs-label">Dead Lettered</span>
-											<span class="vs-val" class:failed={venafiStatus.dead_lettered > 0}>{venafiStatus.dead_lettered}</span>
-										</div>
-										<div class="vs-row">
-											<span class="vs-label">Last Push</span>
-											<span class="vs-val">{formatDate(venafiStatus.last_push_at)}</span>
-										</div>
-										<div class="vs-row">
-											<span class="vs-label">Next Push</span>
-											<span class="vs-val">{formatDate(venafiStatus.next_push_at)}</span>
-										</div>
+										<div class="vs-row"><span class="vs-label">Pending</span><span class="vs-val">{venafiStatus.pending.toLocaleString()}</span></div>
+										<div class="vs-row"><span class="vs-label">Pushed</span><span class="vs-val pushed">{venafiStatus.pushed.toLocaleString()}</span></div>
+										<div class="vs-row"><span class="vs-label">Failed</span><span class="vs-val" class:failed={venafiStatus.failed > 0}>{venafiStatus.failed}</span></div>
+										<div class="vs-row"><span class="vs-label">Dead Lettered</span><span class="vs-val" class:failed={venafiStatus.dead_lettered > 0}>{venafiStatus.dead_lettered}</span></div>
+										<div class="vs-row"><span class="vs-label">Last Push</span><span class="vs-val">{formatDate(venafiStatus.last_push_at)}</span></div>
+										<div class="vs-row"><span class="vs-label">Next Push</span><span class="vs-val">{formatDate(venafiStatus.next_push_at)}</span></div>
 									</div>
 								{/if}
 							</div>
+						{/if}
 
-							<div class="config-note">
+						<!-- Configuration Form -->
+						{#if currentUser?.role === 'admin'}
+							<div class="venafi-form">
 								<h3>Configuration</h3>
-								<p>Venafi settings are managed in <code>config/cipherflag.toml</code> under <code>[export.venafi]</code>. Use the setup wizard (<code>cipherflag setup</code>) or edit the file directly.</p>
-								<p>See the <a href="/reports?type=compliance">Compliance Report</a> for certificate push readiness.</p>
+
+								<div class="vf-field">
+									<label class="toggle-row">
+										<input type="checkbox" bind:checked={vfEnabled} />
+										<span>Enable Venafi push</span>
+									</label>
+								</div>
+
+								<div class="vf-field">
+									<span class="vf-label">Platform</span>
+									<select bind:value={vfPlatform}>
+										<option value="cloud">Venafi Cloud (SaaS)</option>
+										<option value="tpp">Venafi TPP (on-prem)</option>
+									</select>
+								</div>
+
+								{#if vfPlatform === 'cloud'}
+									<div class="vf-field">
+										<span class="vf-label">Region</span>
+										<select bind:value={vfRegion}>
+											<option value="us">US (api.venafi.cloud)</option>
+											<option value="eu">EU (api.venafi.eu)</option>
+										</select>
+									</div>
+									<div class="vf-field">
+										<span class="vf-label">API Key {venafiConfig?.has_api_key ? '(configured)' : '(not set)'}</span>
+										<input type="password" bind:value={vfAPIKey} placeholder={venafiConfig?.has_api_key ? '••••••••' : 'Enter API key'} />
+									</div>
+								{:else}
+									<div class="vf-field">
+										<span class="vf-label">TPP Base URL</span>
+										<input type="url" bind:value={vfBaseURL} placeholder="https://tpp.example.com" />
+									</div>
+									<div class="vf-field">
+										<span class="vf-label">Client ID</span>
+										<input type="text" bind:value={vfClientID} placeholder="OAuth2 client ID" />
+									</div>
+									<div class="vf-field">
+										<span class="vf-label">Refresh Token {venafiConfig?.has_refresh_token ? '(configured)' : '(not set)'}</span>
+										<input type="password" bind:value={vfRefreshToken} placeholder={venafiConfig?.has_refresh_token ? '••••••••' : 'Enter refresh token'} />
+									</div>
+									<div class="vf-field">
+										<span class="vf-label">Policy Folder</span>
+										<input type="text" bind:value={vfFolder} />
+									</div>
+								{/if}
+
+								<div class="vf-field">
+									<span class="vf-label">Push Interval (minutes, 5–1440)</span>
+									<input type="number" bind:value={vfInterval} min="5" max="1440" />
+								</div>
+
+								<div class="vf-actions">
+									<button class="submit-btn" onclick={saveVenafiConfig}>Save Configuration</button>
+									<button class="test-btn" onclick={testVenafiConnection} disabled={vfTesting}>
+										{vfTesting ? 'Testing...' : 'Test Connection'}
+									</button>
+								</div>
+
+								{#if vfTestResult}
+									<div class="test-result" class:connected={vfTestResult.connected} class:disconnected={!vfTestResult.connected}>
+										{#if vfTestResult.connected}
+											&#10003; Connected successfully
+										{:else}
+											&#10007; Connection failed: {vfTestResult.error}
+										{/if}
+									</div>
+								{/if}
+
+								<p class="config-hint">Changes are saved to <code>config/cipherflag.toml</code>. Restart the service for push scheduler changes to take effect.</p>
 							</div>
 						{:else}
-							<div class="tab-loading">Loading Venafi status...</div>
+							<div class="config-note">
+								<p>Venafi configuration requires admin access.</p>
+							</div>
 						{/if}
 					</div>
 
@@ -651,4 +783,40 @@
 		border-radius: 6px; color: var(--cf-text-primary); outline: none;
 	}
 	.pw-form input:focus { border-color: var(--cf-accent); }
+
+	/* Venafi form */
+	.venafi-form { background: var(--cf-bg-secondary); border: 1px solid var(--cf-border); border-radius: 8px; padding: 1.25rem; margin-top: 1rem; }
+	.venafi-form h3 { margin: 0 0 1rem; }
+
+	.vf-field { margin-bottom: 0.75rem; }
+	.vf-label { display: block; font-size: 0.75rem; color: var(--cf-text-muted); margin-bottom: 0.25rem; }
+	.vf-field input, .vf-field select {
+		width: 100%; max-width: 400px; padding: 0.5rem 0.625rem; font-size: 0.85rem;
+		background: var(--cf-bg-primary); border: 1px solid var(--cf-border);
+		border-radius: 6px; color: var(--cf-text-primary); outline: none;
+	}
+	.vf-field input:focus, .vf-field select:focus { border-color: var(--cf-accent); }
+	.vf-field select { cursor: pointer; }
+
+	.toggle-row { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.85rem; color: var(--cf-text-primary); }
+	.toggle-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--cf-accent); }
+
+	.vf-actions { display: flex; gap: 0.75rem; margin-top: 1rem; }
+
+	.test-btn {
+		padding: 0.5rem 1.25rem; font-size: 0.85rem; font-weight: 500;
+		background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.2);
+		border-radius: 6px; color: var(--cf-accent); cursor: pointer;
+	}
+	.test-btn:hover { background: rgba(56, 189, 248, 0.2); }
+	.test-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+	.test-result {
+		margin-top: 0.75rem; padding: 0.5rem 0.75rem; border-radius: 6px; font-size: 0.85rem;
+	}
+	.test-result.connected { background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.25); color: #86efac; }
+	.test-result.disconnected { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.25); color: #fca5a5; }
+
+	.config-hint { margin-top: 0.75rem; font-size: 0.75rem; color: var(--cf-text-muted); }
+	.config-hint code { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--cf-accent); background: var(--cf-bg-tertiary); padding: 0.1rem 0.3rem; border-radius: 3px; }
 </style>

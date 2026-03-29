@@ -49,7 +49,7 @@ func main() {
 
 	switch os.Args[1] {
 	case "serve":
-		runServe(ctx, cfg)
+		runServe(ctx, cfg, configPath)
 	case "migrate":
 		runMigrate(ctx, cfg)
 	case "seed":
@@ -59,7 +59,7 @@ func main() {
 	}
 }
 
-func runServe(ctx context.Context, cfg *config.Config) {
+func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	st, err := store.NewPostgresStore(ctx, cfg.Storage.PostgresURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to database")
@@ -125,7 +125,7 @@ func runServe(ctx context.Context, cfg *config.Config) {
 	}
 
 	jwtSecret := auth.GenerateSecret(cfg.Storage.PostgresURL)
-	router := api.NewRouter(st, cfg.Server.FrontendURL, cfg.PCAP.InputDir, cfg.PCAP.MaxFileSizeMB, cfg.Export.Venafi.Enabled, venafiInterval, jwtSecret)
+	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, cfg.PCAP.InputDir, cfg.PCAP.MaxFileSizeMB, jwtSecret)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Listen,

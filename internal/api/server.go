@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
@@ -11,11 +10,12 @@ import (
 
 	"github.com/cyberflag-ai/cipherflag/internal/api/handler"
 	"github.com/cyberflag-ai/cipherflag/internal/api/middleware"
+	"github.com/cyberflag-ai/cipherflag/internal/config"
 	"github.com/cyberflag-ai/cipherflag/internal/store"
 )
 
 // NewRouter builds the HTTP router with all API routes.
-func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcapMaxSizeMB int, venafiEnabled bool, venafiPushInterval time.Duration, jwtSecret []byte) http.Handler {
+func NewRouter(st store.CertStore, cfg *config.Config, cfgPath string, frontendURL string, pcapInputDir string, pcapMaxSizeMB int, jwtSecret []byte) http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -30,7 +30,7 @@ func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcap
 	statsH := handler.NewStatsHandler(st)
 	exportH := handler.NewExportHandler(st)
 	pcapH := handler.NewPCAPHandler(st, pcapInputDir, pcapMaxSizeMB)
-	venafiH := handler.NewVenafiHandler(st, venafiEnabled, venafiPushInterval)
+	venafiH := handler.NewVenafiHandler(st, cfg, cfgPath)
 	reportsH := handler.NewReportsHandler(st)
 	authH := handler.NewAuthHandler(st, jwtSecret)
 
@@ -115,6 +115,12 @@ func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcap
 
 			// Venafi
 			r.Get("/venafi/status", venafiH.Status)
+			r.Get("/venafi/config", venafiH.GetConfig)
+			r.Route("/venafi", func(r chi.Router) {
+				r.Use(middleware.RequireAdmin)
+				r.Put("/config", venafiH.UpdateConfig)
+				r.Post("/test-connection", venafiH.TestConnection)
+			})
 		})
 	})
 

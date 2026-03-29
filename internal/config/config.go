@@ -125,3 +125,14 @@ func Load(path string) (*Config, error) {
 	}
 	return &cfg, nil
 }
+
+// Save writes the config back to a TOML file.
+func Save(path string, cfg *Config) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	encoder := toml.NewEncoder(f)
+	return encoder.Encode(cfg)
+}
