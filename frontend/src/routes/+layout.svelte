@@ -58,7 +58,11 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" href="/favicon.ico" sizes="any" />
+	<link rel="icon" href={favicon} type="image/svg+xml" />
+	<link rel="icon" href="/favicon-16x16.png" sizes="16x16" type="image/png" />
+	<link rel="icon" href="/favicon-32x32.png" sizes="32x32" type="image/png" />
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	<title>CipherFlag</title>
 </svelte:head>
 
@@ -68,7 +72,7 @@
 	<div class="app-shell">
 		<nav class="top-bar">
 			<a href="/" class="logo">
-				<span class="logo-icon">&#9672;</span>
+				<img src={favicon} alt="CipherFlag" class="logo-icon" />
 				<span class="logo-text">CipherFlag</span>
 			</a>
 			<div class="nav-links">
@@ -129,8 +133,9 @@
 	}
 
 	.logo-icon {
-		color: var(--cf-accent);
-		font-size: 1.3rem;
+		width: 24px;
+		height: 24px;
+		border-radius: 4px;
 	}
 
 	.nav-links {

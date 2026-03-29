@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { login } from '$lib/auth';
+	import favicon from '$lib/assets/favicon.svg';
 
 	let email = $state('');
 	let password = $state('');
@@ -27,7 +28,7 @@
 <div class="login-page">
 	<div class="login-card">
 		<div class="login-header">
-			<span class="logo-icon">&#9672;</span>
+			<img src={favicon} alt="CipherFlag" class="logo-icon" />
 			<h1>CipherFlag</h1>
 		</div>
 		<p class="login-subtitle">Sign in to continue</p>
@@ -70,7 +71,7 @@
 		margin-bottom: 0.25rem;
 	}
 
-	.logo-icon { font-size: 1.5rem; color: var(--cf-accent, #38bdf8); }
+	.logo-icon { width: 32px; height: 32px; border-radius: 6px; }
 
 	h1 { margin: 0; font-size: 1.3rem; font-weight: 700; color: var(--cf-text-primary, #e2e8f0); }
 
