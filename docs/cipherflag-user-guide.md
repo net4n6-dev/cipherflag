@@ -15,18 +15,21 @@ This guide walks you through installation, configuration, and daily use.
 3. [The Setup Wizard](#3-the-setup-wizard)
 4. [Manual Configuration](#4-manual-configuration)
 5. [Verifying Your Deployment](#5-verifying-your-deployment)
-6. [Network Capture](#6-network-capture)
-7. [Uploading PCAP Files](#7-uploading-pcap-files)
-8. [The Dashboard](#8-the-dashboard)
-9. [PKI Explorer](#9-pki-explorer)
-10. [Analytics](#10-analytics)
-11. [Global Search](#11-global-search)
-12. [Certificate Detail](#12-certificate-detail)
-13. [Venafi Integration](#13-venafi-integration)
-14. [Exporting Data](#14-exporting-data)
-15. [API Reference](#15-api-reference)
-16. [Ongoing Operations](#16-ongoing-operations)
-17. [Troubleshooting](#17-troubleshooting)
+6. [Authentication](#6-authentication)
+7. [Network Capture](#7-network-capture)
+8. [Uploading PCAP Files](#8-uploading-pcap-files)
+9. [The Dashboard](#9-the-dashboard)
+10. [PKI Explorer](#10-pki-explorer)
+11. [Analytics](#11-analytics)
+12. [Reports](#12-reports)
+13. [Global Search](#13-global-search)
+14. [Certificate Detail](#14-certificate-detail)
+15. [Settings](#15-settings)
+16. [Venafi Integration](#16-venafi-integration)
+17. [Exporting Data](#17-exporting-data)
+18. [API Reference](#18-api-reference)
+19. [Ongoing Operations](#19-ongoing-operations)
+20. [Troubleshooting](#20-troubleshooting)
 
 ---
 
@@ -195,7 +198,39 @@ Open the dashboard in your browser: `http://<your-ip>:8443`
 
 ---
 
-## 6. Network Capture
+## 6. Authentication
+
+CipherFlag includes built-in authentication with JWT tokens and role-based access control.
+
+### First-Time Setup
+
+On first visit (or after a fresh install), you'll see the **Create Admin Account** page. Enter your email, password (min 8 characters), and display name. This creates the first admin user and logs you in.
+
+### Roles
+
+| Role | Capabilities |
+|------|-------------|
+| **Admin** | Full access: manage users, edit settings, configure Venafi and sources |
+| **Viewer** | Read-only: view dashboard, analytics, reports, certificates |
+
+### Login
+
+Navigate to any page — if not authenticated, you'll be redirected to `/login`. Enter your email and password. Sessions last 24 hours.
+
+### User Management
+
+Admins can manage users at **Settings > Users**:
+- Create new users with email, password, display name, and role
+- Toggle roles between admin and viewer (click the role badge)
+- Delete users (cannot delete your own account)
+
+### Backward Compatibility
+
+If no users have been created, CipherFlag runs without authentication — all endpoints are open. This preserves backward compatibility with existing deployments. Authentication enforcement begins when the first user is created.
+
+---
+
+## 7. Network Capture
 
 CipherFlag uses Zeek to passively extract certificates from TLS handshakes. No traffic is modified or interrupted.
 
@@ -221,7 +256,7 @@ docker compose logs -f cipherflag | grep -i "cert\|ingest"
 
 ---
 
-## 7. Uploading PCAP Files
+## 8. Uploading PCAP Files
 
 For offline analysis, upload packet captures via the **Upload** page or API.
 
@@ -244,7 +279,7 @@ curl http://localhost:8443/api/v1/pcap/jobs
 
 ---
 
-## 8. The Dashboard
+## 9. The Dashboard
 
 The dashboard (`/`) shows a high-level overview:
 
@@ -258,7 +293,7 @@ Click any risk card to navigate to filtered certificate views.
 
 ---
 
-## 9. PKI Explorer
+## 10. PKI Explorer
 
 The PKI Explorer (`/pki`) is an interactive force-directed graph showing your entire CA hierarchy.
 
@@ -287,7 +322,7 @@ The toolbar search bar finds nodes in the graph (client-side) and certificates n
 
 ---
 
-## 10. Analytics
+## 11. Analytics
 
 The Analytics page (`/analytics`) has five tabs:
 
@@ -332,7 +367,34 @@ Cards for each discovery source (Zeek passive, active scan, manual upload, Corel
 
 ---
 
-## 11. Global Search
+## 12. Reports
+
+The Reports page (`/reports`) provides a visual dashboard and detailed report generation.
+
+### Reports Dashboard
+
+The landing page shows four visual panels:
+- **Domain Overview** — treemap of domains sized by cert count, colored by grade
+- **CA Concentration** — horizontal bars showing top CAs
+- **Compliance Posture** — arc gauge with compliance percentage
+- **Expiry Timeline** — monthly bar chart of upcoming expirations
+
+Click any element to drill into a detailed report.
+
+### Report Types
+
+| Report | Input | What it shows |
+|--------|-------|---------------|
+| Domain Certificate | Domain name | Certs, deployments, findings, wildcards, D3 charts |
+| CA Authority | CA name | Issued certs, crypto breakdown, chain context |
+| Crypto Compliance | None (full scan) | Compliance score, critical issues, remediation priorities |
+| Expiry Risk | Time window | Expiring certs, by issuer/owner, ghost certs |
+
+All reports include **Print** and **Download CSV** buttons.
+
+---
+
+## 13. Global Search
 
 The search bar in the top navigation searches across the entire CipherFlag dataset:
 
@@ -351,7 +413,7 @@ Click any result to navigate to the certificate detail page.
 
 ---
 
-## 12. Certificate Detail
+## 14. Certificate Detail
 
 The certificate detail page (`/certificates/{fingerprint}`) shows:
 
@@ -368,7 +430,42 @@ Each health finding shows:
 
 ---
 
-## 13. Venafi Integration
+## 15. Settings
+
+The Settings page (`/settings`) is accessible via the gear icon in the nav bar.
+
+### Users (Admin only)
+
+Manage user accounts: create, delete, and toggle roles between admin and viewer.
+
+### Sources
+
+Configure certificate discovery sources:
+- **Zeek File Poller** — enable/disable, log directory, poll interval (5-300 seconds)
+- **Corelight** — enable/disable, API URL, API token
+- **PCAP Upload** — max file size (1-5000 MB), retention (1-720 hours)
+
+### Venafi
+
+Configure the Venafi push integration:
+- Platform selection (Cloud or TPP)
+- Credentials (API key for Cloud, OAuth2 for TPP) — masked in the UI
+- Region (US/EU for Cloud)
+- Push interval (5-1440 minutes)
+- **Test Connection** button validates credentials
+- Push status: pending, pushed, failed, dead-lettered counts
+
+### System
+
+Read-only overview: total certs, observations, grade distribution, discovery sources.
+
+### Profile
+
+View your account details and change your password.
+
+---
+
+## 16. Venafi Integration
 
 CipherFlag pushes discovered certificates to Venafi automatically. See the [Venafi Integration Guide](venafi-export.md) for setup instructions.
 
@@ -402,7 +499,7 @@ curl http://localhost:8443/api/v1/venafi/status
 
 ---
 
-## 14. Exporting Data
+## 17. Exporting Data
 
 ### CSV Export
 
@@ -434,7 +531,7 @@ curl -o digicert.csv "http://localhost:8443/api/v1/export/certificates?format=cs
 
 ---
 
-## 15. API Reference
+## 18. API Reference
 
 All endpoints are under `/api/v1/`.
 
@@ -504,7 +601,7 @@ All endpoints are under `/api/v1/`.
 
 ---
 
-## 16. Ongoing Operations
+## 19. Ongoing Operations
 
 ### Checking Health
 
@@ -543,7 +640,7 @@ docker compose exec postgres psql -U cipherflag -c \
 
 ---
 
-## 17. Troubleshooting
+## 20. Troubleshooting
 
 ### Dashboard not loading
 

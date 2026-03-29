@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Release](https://img.shields.io/github/v/release/cyberflag-ai/cipherflag)](https://github.com/cyberflag-ai/cipherflag/releases)
 
-CipherFlag is an open-source certificate intelligence platform that discovers TLS certificates from network traffic, scores their health, and provides interactive analytics for enterprise PKI management. It uses [Zeek](https://zeek.org/) for passive discovery, grades certificates A+ through F against 16 security rules, and visualizes certificate chains, ownership, and crypto posture with D3.js.
+CipherFlag is an open-source certificate intelligence platform that discovers TLS certificates from network traffic, scores their health, and provides interactive analytics for enterprise PKI management. It uses [Zeek](https://zeek.org/) for passive discovery, grades certificates A+ through F against 24 security rules, and visualizes certificate chains, ownership, and crypto posture with D3.js. Pushes discovered certificates to Venafi (Cloud or TPP) for lifecycle management.
 
 ---
 
@@ -108,12 +108,20 @@ CipherFlag v0.3 includes five analytics tabs:
 ```
 
 **Tech Stack:**
-- **Backend:** Go 1.24, chi router, pgx/PostgreSQL
+- **Backend:** Go 1.25, chi router, pgx/PostgreSQL, bcrypt/JWT auth
 - **Frontend:** SvelteKit 2, Svelte 5, Tailwind CSS
-- **Visualizations:** D3.js (force, sankey, hierarchy, zoom), Cytoscape.js
+- **Visualizations:** D3.js (force, sankey, hierarchy, treemap, zoom), Cytoscape.js
 - **Network Sensor:** Zeek 7.x
 - **Database:** PostgreSQL 15
-- **Deployment:** Docker Compose (3 services)
+- **Auth:** JWT in HTTP-only cookies, bcrypt passwords, admin/viewer RBAC
+- **Deployment:** Docker Compose (3 services), multi-arch images (amd64 + arm64)
+
+### Docker Images
+
+| Image | Size | Platforms |
+|-------|------|-----------|
+| `ghcr.io/cyberflag-ai/cipherflag:latest` | ~40 MB | linux/amd64, linux/arm64 |
+| `ghcr.io/cyberflag-ai/cipherflag-zeek:latest` | ~120 MB | linux/amd64, linux/arm64 |
 
 ---
 
@@ -169,6 +177,27 @@ cipherflag/
 ---
 
 ## API Endpoints
+
+### Authentication
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/auth/login` | Login (returns JWT cookie) |
+| POST | `/api/v1/auth/logout` | Logout (clears cookie) |
+| GET | `/api/v1/auth/me` | Current user profile |
+| PUT | `/api/v1/auth/me/password` | Change password |
+| GET | `/api/v1/auth/status` | Check if users exist |
+| POST | `/api/v1/auth/setup-admin` | First admin registration |
+| GET | `/api/v1/auth/users` | List users (admin) |
+| POST | `/api/v1/auth/users` | Create user (admin) |
+
+### Settings
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/config/sources` | Source configuration |
+| PUT | `/api/v1/config/sources` | Update source config (admin) |
+| GET | `/api/v1/venafi/config` | Venafi config (credentials masked) |
+| PUT | `/api/v1/venafi/config` | Update Venafi config (admin) |
+| POST | `/api/v1/venafi/test-connection` | Test Venafi credentials (admin) |
 
 ### Certificates
 | Method | Path | Description |
