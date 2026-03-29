@@ -82,8 +82,9 @@
 			<GlobalSearch />
 			{#if currentUser && currentUser.id !== ''}
 				<div class="user-menu">
-					<span class="user-name">{currentUser.display_name}</span>
+					<a href="/settings?tab=profile" class="user-name-link">{currentUser.display_name}</a>
 					<span class="user-role" class:admin={currentUser.role === 'admin'}>{currentUser.role}</span>
+					<a href="/settings" class="settings-link" title="Settings">&#9881;</a>
 					<button class="logout-btn" onclick={handleLogout}>Logout</button>
 				</div>
 			{/if}
@@ -179,4 +180,13 @@
 		transition: all 0.15s;
 	}
 	.logout-btn:hover { color: var(--cf-text-primary); background: var(--cf-bg-tertiary); }
+
+	.user-name-link { font-size: 0.8rem; color: var(--cf-text-secondary); text-decoration: none; }
+	.user-name-link:hover { color: var(--cf-text-primary); }
+
+	.settings-link {
+		font-size: 1rem; color: var(--cf-text-muted); text-decoration: none;
+		padding: 0.125rem 0.25rem; border-radius: 4px; transition: all 0.15s;
+	}
+	.settings-link:hover { color: var(--cf-text-primary); background: var(--cf-bg-tertiary); }
 </style>

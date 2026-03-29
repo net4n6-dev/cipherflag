@@ -647,4 +647,5 @@ export const api = {
 	getCAReport: (params: string) => fetchJSON<CAReport>(`/reports/ca?${params}`),
 	getComplianceReport: () => fetchJSON<ComplianceReport>('/reports/compliance'),
 	getExpiryReport: (days: number) => fetchJSON<ExpiryReport>(`/reports/expiry?days=${days}`),
+	getVenafiStatus: () => fetchJSON<any>('/venafi/status'),
 };
