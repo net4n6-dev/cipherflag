@@ -16,7 +16,8 @@ export async function checkAuthStatus(): Promise<{ has_users: boolean }> {
 export async function getCurrentUser(): Promise<AuthUser | null> {
 	const res = await fetch(`${BASE}/auth/me`);
 	if (!res.ok) return null;
-	return res.json();
+	const data = await res.json();
+	return data.user ?? data;
 }
 
 export async function login(email: string, password: string): Promise<AuthUser> {
