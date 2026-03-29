@@ -2,6 +2,24 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [0.9] - 2026-03-28
+
+### Added
+- **Authentication system** — JWT tokens in HTTP-only cookies, bcrypt password hashing, admin/viewer roles
+- **Login page** (`/login`) — email + password authentication
+- **First-visit admin setup** (`/setup-admin`) — creates initial admin account when no users exist
+- **Auth middleware** — protects all API endpoints, backward compatible (no users = no auth)
+- **User management API** — admin-only CRUD for users (list, create, update, delete)
+- **Password change** — authenticated users can change their own password
+- **User menu in nav** — display name, role badge (admin/viewer), logout button
+- **Dashboard redesign** — command center layout with compliance gauge, grade donut, algorithm landscape, priority actions, radial PKI tree
+- **Compliance report visual layer** — category donut, severity distribution, expandable category cards before raw tables
+
+### Changed
+- All API endpoints now require authentication when users exist
+- Setup wizard creates first admin account
+- Reports landing uses treemap for domain overview
+
 ## [0.36] - 2026-03-28
 
 ### Added

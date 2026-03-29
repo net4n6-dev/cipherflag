@@ -214,12 +214,13 @@ cipherflag/
 
 ---
 
-## Security Notice
+## Security
 
-CipherFlag does not include built-in authentication. The API exposes PCAP upload and certificate export capabilities. Protect your deployment with one of:
+CipherFlag includes built-in authentication with JWT tokens, bcrypt password hashing, and role-based access control (admin/viewer). On first visit, you'll be prompted to create an admin account.
 
+For production deployments, also consider:
 - Network segmentation (management VLAN only)
-- Reverse proxy with authentication (nginx + basic auth, OAuth2 proxy)
+- Reverse proxy with TLS termination (nginx, Caddy)
 - Host firewall rules restricting access to port 8443
 
 ---
