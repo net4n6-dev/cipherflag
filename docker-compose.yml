@@ -16,6 +16,7 @@ services:
   zeek:
     build:
       context: ./docker/zeek
+    image: ghcr.io/cyberflag-ai/cipherflag-zeek:latest
     environment:
       NETWORK_INTERFACE: ${NETWORK_INTERFACE:-}
       ZEEK_LOG_DIR: /zeek-logs
@@ -31,6 +32,7 @@ services:
   cipherflag:
     build:
       context: .
+    image: ghcr.io/cyberflag-ai/cipherflag:latest
     environment:
       CIPHERFLAG_CONFIG: /app/config/cipherflag.toml
     ports:
@@ -38,6 +40,7 @@ services:
     volumes:
       - zeek-logs:/zeek-logs:ro
       - pcap-input:/pcap-input
+      - ./config:/app/config
     depends_on:
       postgres:
         condition: service_healthy

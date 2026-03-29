@@ -4,7 +4,7 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o cipherflag ./cmd/cipherflag/
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o cipherflag ./cmd/cipherflag/
 
 # Stage 2: Build frontend
 FROM node:22-alpine AS frontend-builder
@@ -21,6 +21,7 @@ WORKDIR /app
 COPY --from=go-builder /build/cipherflag .
 COPY --from=frontend-builder /build/build ./frontend/build
 COPY config/cipherflag.toml ./config/
+COPY internal/store/migrations ./internal/store/migrations
 EXPOSE 8443
 ENTRYPOINT ["./cipherflag"]
 CMD ["serve"]
