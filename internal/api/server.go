@@ -15,7 +15,7 @@ import (
 )
 
 // NewRouter builds the HTTP router with all API routes.
-func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcapMaxSizeMB int, venafiEnabled bool, venafiPushInterval time.Duration) http.Handler {
+func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcapMaxSizeMB int, venafiEnabled bool, venafiPushInterval time.Duration, jwtSecret []byte) http.Handler {
 	r := chi.NewRouter()
 
 	// Global middleware
@@ -32,6 +32,7 @@ func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcap
 	pcapH := handler.NewPCAPHandler(st, pcapInputDir, pcapMaxSizeMB)
 	venafiH := handler.NewVenafiHandler(st, venafiEnabled, venafiPushInterval)
 	reportsH := handler.NewReportsHandler(st)
+	authH := handler.NewAuthHandler(st, jwtSecret)
 
 	// Health check
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -40,57 +41,81 @@ func NewRouter(st store.CertStore, frontendURL string, pcapInputDir string, pcap
 
 	// API v1
 	r.Route("/api/v1", func(r chi.Router) {
-		// Certificates
-		r.Get("/certificates", certH.List)
-		r.Get("/certificates/{fingerprint}", certH.Get)
-		r.Get("/certificates/{fingerprint}/chain", certH.Chain)
-		r.Get("/certificates/{fingerprint}/observations", certH.Observations)
-		r.Get("/certificates/{fingerprint}/health", certH.Health)
+		// Public auth routes (no auth middleware)
+		r.Post("/auth/login", authH.Login)
+		r.Get("/auth/status", authH.Status)
+		r.Post("/auth/setup-admin", authH.SetupAdmin)
 
-		// Global search
-		r.Get("/search", certH.GlobalSearch)
+		// All authenticated routes
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Auth(st, jwtSecret))
 
-		// Graph
-		r.Get("/graph/landscape", graphH.Landscape)
-		r.Get("/graph/chain/{fingerprint}", graphH.ChainGraph)
-		r.Get("/graph/landscape/aggregated", graphH.AggregatedLandscape)
-		r.Get("/graph/ca/{fingerprint}/children", graphH.CAChildren)
-		r.Get("/graph/ca/{fingerprint}/blast-radius", graphH.BlastRadius)
+			// Auth endpoints (any role)
+			r.Post("/auth/logout", authH.Logout)
+			r.Get("/auth/me", authH.Me)
+			r.Put("/auth/me/password", authH.ChangePassword)
 
-		// Stats
-		r.Get("/stats/summary", statsH.Summary)
-		r.Get("/stats/ciphers", statsH.Ciphers)
-		r.Get("/stats/issuers", statsH.Issuers)
-		r.Get("/stats/expiry-timeline", statsH.ExpiryTimeline)
-		r.Get("/stats/chain-flow", statsH.ChainFlow)
-		r.Get("/stats/ownership", statsH.Ownership)
-		r.Get("/stats/deployment", statsH.Deployment)
-		r.Get("/stats/crypto-posture", statsH.CryptoPosture)
-		r.Get("/stats/expiry-forecast", statsH.ExpiryForecast)
-		r.Get("/stats/source-lineage", statsH.SourceLineage)
+			// Auth endpoints (admin only)
+			r.Route("/auth/users", func(r chi.Router) {
+				r.Use(middleware.RequireAdmin)
+				r.Get("/", authH.ListUsers)
+				r.Post("/", authH.CreateUser)
+				r.Put("/{id}", authH.UpdateUser)
+				r.Delete("/{id}", authH.DeleteUser)
+			})
 
-		// PKI tree
-		r.Get("/pki/tree", statsH.PKITree)
+			// Certificates
+			r.Get("/certificates", certH.List)
+			r.Get("/certificates/{fingerprint}", certH.Get)
+			r.Get("/certificates/{fingerprint}/chain", certH.Chain)
+			r.Get("/certificates/{fingerprint}/observations", certH.Observations)
+			r.Get("/certificates/{fingerprint}/health", certH.Health)
 
-		// Endpoints
-		r.Get("/endpoints", certH.Endpoints)
+			// Global search
+			r.Get("/search", certH.GlobalSearch)
 
-		// Export
-		r.Get("/export/certificates", exportH.ExportCertificates)
+			// Graph
+			r.Get("/graph/landscape", graphH.Landscape)
+			r.Get("/graph/chain/{fingerprint}", graphH.ChainGraph)
+			r.Get("/graph/landscape/aggregated", graphH.AggregatedLandscape)
+			r.Get("/graph/ca/{fingerprint}/children", graphH.CAChildren)
+			r.Get("/graph/ca/{fingerprint}/blast-radius", graphH.BlastRadius)
 
-		// PCAP
-		r.Post("/pcap/upload", pcapH.Upload)
-		r.Get("/pcap/jobs/{id}", pcapH.GetJob)
-		r.Get("/pcap/jobs", pcapH.ListJobs)
+			// Stats
+			r.Get("/stats/summary", statsH.Summary)
+			r.Get("/stats/ciphers", statsH.Ciphers)
+			r.Get("/stats/issuers", statsH.Issuers)
+			r.Get("/stats/expiry-timeline", statsH.ExpiryTimeline)
+			r.Get("/stats/chain-flow", statsH.ChainFlow)
+			r.Get("/stats/ownership", statsH.Ownership)
+			r.Get("/stats/deployment", statsH.Deployment)
+			r.Get("/stats/crypto-posture", statsH.CryptoPosture)
+			r.Get("/stats/expiry-forecast", statsH.ExpiryForecast)
+			r.Get("/stats/source-lineage", statsH.SourceLineage)
 
-		// Reports
-		r.Get("/reports/domain", reportsH.DomainReport)
-		r.Get("/reports/ca", reportsH.CAReport)
-		r.Get("/reports/compliance", reportsH.ComplianceReport)
-		r.Get("/reports/expiry", reportsH.ExpiryReport)
+			// PKI tree
+			r.Get("/pki/tree", statsH.PKITree)
 
-		// Venafi
-		r.Get("/venafi/status", venafiH.Status)
+			// Endpoints
+			r.Get("/endpoints", certH.Endpoints)
+
+			// Export
+			r.Get("/export/certificates", exportH.ExportCertificates)
+
+			// PCAP
+			r.Post("/pcap/upload", pcapH.Upload)
+			r.Get("/pcap/jobs/{id}", pcapH.GetJob)
+			r.Get("/pcap/jobs", pcapH.ListJobs)
+
+			// Reports
+			r.Get("/reports/domain", reportsH.DomainReport)
+			r.Get("/reports/ca", reportsH.CAReport)
+			r.Get("/reports/compliance", reportsH.ComplianceReport)
+			r.Get("/reports/expiry", reportsH.ExpiryReport)
+
+			// Venafi
+			r.Get("/venafi/status", venafiH.Status)
+		})
 	})
 
 	log.Info().Msg("API routes registered")

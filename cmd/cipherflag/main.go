@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/cyberflag-ai/cipherflag/internal/api"
+	"github.com/cyberflag-ai/cipherflag/internal/auth"
 	"github.com/cyberflag-ai/cipherflag/internal/config"
 	"github.com/cyberflag-ai/cipherflag/internal/export/venafi"
 	"github.com/cyberflag-ai/cipherflag/internal/ingest"
@@ -123,7 +124,8 @@ func runServe(ctx context.Context, cfg *config.Config) {
 			Msg("venafi push scheduler started")
 	}
 
-	router := api.NewRouter(st, cfg.Server.FrontendURL, cfg.PCAP.InputDir, cfg.PCAP.MaxFileSizeMB, cfg.Export.Venafi.Enabled, venafiInterval)
+	jwtSecret := auth.GenerateSecret(cfg.Storage.PostgresURL)
+	router := api.NewRouter(st, cfg.Server.FrontendURL, cfg.PCAP.InputDir, cfg.PCAP.MaxFileSizeMB, cfg.Export.Venafi.Enabled, venafiInterval, jwtSecret)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Listen,
