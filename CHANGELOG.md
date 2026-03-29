@@ -2,6 +2,24 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [1.0] - 2026-03-29
+
+### Added
+- **Settings page** with tabbed layout:
+  - Users: list, create, delete, toggle roles (admin only)
+  - Sources: Zeek poller, Corelight, PCAP config with guardrails
+  - Venafi: config management with platform/region dropdowns, masked credentials, test connection, push interval (5-1440 min)
+  - System: cert counts, grade distribution, sources overview
+  - Profile: view profile, change password
+- **Venafi config API** — GET/PUT with validation, test connection endpoint
+- **Sources config API** — GET/PUT with guardrails (poll interval 5-300s, PCAP size 1-5000MB)
+- **Docker containerization** — optimized 40MB image, docker-compose with pre-built GHCR images, Docker-specific config template
+- Settings link (gear icon) and profile link in nav bar
+
+### Changed
+- NewRouter accepts config pointer for live config management
+- Venafi handler uses config reference instead of static values
+
 ## [0.9] - 2026-03-28
 
 ### Added
