@@ -22,13 +22,12 @@
 
 		const user = await getCurrentUser();
 		if (user) {
-			// Check if it's the anonymous user (no-auth mode)
-			if (user.id === '' && user.email === '') {
-				// No users exist, no auth enforced
-				currentUser = user;
-			} else {
-				currentUser = user;
+			if (user.id === 'anonymous') {
+				// No users exist — redirect to setup
+				goto('/setup-admin');
+				return;
 			}
+			currentUser = user;
 		} else {
 			// Not authenticated — check if users exist
 			const status = await checkAuthStatus();
