@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 
@@ -29,6 +30,7 @@ type ZeekConfigResponse struct {
 	Enabled             bool   `json:"enabled"`
 	LogDir              string `json:"log_dir"`
 	PollIntervalSeconds int    `json:"poll_interval_seconds"`
+	NetworkInterface    string `json:"network_interface"`
 }
 
 type CorelightConfigResponse struct {
@@ -50,6 +52,7 @@ func (h *ConfigHandler) GetSources(w http.ResponseWriter, r *http.Request) {
 			Enabled:             h.cfg.Sources.ZeekFile.Enabled,
 			LogDir:              h.cfg.Sources.ZeekFile.LogDir,
 			PollIntervalSeconds: h.cfg.Sources.ZeekFile.PollIntervalSeconds,
+			NetworkInterface:    h.cfg.Sources.ZeekFile.NetworkInterface,
 		},
 		Corelight: CorelightConfigResponse{
 			Enabled:  h.cfg.Sources.Corelight.Enabled,
@@ -75,6 +78,7 @@ type ZeekConfigUpdate struct {
 	Enabled             *bool   `json:"enabled,omitempty"`
 	LogDir              *string `json:"log_dir,omitempty"`
 	PollIntervalSeconds *int    `json:"poll_interval_seconds,omitempty"`
+	NetworkInterface    *string `json:"network_interface,omitempty"`
 }
 
 type CorelightConfigUpdate struct {
@@ -117,6 +121,9 @@ func (h *ConfigHandler) UpdateSources(w http.ResponseWriter, r *http.Request) {
 			}
 			h.cfg.Sources.ZeekFile.PollIntervalSeconds = interval
 		}
+		if req.Zeek.NetworkInterface != nil {
+			h.cfg.Sources.ZeekFile.NetworkInterface = strings.TrimSpace(*req.Zeek.NetworkInterface)
+		}
 	}
 
 	// Corelight
@@ -158,4 +165,52 @@ func (h *ConfigHandler) UpdateSources(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated", "note": "restart required for changes to take effect"})
+}
+
+// InterfaceInfo describes a network interface.
+type InterfaceInfo struct {
+	Name       string `json:"name"`
+	IP         string `json:"ip"`
+	IsUp       bool   `json:"is_up"`
+	IsLoopback bool   `json:"is_loopback"`
+	MAC        string `json:"mac"`
+}
+
+// ListInterfaces returns available network interfaces on the host.
+func (h *ConfigHandler) ListInterfaces(w http.ResponseWriter, r *http.Request) {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("listing interfaces: %v", err))
+		return
+	}
+
+	var result []InterfaceInfo
+	for _, iface := range ifaces {
+		info := InterfaceInfo{
+			Name:       iface.Name,
+			IsUp:       iface.Flags&net.FlagUp != 0,
+			IsLoopback: iface.Flags&net.FlagLoopback != 0,
+			MAC:        iface.HardwareAddr.String(),
+		}
+
+		addrs, err := iface.Addrs()
+		if err == nil {
+			for _, addr := range addrs {
+				if ipnet, ok := addr.(*net.IPNet); ok && ipnet.IP.To4() != nil {
+					info.IP = ipnet.IP.String()
+					break
+				}
+			}
+		}
+
+		// Only include interfaces with an IP
+		if info.IP != "" {
+			result = append(result, info)
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"interfaces":        result,
+		"current_interface": h.cfg.Sources.ZeekFile.NetworkInterface,
+	})
 }

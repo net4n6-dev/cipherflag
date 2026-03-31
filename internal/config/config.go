@@ -47,6 +47,7 @@ type ZeekFileSourceConfig struct {
 	Enabled             bool   `toml:"enabled"`
 	LogDir              string `toml:"log_dir"`
 	PollIntervalSeconds int    `toml:"poll_interval_seconds"`
+	NetworkInterface    string `toml:"network_interface"`
 }
 
 type CorelightSourceConfig struct {

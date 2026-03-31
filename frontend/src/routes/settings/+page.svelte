@@ -49,14 +49,20 @@
 
 	// Sources tab
 	interface SourcesConfig {
-		zeek: { enabled: boolean; log_dir: string; poll_interval_seconds: number };
+		zeek: { enabled: boolean; log_dir: string; poll_interval_seconds: number; network_interface: string };
 		corelight: { enabled: boolean; api_url: string; has_token: boolean };
 		pcap: { max_file_size_mb: number; retention_hours: number; input_dir: string };
 	}
+	interface NetworkInterface {
+		name: string; ip: string; is_up: boolean; is_loopback: boolean; mac: string;
+	}
 	let sourcesConfig = $state<SourcesConfig | null>(null);
+	let interfaces = $state<NetworkInterface[]>([]);
+	let currentInterface = $state('');
 	let srcZeekEnabled = $state(true);
 	let srcZeekLogDir = $state('');
 	let srcZeekPollInterval = $state(30);
+	let srcNetworkInterface = $state('');
 	let srcCorelightEnabled = $state(false);
 	let srcCorelightURL = $state('');
 	let srcCorelightToken = $state('');
@@ -174,18 +180,27 @@
 	// Sources
 	async function loadSources() {
 		try {
-			const res = await fetch('/api/v1/config/sources');
-			if (res.ok) {
-				sourcesConfig = await res.json();
+			const [srcRes, ifRes] = await Promise.all([
+				fetch('/api/v1/config/sources'),
+				fetch('/api/v1/config/interfaces'),
+			]);
+			if (srcRes.ok) {
+				sourcesConfig = await srcRes.json();
 				if (sourcesConfig) {
 					srcZeekEnabled = sourcesConfig.zeek.enabled;
 					srcZeekLogDir = sourcesConfig.zeek.log_dir;
 					srcZeekPollInterval = sourcesConfig.zeek.poll_interval_seconds;
+					srcNetworkInterface = sourcesConfig.zeek.network_interface;
 					srcCorelightEnabled = sourcesConfig.corelight.enabled;
 					srcCorelightURL = sourcesConfig.corelight.api_url;
 					srcPcapMaxSize = sourcesConfig.pcap.max_file_size_mb;
 					srcPcapRetention = sourcesConfig.pcap.retention_hours;
 				}
+			}
+			if (ifRes.ok) {
+				const data = await ifRes.json();
+				interfaces = data.interfaces ?? [];
+				currentInterface = data.current_interface ?? '';
 			}
 		} catch {}
 	}
@@ -193,7 +208,7 @@
 	async function saveSources() {
 		srcError = ''; srcSuccess = '';
 		const body: any = {
-			zeek: { enabled: srcZeekEnabled, log_dir: srcZeekLogDir, poll_interval_seconds: srcZeekPollInterval },
+			zeek: { enabled: srcZeekEnabled, log_dir: srcZeekLogDir, poll_interval_seconds: srcZeekPollInterval, network_interface: srcNetworkInterface },
 			corelight: { enabled: srcCorelightEnabled, api_url: srcCorelightURL },
 			pcap: { max_file_size_mb: srcPcapMaxSize, retention_hours: srcPcapRetention },
 		};
@@ -490,6 +505,22 @@
 											<span class="vf-label">Poll Interval (seconds, 5–300)</span>
 											<input type="number" bind:value={srcZeekPollInterval} min="5" max="300" />
 										</div>
+										<div class="vf-field">
+											<span class="vf-label">Network Interface {currentInterface ? `(current: ${currentInterface})` : '(not set)'}</span>
+											{#if interfaces.length > 0}
+												<select bind:value={srcNetworkInterface}>
+													<option value="">-- Select interface --</option>
+													{#each interfaces as iface}
+														<option value={iface.name} disabled={!iface.is_up}>
+															{iface.name} — {iface.ip}{iface.is_loopback ? ' (loopback)' : ''}{!iface.is_up ? ' (down)' : ''}{iface.mac ? ` [${iface.mac}]` : ''}
+														</option>
+													{/each}
+												</select>
+											{:else}
+												<input type="text" bind:value={srcNetworkInterface} placeholder="e.g. eth0, ens192" />
+											{/if}
+											<p class="field-hint">Interface for Zeek network capture. Requires restart of Zeek container.</p>
+										</div>
 									</div>
 								{/if}
 							</div>
@@ -563,6 +594,7 @@
 									<div class="src-card-body">
 										<div class="ro-row"><span>Log Dir:</span> <span>{sourcesConfig.zeek.log_dir}</span></div>
 										<div class="ro-row"><span>Poll Interval:</span> <span>{sourcesConfig.zeek.poll_interval_seconds}s</span></div>
+										<div class="ro-row"><span>Interface:</span> <span>{sourcesConfig.zeek.network_interface || 'Not set'}</span></div>
 									</div>
 								</div>
 								<div class="source-card">
@@ -996,6 +1028,7 @@
 	.src-status { font-size: 0.7rem; text-transform: uppercase; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(100, 116, 139, 0.15); color: var(--cf-text-muted); }
 	.src-status.on { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
 	.vf-readonly { font-size: 0.85rem; color: var(--cf-text-secondary); font-family: 'JetBrains Mono', monospace; }
+	.field-hint { font-size: 0.7rem; color: var(--cf-text-muted); margin-top: 0.25rem; }
 	.ro-row { display: flex; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.8rem; }
 	.ro-row span:first-child { color: var(--cf-text-muted); width: 100px; }
 	.ro-row span:last-child { color: var(--cf-text-primary); }

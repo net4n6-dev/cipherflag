@@ -125,6 +125,7 @@ func NewRouter(st store.CertStore, cfg *config.Config, cfgPath string, frontendU
 
 			// Config
 			r.Get("/config/sources", configH.GetSources)
+			r.Get("/config/interfaces", configH.ListInterfaces)
 			r.Route("/config", func(r chi.Router) {
 				r.Use(middleware.RequireAdmin)
 				r.Put("/sources", configH.UpdateSources)
