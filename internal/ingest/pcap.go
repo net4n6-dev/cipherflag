@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/cyberflag-ai/cipherflag/internal/ingest/zeek"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/zeek"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 // FindCompletedPCAPJobs scans logDir for subdirectories that contain a ".done"

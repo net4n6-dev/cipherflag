@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/config"
-	"github.com/cyberflag-ai/cipherflag/internal/export/venafi"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 type VenafiHandler struct {

@@ -6,8 +6,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/cyberflag-ai/cipherflag/internal/analysis"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/analysis"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 type GraphHandler struct {

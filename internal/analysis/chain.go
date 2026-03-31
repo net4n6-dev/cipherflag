@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 // BuildGraphData transforms a slice of certificates and their health reports

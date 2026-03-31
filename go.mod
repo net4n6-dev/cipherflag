@@ -1,4 +1,4 @@
-module github.com/cyberflag-ai/cipherflag
+module github.com/net4n6-dev/cipherflag
 
 go 1.25.0
 

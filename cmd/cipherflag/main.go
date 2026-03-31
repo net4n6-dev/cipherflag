@@ -12,12 +12,12 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	"github.com/cyberflag-ai/cipherflag/internal/api"
-	"github.com/cyberflag-ai/cipherflag/internal/auth"
-	"github.com/cyberflag-ai/cipherflag/internal/config"
-	"github.com/cyberflag-ai/cipherflag/internal/export/venafi"
-	"github.com/cyberflag-ai/cipherflag/internal/ingest"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/api"
+	"github.com/net4n6-dev/cipherflag/internal/auth"
+	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
+	"github.com/net4n6-dev/cipherflag/internal/ingest"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 func main() {

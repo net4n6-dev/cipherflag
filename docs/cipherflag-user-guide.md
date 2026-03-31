@@ -69,7 +69,7 @@ This guide walks you through installation, configuration, and daily use.
 ### Option A: Install Script (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cyberflag-ai/cipherflag/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/net4n6-dev/cipherflag/main/scripts/install.sh | sh
 ```
 
 This downloads the `cipherflag` CLI binary for your platform (Linux or macOS, amd64 or arm64) and installs it to `/usr/local/bin`.
@@ -83,7 +83,7 @@ cipherflag setup
 ### Option B: Clone and Build
 
 ```bash
-git clone https://github.com/cyberflag-ai/cipherflag.git
+git clone https://github.com/net4n6-dev/cipherflag.git
 cd cipherflag
 docker-compose up -d
 ```

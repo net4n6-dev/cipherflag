@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/cyberflag-ai/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/config"
 )
 
 type ConfigHandler struct {

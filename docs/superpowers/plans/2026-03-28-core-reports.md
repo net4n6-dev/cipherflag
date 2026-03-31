@@ -312,7 +312,7 @@ Add in a new `// Reports` section:
 
 - [ ] **Step 2: Create reports.go with all 4 query implementations**
 
-Create `internal/store/reports.go`. This file holds all report queries on `PostgresStore`. The file needs these imports: `context`, `encoding/json`, `fmt`, `strings`, `time`, `github.com/cyberflag-ai/cipherflag/internal/model`.
+Create `internal/store/reports.go`. This file holds all report queries on `PostgresStore`. The file needs these imports: `context`, `encoding/json`, `fmt`, `strings`, `time`, `github.com/net4n6-dev/cipherflag/internal/model`.
 
 The implementations use the same pgx patterns as the rest of the store — `s.pool.Query()`, `rows.Scan()`, etc.
 
@@ -378,7 +378,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 type ReportsHandler struct {

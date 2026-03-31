@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 func TestImportCertificate_SendsCorrectAuthAndBody(t *testing.T) {

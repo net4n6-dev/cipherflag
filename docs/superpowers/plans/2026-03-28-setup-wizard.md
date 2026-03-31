@@ -113,7 +113,7 @@ services:
       retries: 5
 
   zeek:
-    image: ghcr.io/cyberflag-ai/cipherflag-zeek:latest
+    image: ghcr.io/net4n6-dev/cipherflag-zeek:latest
     environment:
       NETWORK_INTERFACE: "{{.NetworkInterface}}"
       ZEEK_LOG_DIR: /zeek-logs
@@ -127,7 +127,7 @@ services:
       - NET_ADMIN
 
   cipherflag:
-    image: ghcr.io/cyberflag-ai/cipherflag:latest
+    image: ghcr.io/net4n6-dev/cipherflag:latest
     environment:
       CIPHERFLAG_CONFIG: /app/config/cipherflag.toml
     ports:
@@ -275,7 +275,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/cyberflag-ai/cipherflag/internal/export/venafi"
+	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
 )
 
 // SetupConfig holds all wizard-collected values for template rendering.

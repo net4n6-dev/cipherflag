@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 // CertSearchQuery defines search/filter/pagination for certificate listing.

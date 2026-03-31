@@ -10,8 +10,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 type PCAPHandler struct {

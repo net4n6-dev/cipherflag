@@ -5,7 +5,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 // ExportPayload is the top-level JSON envelope for certificate exports.

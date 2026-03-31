@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 // MapX509ToCertificate converts a parsed Zeek X509Record into a CipherFlag Certificate.

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 // Client is a Venafi TPP REST API client that handles OAuth token refresh

@@ -370,7 +370,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 func (s *PostgresStore) HasUsers(ctx context.Context) (bool, error) {
@@ -507,9 +507,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/auth"
-	"github.com/cyberflag-ai/cipherflag/internal/model"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/auth"
+	"github.com/net4n6-dev/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 type contextKey string
@@ -623,10 +623,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/cyberflag-ai/cipherflag/internal/auth"
-	"github.com/cyberflag-ai/cipherflag/internal/api/middleware"
-	"github.com/cyberflag-ai/cipherflag/internal/model"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/auth"
+	"github.com/net4n6-dev/cipherflag/internal/api/middleware"
+	"github.com/net4n6-dev/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 type AuthHandler struct {
@@ -974,7 +974,7 @@ Update `cmd/cipherflag/main.go` to pass `jwtSecret` to `NewRouter`:
 
 Add import for `auth` package in main.go:
 ```go
-	"github.com/cyberflag-ai/cipherflag/internal/auth"
+	"github.com/net4n6-dev/cipherflag/internal/auth"
 ```
 
 - [ ] **Step 2: Verify compilation**

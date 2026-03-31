@@ -395,8 +395,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 const pushBatchSize = 100
@@ -596,7 +596,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 type VenafiHandler struct {
@@ -689,7 +689,7 @@ git commit -m "feat(api): add Venafi status endpoint and wire config to router"
 Add the import for the venafi package:
 
 ```go
-	"github.com/cyberflag-ai/cipherflag/internal/export/venafi"
+	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
 ```
 
 Add this block after the Zeek poller startup (after the `if cfg.Sources.ZeekFile.Enabled` block), before the router creation:

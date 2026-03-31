@@ -16,7 +16,7 @@ services:
   zeek:
     build:
       context: ./docker/zeek
-    image: ghcr.io/cyberflag-ai/cipherflag-zeek:latest
+    image: ghcr.io/net4n6-dev/cipherflag-zeek:latest
     environment:
       NETWORK_INTERFACE: ${NETWORK_INTERFACE:-}
       ZEEK_LOG_DIR: /zeek-logs
@@ -32,7 +32,7 @@ services:
   cipherflag:
     build:
       context: .
-    image: ghcr.io/cyberflag-ai/cipherflag:latest
+    image: ghcr.io/net4n6-dev/cipherflag:latest
     environment:
       CIPHERFLAG_CONFIG: /app/config/cipherflag.toml
     ports:

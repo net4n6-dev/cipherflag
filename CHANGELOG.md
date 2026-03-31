@@ -99,7 +99,7 @@ All notable changes to CipherFlag are documented in this file.
 - **Venafi Cloud support** — API key auth against `api.venafi.cloud` (US) and `api.venafi.eu` (EU) via unified `VenafiClient` interface
 - **Venafi push scheduler** — background goroutine batches certificates into Discovery/Import API calls with per-cert failure tracking, exponential backoff, and dead-lettering
 - **Push status API** — `GET /api/v1/venafi/status` returns pending, pushed, failed, and dead-lettered counts
-- **Pre-built Docker images** — `ghcr.io/cyberflag-ai/cipherflag` and `ghcr.io/cyberflag-ai/cipherflag-zeek`
+- **Pre-built Docker images** — `ghcr.io/net4n6-dev/cipherflag` and `ghcr.io/net4n6-dev/cipherflag-zeek`
 
 ### Changed
 - Venafi config adds `platform` (cloud/tpp), `api_key`, and `region` fields

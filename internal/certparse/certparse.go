@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 // ParsePEM decodes a PEM-encoded certificate and returns a model.Certificate.

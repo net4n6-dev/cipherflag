@@ -8,10 +8,10 @@ import (
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog/log"
 
-	"github.com/cyberflag-ai/cipherflag/internal/api/handler"
-	"github.com/cyberflag-ai/cipherflag/internal/api/middleware"
-	"github.com/cyberflag-ai/cipherflag/internal/config"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/api/handler"
+	"github.com/net4n6-dev/cipherflag/internal/api/middleware"
+	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 // NewRouter builds the HTTP router with all API routes.

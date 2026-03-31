@@ -1,10 +1,10 @@
 #!/bin/sh
 # CipherFlag installer — downloads the latest CLI binary.
-# Usage: curl -fsSL https://raw.githubusercontent.com/cyberflag-ai/cipherflag/main/scripts/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/net4n6-dev/cipherflag/main/scripts/install.sh | sh
 
 set -e
 
-REPO="cyberflag-ai/cipherflag"
+REPO="net4n6-dev/cipherflag"
 INSTALL_DIR="/usr/local/bin"
 
 # Detect OS and architecture

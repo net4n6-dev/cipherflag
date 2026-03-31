@@ -1,7 +1,7 @@
 # CipherFlag
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Release](https://img.shields.io/github/v/release/cyberflag-ai/cipherflag)](https://github.com/cyberflag-ai/cipherflag/releases)
+[![Release](https://img.shields.io/github/v/release/net4n6-dev/cipherflag)](https://github.com/net4n6-dev/cipherflag/releases)
 
 CipherFlag is an open-source certificate intelligence platform that discovers TLS certificates from network traffic, scores their health, and provides interactive analytics for enterprise PKI management. It uses [Zeek](https://zeek.org/) for passive discovery, grades certificates A+ through F against 24 security rules, and visualizes certificate chains, ownership, and crypto posture with D3.js. Pushes discovered certificates to Venafi (Cloud or TPP) for lifecycle management.
 
@@ -12,7 +12,7 @@ CipherFlag is an open-source certificate intelligence platform that discovers TL
 ### Option 1: Install Script (Recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cyberflag-ai/cipherflag/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/net4n6-dev/cipherflag/main/scripts/install.sh | sh
 cipherflag setup
 ```
 
@@ -21,7 +21,7 @@ The setup wizard walks you through network interface selection, Venafi integrati
 ### Option 2: Manual Setup
 
 ```bash
-git clone https://github.com/cyberflag-ai/cipherflag.git
+git clone https://github.com/net4n6-dev/cipherflag.git
 cd cipherflag
 cp .env.example .env          # edit to set NETWORK_INTERFACE for live capture
 docker-compose up -d
@@ -120,8 +120,8 @@ CipherFlag v0.3 includes five analytics tabs:
 
 | Image | Size | Platforms |
 |-------|------|-----------|
-| `ghcr.io/cyberflag-ai/cipherflag:latest` | ~40 MB | linux/amd64, linux/arm64 |
-| `ghcr.io/cyberflag-ai/cipherflag-zeek:latest` | ~120 MB | linux/amd64, linux/arm64 |
+| `ghcr.io/net4n6-dev/cipherflag:latest` | ~40 MB | linux/amd64, linux/arm64 |
+| `ghcr.io/net4n6-dev/cipherflag-zeek:latest` | ~120 MB | linux/amd64, linux/arm64 |
 
 ---
 

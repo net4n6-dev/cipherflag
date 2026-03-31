@@ -1199,7 +1199,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 func TestMapX509ToCertificate(t *testing.T) {
@@ -1291,7 +1291,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 // MapX509ToCertificate converts a Zeek x509 record to a CipherFlag Certificate.
@@ -1462,7 +1462,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 func generateTestCert(t *testing.T) []byte {
@@ -1527,7 +1527,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 // ParsePEM parses a PEM-encoded certificate and returns a CipherFlag Certificate.
@@ -1829,10 +1829,10 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/cyberflag-ai/cipherflag/internal/analysis"
-	"github.com/cyberflag-ai/cipherflag/internal/ingest/zeek"
-	"github.com/cyberflag-ai/cipherflag/internal/model"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/analysis"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/zeek"
+	"github.com/net4n6-dev/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 // ReadLogEntries reads lines from a file starting at the given byte offset.
@@ -2065,7 +2065,7 @@ In `cmd/cipherflag/main.go`, add the poller import and start it as a background 
 ```go
 import (
 	// ... existing imports
-	"github.com/cyberflag-ai/cipherflag/internal/ingest"
+	"github.com/net4n6-dev/cipherflag/internal/ingest"
 )
 
 func runServe(ctx context.Context, cfg *config.Config) {
@@ -2185,8 +2185,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 // FindCompletedPCAPJobs scans the log directory for job subdirectories that
@@ -2316,7 +2316,7 @@ func parseX509ForFingerprint(data []byte) (string, error) {
 Note: The `parseX509ForFingerprint` helper should import and use `zeek.ParseX509Record` from the zeek package. Adjust the import and call accordingly:
 
 ```go
-import "github.com/cyberflag-ai/cipherflag/internal/ingest/zeek"
+import "github.com/net4n6-dev/cipherflag/internal/ingest/zeek"
 
 func parseX509ForFingerprint(data []byte) (string, error) {
 	rec, err := zeek.ParseX509Record(data)
@@ -2379,7 +2379,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 func TestWriteCSV(t *testing.T) {
@@ -2445,7 +2445,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 var csvHeaders = []string{
@@ -2512,7 +2512,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 func TestWriteJSON(t *testing.T) {
@@ -2558,7 +2558,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 type ExportPayload struct {
@@ -2614,7 +2614,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 func TestClient_ImportCertificate(t *testing.T) {
@@ -2708,7 +2708,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
 // Client is a Venafi TPP REST API client with OAuth2 token management.
@@ -2853,8 +2853,8 @@ package handler
 import (
 	"net/http"
 
-	"github.com/cyberflag-ai/cipherflag/internal/export"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/export"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 type ExportHandler struct {
@@ -2924,7 +2924,7 @@ func (h *ExportHandler) ExportCertificates(w http.ResponseWriter, r *http.Reques
 Add the missing import for model:
 
 ```go
-import "github.com/cyberflag-ai/cipherflag/internal/model"
+import "github.com/net4n6-dev/cipherflag/internal/model"
 ```
 
 - [ ] **Step 2: Implement PCAP handler**
@@ -2943,8 +2943,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/cyberflag-ai/cipherflag/internal/model"
-	"github.com/cyberflag-ai/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/model"
+	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
 type PCAPHandler struct {

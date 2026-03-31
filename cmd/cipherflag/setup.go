@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/cyberflag-ai/cipherflag/internal/export/venafi"
+	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
 )
 
 // SetupConfig holds all wizard-collected values for template rendering.

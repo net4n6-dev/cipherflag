@@ -41,8 +41,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/cyberflag-ai/cipherflag:latest
-            ghcr.io/cyberflag-ai/cipherflag:${{ steps.version.outputs.version }}
+            ghcr.io/net4n6-dev/cipherflag:latest
+            ghcr.io/net4n6-dev/cipherflag:${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -53,8 +53,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/cyberflag-ai/cipherflag-zeek:latest
-            ghcr.io/cyberflag-ai/cipherflag-zeek:${{ steps.version.outputs.version }}
+            ghcr.io/net4n6-dev/cipherflag-zeek:latest
+            ghcr.io/net4n6-dev/cipherflag-zeek:${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
