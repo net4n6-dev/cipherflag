@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How-To — CipherFlag</title>
+  <meta name="description" content="Get started with CipherFlag in five minutes. Installation, configuration, and usage guide.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&family=JetBrains+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-deep: #0a0e1a;
+      --bg-surface: #111728;
+      --bg-elevated: #182036;
+      --border: #1e2a45;
+      --border-subtle: #16203a;
+      --text-primary: #e4e8f1;
+      --text-secondary: #8892aa;
+      --text-muted: #5a6480;
+      --amber: #f0a830;
+      --amber-dim: #c88a20;
+      --amber-glow: rgba(240, 168, 48, 0.12);
+      --red-warn: #e05555;
+      --green-ok: #34d399;
+      --blue-link: #60a5fa;
+      --font-body: 'DM Sans', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+      --font-display: 'Instrument Serif', Georgia, serif;
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-body);
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--blue-link); text-decoration: none; transition: color 0.2s; }
+    a:hover { color: var(--amber); }
+    ::selection { background: var(--amber); color: var(--bg-deep); }
+
+    /* ─── NAV ─── */
+    nav {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      backdrop-filter: blur(20px);
+      background: rgba(10, 14, 26, 0.82);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .nav-inner {
+      max-width: 1120px; margin: 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 64px;
+    }
+    .nav-brand {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-weight: 700; font-size: 1.05rem; color: var(--text-primary);
+      letter-spacing: 0.03em;
+    }
+    .nav-brand .flag-icon {
+      width: 28px; height: 28px; border-radius: 6px;
+      background: linear-gradient(135deg, var(--amber) 0%, var(--amber-dim) 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; color: var(--bg-deep); font-weight: 700;
+    }
+    .nav-links { display: flex; gap: 1.8rem; align-items: center; }
+    .nav-links a {
+      color: var(--text-secondary); font-size: 0.88rem; font-weight: 500;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text-primary); }
+    .nav-links a.active { color: var(--amber); }
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.5rem;
+      padding: 0.75rem 1.6rem; border-radius: 8px;
+      font-size: 0.9rem; font-weight: 600; font-family: var(--font-body);
+      border: none; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--amber), var(--amber-dim));
+      color: var(--bg-deep);
+    }
+    .btn-primary:hover { color: var(--bg-deep); }
+
+    /* ─── PAGE LAYOUT ─── */
+    .page-wrapper {
+      max-width: 860px; margin: 0 auto;
+      padding: 7rem 2rem 5rem;
+    }
+    .page-header {
+      margin-bottom: 3rem;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .page-header .section-label {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--amber); margin-bottom: 0.75rem;
+    }
+    .page-header h1 {
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 4vw, 2.8rem);
+      font-weight: 400; font-style: italic;
+      margin-bottom: 0.75rem;
+    }
+    .page-header p {
+      color: var(--text-secondary); font-size: 1.02rem; max-width: 600px;
+    }
+
+    /* ─── TABLE OF CONTENTS ─── */
+    .toc {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem 2rem;
+      margin-bottom: 3rem;
+    }
+    .toc-title {
+      font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--text-muted);
+      margin-bottom: 0.8rem;
+    }
+    .toc-list {
+      list-style: none; display: grid;
+      grid-template-columns: 1fr 1fr; gap: 0.3rem 2rem;
+    }
+    .toc-list li a {
+      font-size: 0.88rem; color: var(--text-secondary);
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.25rem 0;
+    }
+    .toc-list li a::before {
+      content: attr(data-num);
+      font-family: var(--font-mono); font-size: 0.72rem;
+      color: var(--amber-dim); width: 1.4em; text-align: right;
+    }
+    .toc-list li a:hover { color: var(--amber); }
+
+    /* ─── CONTENT ─── */
+    .guide-section { margin-bottom: 3.5rem; }
+    .guide-section h2 {
+      font-size: 1.35rem; font-weight: 700;
+      margin-bottom: 1rem;
+      padding-top: 1rem;
+      display: flex; align-items: center; gap: 0.75rem;
+    }
+    .guide-section h2 .step-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 32px; height: 32px; border-radius: 8px;
+      background: var(--amber-glow);
+      border: 1px solid rgba(240, 168, 48, 0.2);
+      font-family: var(--font-mono); font-size: 0.82rem;
+      color: var(--amber); font-weight: 600; flex-shrink: 0;
+    }
+    .guide-section h3 {
+      font-size: 1.02rem; font-weight: 600;
+      margin: 1.5rem 0 0.6rem; color: var(--text-primary);
+    }
+    .guide-section p {
+      color: var(--text-secondary); font-size: 0.94rem;
+      margin-bottom: 0.8rem; max-width: 680px;
+    }
+
+    /* ─── CODE BLOCKS ─── */
+    pre {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.2rem 1.4rem;
+      overflow-x: auto;
+      margin: 0.8rem 0 1.2rem;
+      position: relative;
+    }
+    pre code {
+      font-family: var(--font-mono);
+      font-size: 0.84rem;
+      color: var(--text-primary);
+      line-height: 1.7;
+    }
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.88em;
+    }
+    .code-comment { color: var(--text-muted); }
+    .code-cmd { color: var(--amber); }
+    .code-url { color: var(--blue-link); }
+    .code-flag { color: var(--green-ok); }
+
+    /* ─── CALLOUT BOXES ─── */
+    .callout {
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      margin: 1rem 0 1.2rem;
+      font-size: 0.88rem;
+      display: flex; gap: 0.8rem;
+    }
+    .callout-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 0.1rem; }
+    .callout p { margin-bottom: 0.4rem; }
+    .callout p:last-child { margin-bottom: 0; }
+    .callout-info {
+      background: rgba(96, 165, 250, 0.08);
+      border: 1px solid rgba(96, 165, 250, 0.15);
+    }
+    .callout-info .callout-icon { color: var(--blue-link); }
+    .callout-warn {
+      background: rgba(240, 168, 48, 0.08);
+      border: 1px solid rgba(240, 168, 48, 0.15);
+    }
+    .callout-warn .callout-icon { color: var(--amber); }
+    .callout-tip {
+      background: rgba(52, 211, 153, 0.08);
+      border: 1px solid rgba(52, 211, 153, 0.15);
+    }
+    .callout-tip .callout-icon { color: var(--green-ok); }
+
+    /* ─── HW TABLE ─── */
+    .hw-table {
+      width: 100%; border-collapse: collapse;
+      margin: 0.8rem 0 1.2rem;
+      font-size: 0.88rem;
+    }
+    .hw-table th {
+      text-align: left; padding: 0.6rem 1rem;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      color: var(--text-muted); font-weight: 600; font-size: 0.78rem;
+      text-transform: uppercase; letter-spacing: 0.06em;
+    }
+    .hw-table td {
+      padding: 0.55rem 1rem;
+      border: 1px solid var(--border);
+      color: var(--text-secondary);
+    }
+    .hw-table tr:hover td { background: var(--bg-surface); }
+
+    /* ─── ARCHITECTURE DIAGRAM ─── */
+    .arch-diagram {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      margin: 1rem 0 1.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      line-height: 1.5;
+      color: var(--text-secondary);
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .arch-diagram .highlight { color: var(--amber); }
+    .arch-diagram .dim { color: var(--text-muted); }
+
+    /* ─── FOOTER ─── */
+    footer {
+      border-top: 1px solid var(--border-subtle);
+      padding: 2.5rem 2rem;
+      text-align: center;
+    }
+    .footer-inner {
+      max-width: 1120px; margin: 0 auto;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 1rem;
+    }
+    .footer-inner p { font-size: 0.82rem; color: var(--text-muted); }
+    .footer-links { display: flex; gap: 1.5rem; }
+    .footer-links a { font-size: 0.82rem; color: var(--text-muted); }
+    .footer-links a:hover { color: var(--text-secondary); }
+
+    @media (max-width: 768px) {
+      .toc-list { grid-template-columns: 1fr; }
+      .page-wrapper { padding: 6rem 1.5rem 3rem; }
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .page-header, .toc, .guide-section {
+      animation: fadeUp 0.6s ease-out both;
+    }
+    .toc { animation-delay: 0.1s; }
+    .guide-section:nth-child(3) { animation-delay: 0.15s; }
+    .guide-section:nth-child(4) { animation-delay: 0.2s; }
+  </style>
+</head>
+<body>
+
+<!-- ─── NAV ─── -->
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="nav-brand">
+      <span class="flag-icon">CF</span>
+      CipherFlag
+    </a>
+    <div class="nav-links">
+      <a href="index.html">Home</a>
+      <a href="howto.html" class="active">How-To</a>
+      <a href="https://github.com/net4n6-dev/cipherflag" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/net4n6-dev/cipherflag/releases" target="_blank" rel="noopener" class="btn btn-primary" style="padding:0.45rem 1rem; font-size:0.82rem;">Download</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ─── CONTENT ─── -->
+<div class="page-wrapper">
+
+  <div class="page-header">
+    <div class="section-label">Documentation</div>
+    <h1>Getting started with CipherFlag</h1>
+    <p>From zero to full certificate visibility in five minutes. Docker required, everything else is included.</p>
+  </div>
+
+  <!-- TOC -->
+  <div class="toc">
+    <div class="toc-title">On this page</div>
+    <ol class="toc-list">
+      <li><a href="#prerequisites" data-num="1">Prerequisites</a></li>
+      <li><a href="#install" data-num="2">Installation</a></li>
+      <li><a href="#setup" data-num="3">Setup Wizard</a></li>
+      <li><a href="#manual" data-num="4">Manual Configuration</a></li>
+      <li><a href="#verify" data-num="5">Verify Your Deployment</a></li>
+      <li><a href="#pcap" data-num="6">Upload a PCAP</a></li>
+      <li><a href="#dashboard" data-num="7">Using the Dashboard</a></li>
+      <li><a href="#venafi" data-num="8">Venafi Integration</a></li>
+      <li><a href="#architecture" data-num="9">Architecture</a></li>
+      <li><a href="#troubleshooting" data-num="10">Troubleshooting</a></li>
+    </ol>
+  </div>
+
+  <!-- 1. PREREQUISITES -->
+  <div class="guide-section" id="prerequisites">
+    <h2><span class="step-num">1</span> Prerequisites</h2>
+    <p>CipherFlag runs as three Docker containers. You need Docker 20.10+ and Docker Compose v2+ installed. No other dependencies.</p>
+
+    <table class="hw-table">
+      <thead>
+        <tr><th>Deployment</th><th>CPU</th><th>RAM</th><th>Disk</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Evaluation / PCAP-only</td><td>2 cores</td><td>4 GB</td><td>20 GB</td></tr>
+        <tr><td>Small network (&lt; 1 Gbps)</td><td>4 cores</td><td>8 GB</td><td>50 GB</td></tr>
+        <tr><td>Medium network (1–10 Gbps)</td><td>8 cores</td><td>16 GB</td><td>100 GB</td></tr>
+      </tbody>
+    </table>
+
+    <p>For live capture, you'll also need access to a SPAN port, mirror port, or network TAP. For PCAP-only analysis, no special network access is needed.</p>
+  </div>
+
+  <!-- 2. INSTALLATION -->
+  <div class="guide-section" id="install">
+    <h2><span class="step-num">2</span> Installation</h2>
+
+    <h3>Option A: Install Script (Recommended)</h3>
+    <p>The install script downloads the correct binary for your platform (Linux/macOS, amd64/arm64) and places it in <code>/usr/local/bin</code>.</p>
+    <pre><code><span class="code-cmd">curl</span> -fsSL https://raw.githubusercontent.com/<span class="code-url">net4n6-dev</span>/cipherflag/main/scripts/install.sh | sh
+<span class="code-cmd">cipherflag</span> setup</code></pre>
+
+    <h3>Option B: Clone &amp; Docker Compose</h3>
+    <pre><code><span class="code-cmd">git clone</span> https://github.com/<span class="code-url">net4n6-dev</span>/cipherflag.git
+<span class="code-cmd">cd</span> cipherflag
+<span class="code-cmd">cp</span> .env.example .env          <span class="code-comment"># edit to set NETWORK_INTERFACE</span>
+<span class="code-cmd">docker-compose</span> up -d</code></pre>
+
+    <div class="callout callout-info">
+      <span class="callout-icon">ℹ</span>
+      <div><p>Pre-built images are published to <code>ghcr.io</code> for both <code>linux/amd64</code> and <code>linux/arm64</code>. Docker Compose will pull them automatically.</p></div>
+    </div>
+  </div>
+
+  <!-- 3. SETUP WIZARD -->
+  <div class="guide-section" id="setup">
+    <h2><span class="step-num">3</span> Setup Wizard</h2>
+    <p>If you used the install script, run <code>cipherflag setup</code> for an interactive walkthrough that handles:</p>
+    <pre><code><span class="code-cmd">cipherflag</span> setup
+
+<span class="code-comment"># The wizard will:</span>
+<span class="code-comment">#  1. Detect available network interfaces</span>
+<span class="code-comment">#  2. Let you select one for live capture (or skip for PCAP-only)</span>
+<span class="code-comment">#  3. Ask for Venafi credentials (optional)</span>
+<span class="code-comment">#  4. Validate the Venafi connection if configured</span>
+<span class="code-comment">#  5. Generate config files (.env, cipherflag.toml)</span>
+<span class="code-comment">#  6. Pull Docker images and start services</span></code></pre>
+
+    <div class="callout callout-tip">
+      <span class="callout-icon">✓</span>
+      <div><p>You can skip Venafi integration during setup and configure it later from the Settings page in the web UI.</p></div>
+    </div>
+  </div>
+
+  <!-- 4. MANUAL CONFIG -->
+  <div class="guide-section" id="manual">
+    <h2><span class="step-num">4</span> Manual Configuration</h2>
+    <p>If you prefer manual setup, two files control everything:</p>
+
+    <h3>.env — Docker Compose variables</h3>
+    <pre><code><span class="code-comment"># Network interface for live capture (leave empty for PCAP-only)</span>
+NETWORK_INTERFACE=
+
+<span class="code-comment"># PostgreSQL password</span>
+POSTGRES_PASSWORD=<span class="code-flag">changeme</span>
+
+<span class="code-comment"># Venafi (optional)</span>
+VENAFI_ENABLED=<span class="code-flag">false</span>
+VENAFI_BASE_URL=
+VENAFI_CLIENT_ID=
+VENAFI_REFRESH_TOKEN=
+VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></code></pre>
+
+    <h3>config/cipherflag.toml — Application settings</h3>
+    <p>Controls analysis rules, polling intervals, export settings, and more. See the <a href="https://github.com/net4n6-dev/cipherflag/blob/main/docs/configuration.md">full configuration reference</a> for all options.</p>
+
+    <div class="callout callout-warn">
+      <span class="callout-icon">⚠</span>
+      <div><p><strong>Security note:</strong> CipherFlag listens on port 8443. Protect it with network segmentation, a reverse proxy with auth, or host firewall rules. Built-in authentication is available with admin/viewer RBAC.</p></div>
+    </div>
+  </div>
+
+  <!-- 5. VERIFY -->
+  <div class="guide-section" id="verify">
+    <h2><span class="step-num">5</span> Verify Your Deployment</h2>
+    <p>Once services are running, check that everything is healthy:</p>
+    <pre><code><span class="code-comment"># Check container status</span>
+<span class="code-cmd">docker-compose</span> ps
+
+<span class="code-comment"># All three should be "Up":</span>
+<span class="code-comment">#   cipherflag     → API + frontend on :8443</span>
+<span class="code-comment">#   zeek-sensor    → network monitoring</span>
+<span class="code-comment">#   postgres       → database</span>
+
+<span class="code-comment"># Test the API</span>
+<span class="code-cmd">curl</span> -s http://localhost:8443/api/v1/certificates | head</code></pre>
+
+    <p>Open <a href="http://localhost:8443">http://localhost:8443</a> in your browser. You'll see the dashboard — if this is a fresh install, it will be empty until certificates are discovered or uploaded.</p>
+  </div>
+
+  <!-- 6. PCAP UPLOAD -->
+  <div class="guide-section" id="pcap">
+    <h2><span class="step-num">6</span> Upload a PCAP</h2>
+    <p>The fastest way to see CipherFlag in action is to upload a packet capture file.</p>
+    <pre><code><span class="code-comment"># From the UI:</span>
+<span class="code-comment">#   Navigate to the Upload page → drag &amp; drop a .pcap or .pcapng file</span>
+
+<span class="code-comment"># From the CLI:</span>
+<span class="code-cmd">curl</span> -X POST http://localhost:8443/api/v1/pcap \
+  -F "file=@capture.pcap"</code></pre>
+
+    <p>Zeek processes the capture, extracts certificates, and they appear in your inventory within seconds. The upload page shows real-time job status: queued → processing → complete.</p>
+
+    <div class="callout callout-tip">
+      <span class="callout-icon">✓</span>
+      <div><p><strong>Test data:</strong> Don't have a PCAP handy? Capture some TLS traffic with <code>tcpdump -i eth0 -w test.pcap port 443</code>, then upload the file.</p></div>
+    </div>
+  </div>
+
+  <!-- 7. DASHBOARD -->
+  <div class="guide-section" id="dashboard">
+    <h2><span class="step-num">7</span> Using the Dashboard</h2>
+    <p>The dashboard is organized around the workflow: discover → inspect → assess → act.</p>
+
+    <h3>PKI Explorer</h3>
+    <p>The interactive force-directed graph shows your entire CA hierarchy. Click any node to see certificate details, or use blast radius analysis to trace every certificate a CA has signed.</p>
+
+    <h3>Analytics</h3>
+    <p>Five tabs give you different views into your certificate posture: chain flow (Sankey diagram), ownership (treemap), crypto posture (donut + heatmap), expiry forecast (stacked timeline), and source lineage (where certificates were discovered).</p>
+
+    <h3>Reports</h3>
+    <p>Four report types — Domain Certificate, CA Authority, Crypto Compliance, and Expiry Risk — each with drill-down, print, and CSV export.</p>
+
+    <h3>Global Search</h3>
+    <p>The search bar in the nav searches across certificate names, fingerprints, serial numbers, SANs, server names, and IPs. Type 2+ characters to see categorized results.</p>
+  </div>
+
+  <!-- 8. VENAFI -->
+  <div class="guide-section" id="venafi">
+    <h2><span class="step-num">8</span> Venafi Integration</h2>
+    <p>CipherFlag pushes discovered certificates to Venafi automatically. Both Cloud and on-prem TPP are supported.</p>
+
+    <h3>Venafi Cloud</h3>
+    <pre><code><span class="code-comment"># In .env or the Settings page:</span>
+VENAFI_ENABLED=<span class="code-flag">true</span>
+VENAFI_PLATFORM=<span class="code-flag">cloud</span>
+VENAFI_API_KEY=<span class="code-flag">your-api-key</span>
+VENAFI_REGION=<span class="code-flag">us</span>          <span class="code-comment"># or "eu"</span></code></pre>
+
+    <h3>Venafi TPP (On-Prem)</h3>
+    <pre><code>VENAFI_ENABLED=<span class="code-flag">true</span>
+VENAFI_PLATFORM=<span class="code-flag">tpp</span>
+VENAFI_BASE_URL=<span class="code-flag">https://tpp.example.com/vedsdk</span>
+VENAFI_CLIENT_ID=<span class="code-flag">your-client-id</span>
+VENAFI_REFRESH_TOKEN=<span class="code-flag">your-refresh-token</span>
+VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></code></pre>
+
+    <p>The push scheduler runs on a configurable interval (default 60 minutes), sending new and updated certificates. Per-certificate failure tracking includes exponential backoff and dead-lettering after 5 failures. Check status at <code>Settings → Venafi</code> or <code>GET /api/v1/venafi/status</code>.</p>
+  </div>
+
+  <!-- 9. ARCHITECTURE -->
+  <div class="guide-section" id="architecture">
+    <h2><span class="step-num">9</span> Architecture</h2>
+    <p>CipherFlag runs as three containers orchestrated by Docker Compose:</p>
+
+    <div class="arch-diagram"><span class="dim">┌──────────────────┐</span>     <span class="dim">┌──────────────────┐</span>     <span class="dim">┌──────────────────┐</span>
+<span class="dim">│</span>  <span class="highlight">Zeek Sensor</span>      <span class="dim">│────▶│</span>  <span class="highlight">CipherFlag</span>       <span class="dim">│────▶│</span>  <span class="highlight">PostgreSQL</span>       <span class="dim">│</span>
+<span class="dim">│</span>  zeek 7.x         <span class="dim">│</span>     <span class="dim">│</span>  Go API + SvelteKit<span class="dim">│</span>    <span class="dim">│</span>  v15              <span class="dim">│</span>
+<span class="dim">│</span>  ~120 MB image    <span class="dim">│</span>     <span class="dim">│</span>  ~40 MB image     <span class="dim">│</span>     <span class="dim">│</span>                  <span class="dim">│</span>
+<span class="dim">└──────────────────┘</span>     <span class="dim">└──────────────────┘</span>     <span class="dim">└──────────────────┘</span>
+    SPAN / TAP              :8443 web UI              pg-data volume
+    pcap-input vol          zeek-logs vol</div>
+
+    <p>The Zeek sensor watches a network interface for live traffic and processes uploaded PCAPs. CipherFlag's Go backend parses Zeek's JSON logs, scores certificates, and serves the SvelteKit frontend. PostgreSQL stores everything.</p>
+  </div>
+
+  <!-- 10. TROUBLESHOOTING -->
+  <div class="guide-section" id="troubleshooting">
+    <h2><span class="step-num">10</span> Troubleshooting</h2>
+
+    <h3>Containers won't start</h3>
+    <p>Check <code>docker-compose logs</code> for errors. Common issues: port 8443 already in use, or the <code>.env</code> file has a syntax error.</p>
+
+    <h3>No certificates appearing</h3>
+    <p>If using live capture, verify your <code>NETWORK_INTERFACE</code> is correct and the container has the necessary capabilities. Try uploading a PCAP first to confirm the pipeline works.</p>
+
+    <h3>Venafi push failing</h3>
+    <p>Use <code>GET /api/v1/venafi/status</code> to check for dead-lettered certificates. Verify credentials with the "Test Connection" button in Settings. For TPP, ensure your refresh token hasn't been revoked.</p>
+
+    <h3>Need more help?</h3>
+    <p>Check the full documentation in the <a href="https://github.com/net4n6-dev/cipherflag/tree/main/docs">docs/ directory</a> on GitHub, or <a href="https://github.com/net4n6-dev/cipherflag/issues">open an issue</a>.</p>
+  </div>
+
+</div>
+
+<!-- ─── FOOTER ─── -->
+<footer>
+  <div class="footer-inner">
+    <p>&copy; 2026 CipherFlag Contributors &middot; Apache License 2.0</p>
+    <div class="footer-links">
+      <a href="https://github.com/net4n6-dev/cipherflag" target="_blank" rel="noopener">GitHub</a>
+      <a href="index.html">Home</a>
+      <a href="https://github.com/net4n6-dev/cipherflag/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
