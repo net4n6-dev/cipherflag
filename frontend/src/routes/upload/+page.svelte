@@ -4,13 +4,13 @@
 
 	type UploadState = 'idle' | 'uploading' | 'polling' | 'complete' | 'failed';
 
-	let state: UploadState = $state('idle');
-	let selectedFile: File | null = $state(null);
-	let currentJob: PCAPJob | null = $state(null);
-	let recentJobs: PCAPJob[] = $state([]);
-	let errorMessage: string | null = $state(null);
+	let uploadState = $state<UploadState>('idle');
+	let selectedFile = $state<File | null>(null);
+	let currentJob = $state<PCAPJob | null>(null);
+	let recentJobs = $state<PCAPJob[]>([]);
+	let errorMessage = $state<string | null>(null);
 	let dragOver = $state(false);
-	let pollTimer: ReturnType<typeof setInterval> | undefined = $state(undefined);
+	let pollTimer = $state<ReturnType<typeof setInterval> | undefined>(undefined);
 
 	onMount(() => {
 		loadRecentJobs();
@@ -20,26 +20,26 @@
 	});
 
 	$effect(() => {
-		if (state === 'polling' && currentJob) {
+		if (uploadState === 'polling' && currentJob) {
 			const jobId = currentJob.id;
 			pollTimer = setInterval(async () => {
 				try {
 					const job = await api.getPCAPJob(jobId);
 					currentJob = job;
 					if (job.status === 'complete') {
-						state = 'complete';
+						uploadState = 'complete';
 						clearInterval(pollTimer);
 						pollTimer = undefined;
 						loadRecentJobs();
 					} else if (job.status === 'failed') {
-						state = 'failed';
+						uploadState = 'failed';
 						errorMessage = job.error ?? 'Job failed';
 						clearInterval(pollTimer);
 						pollTimer = undefined;
 						loadRecentJobs();
 					}
 				} catch (e) {
-					state = 'failed';
+					uploadState = 'failed';
 					errorMessage = e instanceof Error ? e.message : 'Polling failed';
 					clearInterval(pollTimer);
 					pollTimer = undefined;
@@ -94,14 +94,14 @@
 
 	async function upload() {
 		if (!selectedFile) return;
-		state = 'uploading';
+		uploadState = 'uploading';
 		errorMessage = null;
 		try {
 			const job = await api.uploadPCAP(selectedFile);
 			currentJob = job;
-			state = 'polling';
+			uploadState = 'polling';
 		} catch (e) {
-			state = 'failed';
+			uploadState = 'failed';
 			errorMessage = e instanceof Error ? e.message : 'Upload failed';
 		}
 	}
@@ -111,7 +111,7 @@
 			clearInterval(pollTimer);
 			pollTimer = undefined;
 		}
-		state = 'idle';
+		uploadState = 'idle';
 		selectedFile = null;
 		currentJob = null;
 		errorMessage = null;
@@ -141,7 +141,7 @@
 	</div>
 
 	<div class="upload-section">
-		{#if state === 'idle'}
+		{#if uploadState === 'idle'}
 			<!-- svelte-ignore a11y_no_static_element_interactions -->
 			<div
 				class="drop-zone"
@@ -174,13 +174,13 @@
 				{/if}
 			</div>
 
-		{:else if state === 'uploading'}
+		{:else if uploadState === 'uploading'}
 			<div class="status-card">
 				<div class="spinner"></div>
 				<div class="status-text">Uploading {selectedFile?.name}...</div>
 			</div>
 
-		{:else if state === 'polling' && currentJob}
+		{:else if uploadState === 'polling' && currentJob}
 			<div class="status-card">
 				<div class="spinner"></div>
 				<div class="status-text">
@@ -191,7 +191,7 @@
 				</div>
 			</div>
 
-		{:else if state === 'complete' && currentJob}
+		{:else if uploadState === 'complete' && currentJob}
 			<div class="status-card success">
 				<div class="result-icon">&#10003;</div>
 				<div class="status-text">Processing Complete</div>
@@ -211,7 +211,7 @@
 				</div>
 			</div>
 
-		{:else if state === 'failed'}
+		{:else if uploadState === 'failed'}
 			<div class="status-card error">
 				<div class="result-icon error-icon">&#10007;</div>
 				<div class="status-text">Upload Failed</div>
