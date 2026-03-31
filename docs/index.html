@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CipherFlag — Certificate Intelligence Platform</title>
   <meta name="description" content="Open-source certificate intelligence. Passive TLS discovery via Zeek, health scoring, interactive PKI analytics, and Venafi integration.">
+  <link rel="icon" href="icons/favicon.ico" sizes="any">
+  <link rel="icon" href="icons/cipherflag-favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/favicon-180x180.png">
+  <meta name="theme-color" content="#0a0e1a">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&family=JetBrains+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
@@ -60,11 +64,8 @@
       font-weight: 700; font-size: 1.05rem; color: var(--text-primary);
       letter-spacing: 0.03em;
     }
-    .nav-brand .flag-icon {
+    .nav-logo {
       width: 28px; height: 28px; border-radius: 6px;
-      background: linear-gradient(135deg, var(--amber) 0%, var(--amber-dim) 100%);
-      display: flex; align-items: center; justify-content: center;
-      font-size: 0.8rem; color: var(--bg-deep); font-weight: 700;
     }
     .nav-links { display: flex; gap: 1.8rem; align-items: center; }
     .nav-links a {
@@ -318,6 +319,32 @@
       .hero { padding: 8rem 1.5rem 4rem; }
     }
 
+    /* ─── SCREENSHOT FRAMES ─── */
+    .screenshot-frame {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: border-color 0.3s, transform 0.3s;
+    }
+    .screenshot-frame:hover {
+      border-color: var(--amber-dim);
+      transform: translateY(-3px);
+    }
+    .frame-dots {
+      display: flex; gap: 6px;
+      padding: 10px 14px;
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .frame-dots span {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--border);
+    }
+    .frame-dots span:nth-child(1) { background: #e05555; }
+    .frame-dots span:nth-child(2) { background: #eab308; }
+    .frame-dots span:nth-child(3) { background: #34d399; }
+
     /* ─── ANIMATIONS ─── */
     @keyframes fadeUp {
       from { opacity: 0; transform: translateY(20px); }
@@ -338,13 +365,12 @@
 <nav>
   <div class="nav-inner">
     <a href="index.html" class="nav-brand">
-      <span class="flag-icon">CF</span>
+      <img src="icons/cipherflag-favicon.svg" alt="" class="nav-logo">
       CipherFlag
     </a>
     <div class="nav-links">
       <a href="index.html" class="active">Home</a>
       <a href="howto.html">How-To</a>
-      <!-- UPDATE: Replace with your new GitHub URL -->
       <a href="https://github.com/net4n6-dev/cipherflag" target="_blank" rel="noopener">GitHub</a>
       <a href="https://github.com/net4n6-dev/cipherflag/releases" target="_blank" rel="noopener" class="btn btn-primary" style="padding:0.45rem 1rem; font-size:0.82rem;">Download</a>
     </div>
@@ -357,12 +383,10 @@
   <h1>Certificate intelligence <em>your scanners can't see</em></h1>
   <p>Passive TLS discovery via Zeek. Health scoring across 24 rules. Interactive PKI analytics. Venafi integration. All from a single <code style="font-family:var(--font-mono);color:var(--amber);font-size:0.95rem;">docker-compose up</code>.</p>
   <div class="hero-actions">
-    <!-- UPDATE: Replace with your new GitHub release URL -->
     <a href="https://github.com/net4n6-dev/cipherflag/releases" class="btn btn-primary">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Download Latest
     </a>
-    <!-- UPDATE: Replace with your new GitHub URL -->
     <a href="https://github.com/net4n6-dev/cipherflag" class="btn btn-secondary" target="_blank" rel="noopener">
       <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.385-1.335-1.755-1.335-1.755-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12z"/></svg>
       View on GitHub
@@ -379,6 +403,77 @@
     </button>
   </div>
 </div>
+
+<!-- ─── ANIMATED PKI VISUALIZATION ─── -->
+<div style="text-align:center; padding:0 2rem 4rem; position:relative;">
+  <svg width="700" height="300" viewBox="0 0 700 300" style="max-width:100%;">
+    <g opacity="0.12">
+      <circle cx="350" cy="150" r="55" fill="none" stroke="#1E2D4A" stroke-width="1"/>
+      <circle cx="350" cy="150" r="110" fill="none" stroke="#1E2D4A" stroke-width="1"/>
+      <circle cx="350" cy="150" r="140" fill="none" stroke="#1E2D4A" stroke-width="0.5" stroke-dasharray="4 4"/>
+    </g>
+    <circle cx="350" cy="150" r="16" fill="rgba(232,146,42,0.15)" stroke="#E8922A" stroke-width="1.5">
+      <animate attributeName="r" values="16;18;16" dur="3s" repeatCount="indefinite"/>
+    </circle>
+    <text x="350" y="147" text-anchor="middle" fill="#e4e8f1" font-size="7" font-weight="700" font-family="DM Sans,sans-serif">PKI</text>
+    <text x="350" y="157" text-anchor="middle" fill="#5a6480" font-size="5.5" font-family="DM Sans,sans-serif">Root</text>
+    <line x1="350" y1="134" x2="270" y2="70" stroke="#E8922A" stroke-width="0.8" opacity="0.25"/>
+    <circle cx="270" cy="70" r="9" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1.2"/>
+    <text x="270" y="56" text-anchor="middle" fill="#8892aa" font-size="6" font-family="DM Sans,sans-serif">DigiCert</text>
+    <line x1="350" y1="134" x2="440" y2="55" stroke="#E8922A" stroke-width="0.8" opacity="0.25"/>
+    <circle cx="440" cy="55" r="11" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1.2"/>
+    <text x="440" y="40" text-anchor="middle" fill="#8892aa" font-size="6" font-family="DM Sans,sans-serif">Amazon</text>
+    <line x1="350" y1="166" x2="240" y2="230" stroke="#E8922A" stroke-width="0.8" opacity="0.25"/>
+    <circle cx="240" cy="230" r="8" fill="rgba(96,165,250,0.15)" stroke="#60a5fa" stroke-width="1.2"/>
+    <text x="240" y="245" text-anchor="middle" fill="#8892aa" font-size="6" font-family="DM Sans,sans-serif">Let's Encrypt</text>
+    <line x1="350" y1="166" x2="480" y2="220" stroke="#E8922A" stroke-width="0.8" opacity="0.25"/>
+    <circle cx="480" cy="220" r="7" fill="rgba(234,179,8,0.15)" stroke="#eab308" stroke-width="1.2"/>
+    <text x="480" y="235" text-anchor="middle" fill="#8892aa" font-size="6" font-family="DM Sans,sans-serif">Internal CA</text>
+    <line x1="350" y1="134" x2="540" y2="120" stroke="#E8922A" stroke-width="0.8" opacity="0.25"/>
+    <circle cx="540" cy="120" r="6" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1.2"/>
+    <text x="540" y="108" text-anchor="middle" fill="#8892aa" font-size="6" font-family="DM Sans,sans-serif">GlobalSign</text>
+    <line x1="350" y1="150" x2="175" y2="140" stroke="#E8922A" stroke-width="0.8" opacity="0.25"/>
+    <circle cx="175" cy="140" r="7" fill="rgba(52,211,153,0.15)" stroke="#34d399" stroke-width="1.2"/>
+    <text x="175" y="128" text-anchor="middle" fill="#8892aa" font-size="6" font-family="DM Sans,sans-serif">Sectigo</text>
+    <line x1="270" y1="70" x2="195" y2="30" stroke="#34d399" stroke-width="0.5" opacity="0.15"/>
+    <circle cx="195" cy="30" r="3.5" fill="rgba(52,211,153,0.2)" stroke="#34d399" stroke-width="0.7"/>
+    <line x1="270" y1="70" x2="310" y2="25" stroke="#34d399" stroke-width="0.5" opacity="0.15"/>
+    <circle cx="310" cy="25" r="3" fill="rgba(52,211,153,0.2)" stroke="#34d399" stroke-width="0.7"/>
+    <line x1="440" y1="55" x2="490" y2="18" stroke="#34d399" stroke-width="0.5" opacity="0.15"/>
+    <circle cx="490" cy="18" r="4" fill="rgba(52,211,153,0.2)" stroke="#34d399" stroke-width="0.7"/>
+    <line x1="440" y1="55" x2="400" y2="15" stroke="#34d399" stroke-width="0.5" opacity="0.15"/>
+    <circle cx="400" cy="15" r="3" fill="rgba(52,211,153,0.2)" stroke="#34d399" stroke-width="0.7"/>
+    <line x1="240" y1="230" x2="165" y2="270" stroke="#60a5fa" stroke-width="0.5" opacity="0.15"/>
+    <circle cx="165" cy="270" r="3" fill="rgba(96,165,250,0.2)" stroke="#60a5fa" stroke-width="0.7"/>
+    <line x1="240" y1="230" x2="280" y2="275" stroke="#60a5fa" stroke-width="0.5" opacity="0.15"/>
+    <circle cx="280" cy="275" r="2.5" fill="rgba(96,165,250,0.2)" stroke="#60a5fa" stroke-width="0.7"/>
+    <line x1="480" y1="220" x2="540" y2="260" stroke="#eab308" stroke-width="0.5" opacity="0.15"/>
+    <circle cx="540" cy="260" r="4" fill="rgba(234,179,8,0.2)" stroke="#eab308" stroke-width="0.8">
+      <animate attributeName="stroke-opacity" values="1;0.3;1" dur="2s" repeatCount="indefinite"/>
+    </circle>
+    <line x1="480" y1="220" x2="510" y2="275" stroke="#eab308" stroke-width="0.5" opacity="0.15"/>
+    <circle cx="510" cy="275" r="3" fill="rgba(224,85,85,0.2)" stroke="#e05555" stroke-width="0.8">
+      <animate attributeName="stroke-opacity" values="1;0.3;1" dur="1.5s" repeatCount="indefinite"/>
+    </circle>
+  </svg>
+  <p style="font-size:0.78rem; color:#5a6480; margin-top:0.25rem;">Interactive PKI hierarchy — explore your entire CA landscape</p>
+</div>
+
+<!-- ─── SCREENSHOT SHOWCASE ─── -->
+<section id="preview" style="padding-bottom:3rem;">
+  <div class="section-label" style="text-align:center;">See It In Action</div>
+  <div class="section-title" style="text-align:center; margin-bottom:2.5rem;">Certificate command center</div>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+    <div class="screenshot-frame">
+      <div class="frame-dots"><span></span><span></span><span></span></div>
+      <img src="https://cipherflag.com/images/pki-explorer.png" alt="CipherFlag PKI Explorer — force-directed graph of certificate authority hierarchy" loading="lazy" style="width:100%; display:block; border-radius:0 0 10px 10px;">
+    </div>
+    <div class="screenshot-frame">
+      <div class="frame-dots"><span></span><span></span><span></span></div>
+      <img src="https://cipherflag.com/images/cert_detail.png" alt="CipherFlag certificate detail view with health scoring and chain visualization" loading="lazy" style="width:100%; display:block; border-radius:0 0 10px 10px;">
+    </div>
+  </div>
+</section>
 
 <!-- ─── CAPABILITIES ─── -->
 <section id="capabilities">
@@ -495,7 +590,6 @@
   <p>Three commands. Five minutes. Full certificate visibility.</p>
   <div class="hero-actions">
     <a href="howto.html" class="btn btn-primary">Get Started</a>
-    <!-- UPDATE: Replace with your new GitHub URL -->
     <a href="https://github.com/net4n6-dev/cipherflag" class="btn btn-secondary" target="_blank" rel="noopener">Browse Source</a>
   </div>
 </div>
@@ -505,7 +599,6 @@
   <div class="footer-inner">
     <p>&copy; 2026 CipherFlag Contributors &middot; Apache License 2.0</p>
     <div class="footer-links">
-      <!-- UPDATE: Replace with your new GitHub URL -->
       <a href="https://github.com/net4n6-dev/cipherflag" target="_blank" rel="noopener">GitHub</a>
       <a href="howto.html">Documentation</a>
       <a href="https://github.com/net4n6-dev/cipherflag/issues" target="_blank" rel="noopener">Issues</a>
