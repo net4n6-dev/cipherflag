@@ -46,6 +46,13 @@ Open [http://localhost:8443](http://localhost:8443) to access the dashboard.
 - **Certificate chain validation** -- Walks issuer chains from leaf to root, identifies orphaned and incomplete chains
 - **Blast radius analysis** -- Select any CA to see every certificate it signed, recursively, with aggregate risk stats
 
+### Deployment
+
+- **On-prem** -- SPAN port or network TAP with dual NIC (management + capture)
+- **AWS** -- VPC Traffic Mirroring with dual ENI on EC2
+- **Azure** -- Virtual Network TAP or Azure Network Watcher PCAP fallback
+- **PCAP-only** -- Single NIC, upload capture files through the web UI
+
 ### Visualization
 
 - **PKI Explorer** -- Interactive D3.js force-directed graph of the entire CA hierarchy. Click nodes to inspect, right-click for blast radius, search across loaded and server-side certificates
@@ -81,7 +88,7 @@ All analytics tabs are drillable — click any chart element to see matching cer
 
 ## Analytics Dashboard
 
-CipherFlag v0.3 includes five analytics tabs:
+CipherFlag includes five analytics tabs:
 
 | Tab | Visualization | Answers |
 |-----|--------------|---------|
@@ -143,6 +150,7 @@ See [docs/configuration.md](docs/configuration.md) for a complete reference of a
 | Document | Description |
 |----------|-------------|
 | [User Guide](docs/cipherflag-user-guide.md) | Comprehensive usage and operations guide |
+| [How-To Guide](https://cipherflag.com/howto.html) | Interactive deployment and usage guide with on-prem, AWS, and Azure walkthroughs |
 | [Quick Start Guide](docs/quickstart.md) | Step-by-step Docker Compose deployment |
 | [Configuration Reference](docs/configuration.md) | All config options for `.env` and `cipherflag.toml` |
 | [Venafi Integration Guide](docs/venafi-export.md) | Setting up Venafi Cloud or TPP integration |
@@ -162,7 +170,7 @@ cipherflag/
 │   ├── src/routes/          # SvelteKit pages (dashboard, PKI, analytics, certificates)
 │   └── src/lib/components/  # D3 graph + analytics components
 ├── internal/
-│   ├── analysis/            # Health scoring engine (16 rules) + chain builder
+│   ├── analysis/            # Health scoring engine (24 rules) + chain builder
 │   ├── api/                 # HTTP server, handlers, middleware
 │   ├── certparse/           # X.509 PEM/DER parser
 │   ├── config/              # TOML config loader
@@ -195,6 +203,7 @@ cipherflag/
 |--------|------|-------------|
 | GET | `/api/v1/config/sources` | Source configuration |
 | PUT | `/api/v1/config/sources` | Update source config (admin) |
+| GET | `/api/v1/config/interfaces` | List network interfaces for capture |
 | GET | `/api/v1/venafi/config` | Venafi config (credentials masked) |
 | PUT | `/api/v1/venafi/config` | Update Venafi config (admin) |
 | POST | `/api/v1/venafi/test-connection` | Test Venafi credentials (admin) |

@@ -51,8 +51,22 @@ This guide walks you through installation, configuration, and daily use.
 ### Network Requirements
 
 - **Port 8443** must be accessible from your browser
-- For live capture: access to a SPAN port, mirror port, or network TAP
-- For PCAP-only analysis: no special network access needed
+- For live capture: **two network interfaces** are required:
+  - **Management NIC** — SSH access, web UI (:8443), Venafi push (standard IP, routable)
+  - **Capture NIC** — Receives mirrored/tapped traffic (connected to SPAN port, TAP, or cloud traffic mirror)
+- For PCAP-only analysis: single NIC, no special network access needed
+
+### Deployment Platforms
+
+| Platform | Traffic Source | Capture Method |
+|----------|---------------|----------------|
+| **On-prem** | SPAN port / network TAP | Dual NIC, Zeek on capture interface |
+| **AWS** | VPC Traffic Mirroring | EC2 with 2 ENIs, mirror target on capture ENI |
+| **Azure** | Virtual Network TAP | VM with 2 NICs, TAP destination on capture NIC |
+| **Azure (fallback)** | Network Watcher | PCAP capture to storage, upload to CipherFlag |
+| **PCAP-only** | Any | Upload .pcap files through the web UI |
+
+See the [How-To Deployment Guide](https://cipherflag.com/howto.html#deployment) for step-by-step platform instructions.
 
 ### Hardware Recommendations
 
@@ -441,7 +455,7 @@ Manage user accounts: create, delete, and toggle roles between admin and viewer.
 ### Sources
 
 Configure certificate discovery sources:
-- **Zeek File Poller** — enable/disable, log directory, poll interval (5-300 seconds)
+- **Zeek File Poller** — enable/disable, log directory, poll interval (5-300 seconds), network interface selector (dropdown populated from host interfaces showing name, IP, MAC, and status)
 - **Corelight** — enable/disable, API URL, API token
 - **PCAP Upload** — max file size (1-5000 MB), retention (1-720 hours)
 

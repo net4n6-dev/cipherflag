@@ -7,12 +7,25 @@ Deploy CipherFlag with Docker Compose in under 5 minutes.
 - [Docker](https://docs.docker.com/get-docker/) (20.10+)
 - [Docker Compose](https://docs.docker.com/compose/install/) (v2+)
 
+### Network Interfaces
+
+For live traffic capture, the deployment host needs **two network interfaces**:
+
+| Interface | Purpose | Notes |
+|-----------|---------|-------|
+| **Management NIC** | SSH access, web UI (:8443), Venafi push | Standard IP, routable |
+| **Capture NIC** | Receives mirrored/tapped traffic | Connected to SPAN port, TAP, or cloud traffic mirror |
+
+For **PCAP-only analysis** (offline), only one interface is needed — upload capture files through the web UI.
+
+See the [How-To Deployment Guide](https://cipherflag.com/howto.html#deployment) for platform-specific setup (on-prem, AWS, Azure).
+
 ---
 
 ## Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/cipherflag/cipherflag.git
+git clone https://github.com/net4n6-dev/cipherflag.git
 cd cipherflag
 ```
 
@@ -69,10 +82,20 @@ sudo tcpdump -i en0 -w test-capture.pcap -G 60 -W 1 port 443
 
 ## Step 6: Configure Venafi (Optional)
 
-To push discovered certificates to Venafi TPP, edit `.env`:
+To push discovered certificates to Venafi Cloud, edit `.env`:
 
 ```bash
 VENAFI_ENABLED=true
+VENAFI_PLATFORM=cloud
+VENAFI_API_KEY=your-api-key
+VENAFI_REGION=us
+```
+
+For Venafi TPP (on-prem):
+
+```bash
+VENAFI_ENABLED=true
+VENAFI_PLATFORM=tpp
 VENAFI_BASE_URL=https://tpp.example.com/vedsdk
 VENAFI_CLIENT_ID=your-client-id
 VENAFI_REFRESH_TOKEN=your-refresh-token

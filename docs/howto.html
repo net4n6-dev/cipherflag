@@ -318,15 +318,16 @@
     <div class="toc-title">On this page</div>
     <ol class="toc-list">
       <li><a href="#prerequisites" data-num="1">Prerequisites</a></li>
-      <li><a href="#install" data-num="2">Installation</a></li>
-      <li><a href="#setup" data-num="3">Setup Wizard</a></li>
-      <li><a href="#manual" data-num="4">Manual Configuration</a></li>
-      <li><a href="#verify" data-num="5">Verify Your Deployment</a></li>
-      <li><a href="#pcap" data-num="6">Upload a PCAP</a></li>
-      <li><a href="#dashboard" data-num="7">Using the Dashboard</a></li>
-      <li><a href="#venafi" data-num="8">Venafi Integration</a></li>
-      <li><a href="#architecture" data-num="9">Architecture</a></li>
-      <li><a href="#troubleshooting" data-num="10">Troubleshooting</a></li>
+      <li><a href="#deployment" data-num="2">Deployment Guide</a></li>
+      <li><a href="#install" data-num="3">Installation</a></li>
+      <li><a href="#setup" data-num="4">Setup Wizard</a></li>
+      <li><a href="#manual" data-num="5">Manual Configuration</a></li>
+      <li><a href="#verify" data-num="6">Verify Your Deployment</a></li>
+      <li><a href="#pcap" data-num="7">Upload a PCAP</a></li>
+      <li><a href="#dashboard" data-num="8">Using the Dashboard</a></li>
+      <li><a href="#venafi" data-num="9">Venafi Integration</a></li>
+      <li><a href="#architecture" data-num="10">Architecture</a></li>
+      <li><a href="#troubleshooting" data-num="11">Troubleshooting</a></li>
     </ol>
   </div>
 
@@ -346,12 +347,171 @@
       </tbody>
     </table>
 
-    <p>For live capture, you'll also need access to a SPAN port, mirror port, or network TAP. For PCAP-only analysis, no special network access is needed.</p>
+    <h3>Network Requirements for Live Capture</h3>
+    <p>For live certificate discovery, the CipherFlag host requires <strong>two network interfaces</strong>:</p>
+    <table class="hw-table">
+      <thead>
+        <tr><th>Interface</th><th>Purpose</th><th>Configuration</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Management NIC</strong></td><td>SSH access, web UI (:8443), Venafi push</td><td>Standard IP, routable</td></tr>
+        <tr><td><strong>Capture NIC</strong></td><td>Receives mirrored/tapped traffic for Zeek</td><td>Connected to SPAN port, mirror port, or network TAP. No IP required.</td></tr>
+      </tbody>
+    </table>
+    <p>For <strong>PCAP-only analysis</strong> (offline), only one interface is needed — upload capture files through the web UI.</p>
   </div>
 
-  <!-- 2. INSTALLATION -->
+  <!-- 2. DEPLOYMENT GUIDE -->
+  <div class="guide-section" id="deployment">
+    <h2><span class="step-num">2</span> Deployment Guide</h2>
+    <p>Choose the deployment model that matches your environment. CipherFlag supports on-premises, AWS, and Azure deployments.</p>
+
+    <h3>On-Premises Deployment</h3>
+    <p>The most common deployment: a server with two NICs connected to your network infrastructure.</p>
+
+    <div class="callout callout-info">
+      <span class="callout-icon">🖥</span>
+      <div>
+        <p><strong>Physical or virtual server with:</strong></p>
+        <ul style="margin:0.5rem 0 0 1.25rem; font-size:0.88rem; color:var(--text-secondary);">
+          <li><strong>NIC 1 (Management):</strong> Connected to your management network. Provides SSH and web UI access.</li>
+          <li><strong>NIC 2 (Capture):</strong> Connected to a <strong>SPAN/mirror port</strong> on your switch, or a passive <strong>network TAP</strong>.</li>
+        </ul>
+      </div>
+    </div>
+    <p>Configure your switch to mirror traffic from the VLANs or ports you want to monitor to the capture NIC. CipherFlag (via Zeek) sees a copy of all TLS handshakes on that segment.</p>
+    <pre><code><span class="code-comment"># Example: Cisco SPAN configuration</span>
+<span class="code-cmd">monitor session</span> 1 source vlan 10,20,30
+<span class="code-cmd">monitor session</span> 1 destination interface Gi1/0/24</code></pre>
+
+    <h3>AWS Deployment</h3>
+    <p>AWS provides <strong>VPC Traffic Mirroring</strong> to copy network traffic to an EC2 instance running CipherFlag.</p>
+
+    <div class="callout callout-info">
+      <span class="callout-icon">☁</span>
+      <div>
+        <p><strong>Architecture:</strong> EC2 instance with two ENIs (Elastic Network Interfaces) — one for management, one as the traffic mirror target.</p>
+      </div>
+    </div>
+
+    <p><strong>Step 1: Launch an EC2 instance</strong></p>
+    <ul style="margin:0.5rem 0 1rem 1.25rem; font-size:0.88rem; color:var(--text-secondary);">
+      <li>Use <code>t3.large</code> or larger (4+ vCPU, 8+ GB RAM recommended)</li>
+      <li>Amazon Linux 2023 or Ubuntu 22.04</li>
+      <li>Install Docker and Docker Compose</li>
+    </ul>
+
+    <p><strong>Step 2: Create a second ENI (capture interface)</strong></p>
+    <pre><code><span class="code-cmd">aws ec2</span> create-network-interface \
+  --subnet-id <span class="code-url">subnet-xxxxxxxx</span> \
+  --description "CipherFlag capture" \
+  --groups <span class="code-url">sg-xxxxxxxx</span>
+
+<span class="code-cmd">aws ec2</span> attach-network-interface \
+  --network-interface-id <span class="code-url">eni-xxxxxxxx</span> \
+  --instance-id <span class="code-url">i-xxxxxxxx</span> \
+  --device-index 1</code></pre>
+
+    <p><strong>Step 3: Set up VPC Traffic Mirroring</strong></p>
+    <pre><code><span class="code-comment"># Create a mirror target (the capture ENI)</span>
+<span class="code-cmd">aws ec2</span> create-traffic-mirror-target \
+  --network-interface-id <span class="code-url">eni-capture-xxxxxxxx</span>
+
+<span class="code-comment"># Create a mirror filter (capture all TLS traffic)</span>
+<span class="code-cmd">aws ec2</span> create-traffic-mirror-filter
+<span class="code-cmd">aws ec2</span> create-traffic-mirror-filter-rule \
+  --traffic-mirror-filter-id <span class="code-url">tmf-xxxxxxxx</span> \
+  --rule-number 1 --rule-action accept \
+  --destination-port-range FromPort=443,ToPort=443 \
+  --protocol 6 --traffic-direction INGRESS
+
+<span class="code-comment"># Create a mirror session on each source ENI</span>
+<span class="code-cmd">aws ec2</span> create-traffic-mirror-session \
+  --network-interface-id <span class="code-url">eni-source-xxxxxxxx</span> \
+  --traffic-mirror-target-id <span class="code-url">tmt-xxxxxxxx</span> \
+  --traffic-mirror-filter-id <span class="code-url">tmf-xxxxxxxx</span> \
+  --session-number 1</code></pre>
+
+    <p><strong>Step 4: Configure CipherFlag to use the capture ENI</strong></p>
+    <p>In CipherFlag Settings &gt; Sources, select the capture interface (typically <code>eth1</code> or <code>ens6</code> — the second ENI). Or set <code>NETWORK_INTERFACE=eth1</code> in your <code>.env</code> file.</p>
+
+    <div class="callout callout-info">
+      <span class="callout-icon">💡</span>
+      <div>
+        <p><strong>AWS notes:</strong> VPC Traffic Mirroring requires Nitro-based instances (t3, m5, c5, etc.). Mirrored traffic is encapsulated in VXLAN — Zeek handles this automatically. Traffic mirroring incurs additional <a href="https://aws.amazon.com/vpc/pricing/" style="color:var(--blue-link);">AWS charges</a> per GB mirrored.</p>
+      </div>
+    </div>
+
+    <h3>Azure Deployment</h3>
+    <p>Azure provides <strong>Virtual Network TAP (vTAP)</strong> for traffic mirroring to a VM running CipherFlag.</p>
+
+    <div class="callout callout-info">
+      <span class="callout-icon">☁</span>
+      <div>
+        <p><strong>Architecture:</strong> Azure VM with two NICs — one for management, one as the TAP destination. Or use Azure Network Watcher packet capture for PCAP-based analysis.</p>
+      </div>
+    </div>
+
+    <p><strong>Option A: Azure vTAP (live capture)</strong></p>
+    <pre><code><span class="code-comment"># Create CipherFlag VM with two NICs</span>
+<span class="code-cmd">az vm</span> create --name cipherflag \
+  --resource-group <span class="code-url">myResourceGroup</span> \
+  --image Ubuntu2204 --size Standard_D4s_v3 \
+  --nics <span class="code-url">mgmt-nic</span> <span class="code-url">capture-nic</span>
+
+<span class="code-comment"># Create a Virtual Network TAP</span>
+<span class="code-cmd">az network</span> vnet tap create \
+  --name cipherflag-tap \
+  --resource-group <span class="code-url">myResourceGroup</span> \
+  --destination <span class="code-url">/subscriptions/.../capture-nic</span> \
+  --port 4789
+
+<span class="code-comment"># Attach source NIC to the TAP</span>
+<span class="code-cmd">az network</span> nic vtap-config create \
+  --nic-name <span class="code-url">source-nic</span> \
+  --resource-group <span class="code-url">myResourceGroup</span> \
+  --vnet-tap <span class="code-url">/subscriptions/.../cipherflag-tap</span></code></pre>
+
+    <p><strong>Option B: Azure Network Watcher (PCAP analysis)</strong></p>
+    <p>If vTAP isn't available in your region, use Azure Network Watcher to capture packets as PCAP files, then upload them to CipherFlag.</p>
+    <pre><code><span class="code-comment"># Start a packet capture on a VM</span>
+<span class="code-cmd">az network</span> watcher packet-capture create \
+  --resource-group <span class="code-url">myResourceGroup</span> \
+  --vm <span class="code-url">target-vm</span> \
+  --name tls-capture \
+  --filters '[{"protocol":"TCP","localPort":"443"}]' \
+  --storage-account <span class="code-url">mystorageaccount</span>
+
+<span class="code-comment"># Download the PCAP and upload to CipherFlag</span>
+<span class="code-cmd">curl</span> -X POST http://cipherflag:8443/api/v1/pcap/upload \
+  -F "file=@capture.pcap"</code></pre>
+
+    <div class="callout callout-info">
+      <span class="callout-icon">💡</span>
+      <div>
+        <p><strong>Azure notes:</strong> vTAP uses VXLAN encapsulation (UDP 4789). Ensure the capture NIC's NSG allows inbound UDP 4789. vTAP availability varies by region — check <a href="https://learn.microsoft.com/en-us/azure/virtual-network/virtual-network-tap-overview" style="color:var(--blue-link);">Azure documentation</a> for current support. Network Watcher packet capture is available in all regions as a fallback.</p>
+      </div>
+    </div>
+
+    <h3>Deployment Comparison</h3>
+    <table class="hw-table">
+      <thead>
+        <tr><th>Aspect</th><th>On-Prem</th><th>AWS</th><th>Azure</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Traffic source</td><td>SPAN port / TAP</td><td>VPC Traffic Mirroring</td><td>vTAP / Network Watcher</td></tr>
+        <tr><td>Encapsulation</td><td>None (raw)</td><td>VXLAN</td><td>VXLAN (vTAP) / PCAP (Watcher)</td></tr>
+        <tr><td>NICs required</td><td>2 (mgmt + capture)</td><td>2 ENIs</td><td>2 NICs (vTAP) / 1 (Watcher)</td></tr>
+        <tr><td>Live capture</td><td>Yes</td><td>Yes</td><td>Yes (vTAP) / No (Watcher)</td></tr>
+        <tr><td>Additional cost</td><td>None</td><td>Per-GB mirroring fee</td><td>vTAP free / Watcher per-capture</td></tr>
+        <tr><td>Instance type</td><td>Any</td><td>Nitro-based only</td><td>Standard_D4s_v3+</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 3. INSTALLATION -->
   <div class="guide-section" id="install">
-    <h2><span class="step-num">2</span> Installation</h2>
+    <h2><span class="step-num">3</span> Installation</h2>
 
     <h3>Option A: Install Script (Recommended)</h3>
     <p>The install script downloads the correct binary for your platform (Linux/macOS, amd64/arm64) and places it in <code>/usr/local/bin</code>.</p>
@@ -370,9 +530,9 @@
     </div>
   </div>
 
-  <!-- 3. SETUP WIZARD -->
+  <!-- 4. SETUP WIZARD -->
   <div class="guide-section" id="setup">
-    <h2><span class="step-num">3</span> Setup Wizard</h2>
+    <h2><span class="step-num">4</span> Setup Wizard</h2>
     <p>If you used the install script, run <code>cipherflag setup</code> for an interactive walkthrough that handles:</p>
     <pre><code><span class="code-cmd">cipherflag</span> setup
 
@@ -390,9 +550,9 @@
     </div>
   </div>
 
-  <!-- 4. MANUAL CONFIG -->
+  <!-- 5. MANUAL CONFIG -->
   <div class="guide-section" id="manual">
-    <h2><span class="step-num">4</span> Manual Configuration</h2>
+    <h2><span class="step-num">5</span> Manual Configuration</h2>
     <p>If you prefer manual setup, two files control everything:</p>
 
     <h3>.env — Docker Compose variables</h3>
@@ -418,9 +578,9 @@ VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></
     </div>
   </div>
 
-  <!-- 5. VERIFY -->
+  <!-- 6. VERIFY -->
   <div class="guide-section" id="verify">
-    <h2><span class="step-num">5</span> Verify Your Deployment</h2>
+    <h2><span class="step-num">6</span> Verify Your Deployment</h2>
     <p>Once services are running, check that everything is healthy:</p>
     <pre><code><span class="code-comment"># Check container status</span>
 <span class="code-cmd">docker-compose</span> ps
@@ -436,9 +596,9 @@ VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></
     <p>Open <a href="http://localhost:8443">http://localhost:8443</a> in your browser. You'll see the dashboard — if this is a fresh install, it will be empty until certificates are discovered or uploaded.</p>
   </div>
 
-  <!-- 6. PCAP UPLOAD -->
+  <!-- 7. PCAP UPLOAD -->
   <div class="guide-section" id="pcap">
-    <h2><span class="step-num">6</span> Upload a PCAP</h2>
+    <h2><span class="step-num">7</span> Upload a PCAP</h2>
     <p>The fastest way to see CipherFlag in action is to upload a packet capture file.</p>
     <pre><code><span class="code-comment"># From the UI:</span>
 <span class="code-comment">#   Navigate to the Upload page → drag &amp; drop a .pcap or .pcapng file</span>
@@ -455,9 +615,9 @@ VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></
     </div>
   </div>
 
-  <!-- 7. DASHBOARD -->
+  <!-- 8. DASHBOARD -->
   <div class="guide-section" id="dashboard">
-    <h2><span class="step-num">7</span> Using the Dashboard</h2>
+    <h2><span class="step-num">8</span> Using the Dashboard</h2>
     <p>The dashboard is organized around the workflow: discover → inspect → assess → act.</p>
 
     <h3>PKI Explorer</h3>
@@ -473,9 +633,9 @@ VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></
     <p>The search bar in the nav searches across certificate names, fingerprints, serial numbers, SANs, server names, and IPs. Type 2+ characters to see categorized results.</p>
   </div>
 
-  <!-- 8. VENAFI -->
+  <!-- 9. VENAFI -->
   <div class="guide-section" id="venafi">
-    <h2><span class="step-num">8</span> Venafi Integration</h2>
+    <h2><span class="step-num">9</span> Venafi Integration</h2>
     <p>CipherFlag pushes discovered certificates to Venafi automatically. Both Cloud and on-prem TPP are supported.</p>
 
     <h3>Venafi Cloud</h3>
@@ -496,9 +656,9 @@ VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></
     <p>The push scheduler runs on a configurable interval (default 60 minutes), sending new and updated certificates. Per-certificate failure tracking includes exponential backoff and dead-lettering after 5 failures. Check status at <code>Settings → Venafi</code> or <code>GET /api/v1/venafi/status</code>.</p>
   </div>
 
-  <!-- 9. ARCHITECTURE -->
+  <!-- 10. ARCHITECTURE -->
   <div class="guide-section" id="architecture">
-    <h2><span class="step-num">9</span> Architecture</h2>
+    <h2><span class="step-num">10</span> Architecture</h2>
     <p>CipherFlag runs as three containers orchestrated by Docker Compose:</p>
 
     <div class="arch-diagram"><span class="dim">┌──────────────────┐</span>     <span class="dim">┌──────────────────┐</span>     <span class="dim">┌──────────────────┐</span>
@@ -512,9 +672,9 @@ VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></
     <p>The Zeek sensor watches a network interface for live traffic and processes uploaded PCAPs. CipherFlag's Go backend parses Zeek's JSON logs, scores certificates, and serves the SvelteKit frontend. PostgreSQL stores everything.</p>
   </div>
 
-  <!-- 10. TROUBLESHOOTING -->
+  <!-- 11. TROUBLESHOOTING -->
   <div class="guide-section" id="troubleshooting">
-    <h2><span class="step-num">10</span> Troubleshooting</h2>
+    <h2><span class="step-num">11</span> Troubleshooting</h2>
 
     <h3>Containers won't start</h3>
     <p>Check <code>docker-compose logs</code> for errors. Common issues: port 8443 already in use, or the <code>.env</code> file has a syntax error.</p>

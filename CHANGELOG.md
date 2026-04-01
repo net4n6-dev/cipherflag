@@ -2,6 +2,20 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [1.1] - 2026-03-31
+
+### Added
+- **Deployment guide** in how-to documentation covering on-prem (SPAN/TAP), AWS (VPC Traffic Mirroring with dual ENI), and Azure (vTAP + Network Watcher PCAP fallback)
+- **Dual NIC architecture** documented: management NIC for SSH/web/API + capture NIC for traffic mirror target
+- **Network interface selector** in Settings > Sources — dropdown populated from host interfaces with name, IP, MAC, and status
+- **Network interface config API** — `GET /api/v1/config/interfaces` lists available network interfaces
+- **Deployment comparison table** — traffic source, encapsulation, NIC requirements, live capture support, and cost per platform
+
+### Changed
+- How-to guide expanded from 10 to 11 sections with new Deployment Guide as section 2
+- Prerequisites section updated to specify dual NIC requirement for live capture deployments
+- User guide, quickstart, and README updated with deployment and network interface information
+
 ## [1.0] - 2026-03-29
 
 ### Added
