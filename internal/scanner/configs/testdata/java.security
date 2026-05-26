@@ -1,0 +1,6 @@
+# Java security properties
+security.provider.1=SUN
+security.provider.2=SunRsaSign
+security.provider.3=SunEC
+jdk.tls.disabledAlgorithms=SSLv3, TLSv1, TLSv1.1, RC4, DES, MD5withRSA
+keystore.type=pkcs12

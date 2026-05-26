@@ -1,0 +1,40 @@
+[
+  {
+    "host_identifier": "E4F7D2A1-B3C8-4E5F-9A6D-1234567890AB",
+    "hostname": "web-01.prod.internal",
+    "display_name": "web-01",
+    "computer_name": "web-01",
+    "platform": "ubuntu",
+    "os_version": "Ubuntu 22.04.3 LTS",
+    "name": "cipherflag_certificates",
+    "action": "snapshot",
+    "snapshot": [
+      {
+        "common_name": "*.example.com",
+        "issuer": "CN=DigiCert SHA2 Extended Validation Server CA,O=DigiCert Inc",
+        "key_algorithm": "RSA",
+        "key_strength": "2048",
+        "sha256_fingerprint": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+        "not_valid_after": "1798761600",
+        "not_valid_before": "1704067200",
+        "signing_algorithm": "sha256WithRSAEncryption",
+        "subject": "CN=*.example.com,O=Example Inc",
+        "authority_key_id": "keyid:AA:BB:CC:DD:EE:FF",
+        "path": "/etc/ssl/certs/example.pem"
+      },
+      {
+        "common_name": "internal-ca.corp",
+        "issuer": "CN=Corp Root CA",
+        "key_algorithm": "ECDSA",
+        "key_strength": "256",
+        "sha256_fingerprint": "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3",
+        "not_valid_after": "1861920000",
+        "not_valid_before": "1704067200",
+        "signing_algorithm": "ecdsa-with-SHA384",
+        "subject": "CN=internal-ca.corp,O=Corp",
+        "authority_key_id": "",
+        "path": ""
+      }
+    ]
+  }
+]

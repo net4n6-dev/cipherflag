@@ -1,0 +1,73 @@
+CipherFlag CE
+Copyright 2026 net4n6-dev
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+This product includes software developed by the following third
+parties. Each component is licensed under the terms shown below.
+For the full license text, follow the URL.
+
+== Source-ported derivative works ==
+
+The following components are not vendored as go.mod dependencies but
+are source-ported (Apache 2.0 derivative works) into the CipherFlag
+tree. Their original licenses and attribution are preserved at the
+top of each ported file.
+
+- IBM cbomkit-theia (PQCA) — Apache License 2.0
+  https://github.com/PQCA/cbomkit-theia
+  Source-ported (not vendored as go.mod dependency).
+  Ported file: internal/scanner/detect/b4/opensslconf.go
+  (OpenSSL provider / FIPS-mode container-image inspection.)
+
+== go.mod dependencies ==
+
+- github.com/BurntSushi/toml — MIT
+  https://github.com/BurntSushi/toml/blob/v1.6.0/COPYING
+
+- github.com/CycloneDX/cyclonedx-go — Apache-2.0
+  https://github.com/CycloneDX/cyclonedx-go/blob/v0.10.0/LICENSE
+
+- github.com/aws/aws-sdk-go-v2 — Apache-2.0
+  https://github.com/aws/aws-sdk-go-v2/blob/v1.41.6/LICENSE.txt
+
+- github.com/go-chi/chi — MIT
+  https://github.com/go-chi/chi/blob/v5.2.5/LICENSE
+
+- github.com/google/uuid — BSD-3-Clause
+  https://github.com/google/uuid/blob/v1.6.0/LICENSE
+
+- github.com/hashicorp/golang-lru — MPL-2.0
+  https://github.com/hashicorp/golang-lru/blob/v2.0.7/LICENSE
+
+- github.com/jackc/pgx — MIT
+  https://github.com/jackc/pgx/blob/v5.8.0/LICENSE
+
+- github.com/pavlo-v-chernykh/keystore-go — MIT
+  https://github.com/pavlo-v-chernykh/keystore-go/blob/v4.5.0/LICENSE
+
+- github.com/prometheus/client_golang — Apache-2.0
+  https://github.com/prometheus/client_golang/blob/v1.15.1/LICENSE
+
+- github.com/robfig/cron — MIT
+  https://github.com/robfig/cron/blob/v3.0.1/LICENSE
+
+- github.com/rs/zerolog — MIT
+  https://github.com/rs/zerolog/blob/v1.34.0/LICENSE
+
+- github.com/smacker/go-tree-sitter — MIT
+  https://github.com/smacker/go-tree-sitter/blob/dd81d9e9be82/LICENSE
+
+- golang.org/x — BSD-3-Clause
+  https://cs.opensource.google/go/x/crypto/+/v0.49.0:LICENSE
+
+- gopkg.in/yaml.v3 — MIT
+  https://github.com/go-yaml/yaml/blob/v3.0.1/LICENSE
+
+- software.sslmate.com/src — BSD-3-Clause
+  https://github.com/SSLMate/go-pkcs12/blob/v0.7.1/LICENSE
+

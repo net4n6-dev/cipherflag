@@ -1,274 +1,273 @@
-# CipherFlag
+# CipherFlag CE
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Release](https://img.shields.io/github/v/release/net4n6-dev/cipherflag)](https://github.com/net4n6-dev/cipherflag/releases)
 
-CipherFlag is an open-source certificate intelligence platform that discovers TLS certificates from network traffic, scores their health, and provides interactive analytics for enterprise PKI management. It uses [Zeek](https://zeek.org/) for passive discovery, grades certificates A+ through F against 24 security rules, and visualizes certificate chains, ownership, and crypto posture with D3.js. Pushes discovered certificates to Venafi (Cloud or TPP) for lifecycle management.
+> Open-source post-quantum migration inventory and CycloneDX 1.6 CBOM toolkit.
+> Targets budget-constrained federal/state government and developer audiences.
+
+CipherFlag CE discovers cryptographic assets across your environment,
+classifies them by post-quantum readiness, evaluates them against
+compliance frameworks (NIST SP 800-131A, NSA CNSA 2.0, FIPS 140-3,
+EU NIS2), and exports them as CycloneDX 1.6 Cryptography Bill of
+Materials (CBOM). It runs entirely on Apache 2.0 software, with no
+calls home, no telemetry, and no commercial license required.
 
 ---
 
-## Quick Start
+## What it does
 
-### Option 1: Install Script (Recommended)
+### Core capabilities (v2.0)
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/net4n6-dev/cipherflag/main/scripts/install.sh | sh
-cipherflag setup
-```
+**Layer 0 — unified asset model**
+- Multi-source ingestion API (`POST /api/v1/ingest`) for X.509 certs,
+  SSH keys, crypto libraries, and crypto-relevant config files
+- Host identity resolution with deduplication and provenance tracking
+- Bearer-token agent auth for unattended ingest
 
-The setup wizard walks you through network interface selection, Venafi integration, and starts the platform.
+**Layer 1 — endpoint discovery (osquery)**
+- osquery webhook adapter (`POST /api/v1/ingest/osquery`)
+- 4 bash + 4 PowerShell discovery scripts you can drop into any
+  endpoint-management tooling that doesn't speak osquery
+- Script-output parser auto-classifies output into the unified asset
+  model
 
-### Option 2: Manual Setup
+**Layer 2 — native scanners**
+- SSH key scanner (system + user `~/.ssh/`)
+- Crypto-library scanner (OpenSSL, libgcrypt, BoringSSL, mbedTLS,
+  GnuTLS, NSS, wolfSSL, lang-runtime crypto stdlibs)
+- Cert-file scanner (PEM/DER/PKCS12/JKS on disk; matches private
+  keys to certs by SPKI fingerprint)
+- Config-file scanner (sshd, openssl.cnf, nginx, apache, envoy,
+  haproxy)
+- Truststore scanner (OS bundles, JVM cacerts, language-runtime CA
+  stores)
+
+**Layer 4.1 + 4.1b — scoring**
+- 47-rule scoring catalog (CE subset: SSH-001..008, LIB-003..005,
+  CFG-001..004, and the PQC-relevant certificate rules)
+- CVE-based library scoring against open NVD/OSV data (LIB-001 +
+  LIB-002); CE ships with a seed CVE catalog covering 37 known
+  crypto-library vulnerabilities (Heartbleed, DROWN, etc.)
+
+**Layer 4.2 — PQC taxonomy**
+- 122 recognized algorithm spellings across 8 categories
+  (asymmetric, symmetric, hash, signature, KEX, KDF, PQC-KEM,
+  PQC-SIG)
+- Vulnerable, weakened, hybrid, and quantum-safe statuses
+- Pure-data Go module — no external runtime dependencies
+
+**Layer 4.3 — compliance evaluation**
+- NIST SP 800-131A Rev 2
+- NSA CNSA 2.0
+- FIPS 140-3 (algorithm allowlist)
+- EU NIS2
+- Per-asset compliance status with framework-specific findings
+
+**Layer 5.1 — CycloneDX 1.6 CBOM generation**
+- `GET /api/v1/export/cbom` returns valid CycloneDX 1.6 JSON
+- Scheduled push (configurable interval)
+- File sink and HTTP sink for build-pipeline integration
+
+**Layer 5.2 — CBOM import**
+- `POST /api/v1/import/cbom` accepts foreign CycloneDX BOMs,
+  re-classifies algorithms via the PQC taxonomy, and ingests assets
+  into the unified inventory
+
+**Layer 5.3 — export sinks**
+- S3 (AWS or S3-compatible: MinIO, Wasabi, Backblaze)
+- Splunk HEC (RFC 5424 + CEF)
+- Syslog (RFC 5424 + CEF)
+
+**Layer 6.1a–c — Git repository scanner (deterministic only)**
+- Block 1: PEM/DER/SSH/PKCS12/JKS file parsing
+- Block 3: tree-sitter Python + Java parsers, Go AST parser
+- Block 4: server config file parsing (nginx, apache, envoy,
+  haproxy, openssl.cnf)
+- Per-repo CBOM export endpoint
+
+**Intake observation cache**
+- In-process LRU dedup wrapper for the UnifiedIngester. Drops the
+  observation count by 60-90% on long-running deployments with
+  high-cardinality ingest sources.
+
+---
+
+## What's NOT included (CipherFlag EE)
+
+A separate **CipherFlag EE** product (commercial license) adds:
+
+- **Layer 6.1d** — AI-enriched scanning (Anthropic LLM client,
+  license-gated, prompt library, byte-range redactor, exploit /
+  no-leak / strict-JSON guardrails)
+- **Layer 6.2** — Container image scanner (binary crypto detect,
+  OCI registry extraction, AI enrichment tier)
+- **Layer 6.3** — Active network scanner
+- **Layer 3** — 7 endpoint platform integrations (Velociraptor,
+  Wazuh, MS Defender, SentinelOne, Tanium, Absolute, Netwrix)
+- **Layer 4.1c** — TLS/SSH protocol-version scoring rules
+  (PROTO-001..006) + `protocol_endpoints` aggregate
+- **Layer 4.3** — PCI DSS 4.0 compliance evaluator
+- **Layer 4.4** — Per-asset risk prioritization with blast-radius
+  analysis (host-dependency graph + PKI edge engine)
+- **Layer 5.4** — Thales CipherTrust + Venafi (TPP + Cloud) export
+  adapters
+- **Layer 8** — Operator UX (the production frontend; CE retains
+  the v1 demo frontend as a known limitation)
+- **Certificate Transparency multi-provider arc** (deferred to
+  Phase 2 — will land in CE v2.1 once the EE arc completes)
+
+Contact CipherFlag for EE access.
+
+---
+
+## Quick start
+
+### Docker Compose (recommended)
 
 ```bash
 git clone https://github.com/net4n6-dev/cipherflag.git
 cd cipherflag
-cp .env.example .env          # edit to set NETWORK_INTERFACE for live capture
 docker-compose up -d
 ```
 
-Open [http://localhost:8443](http://localhost:8443) to access the dashboard.
+The HTTP API comes up on `http://localhost:8080`; Postgres on
+`localhost:5432`.
 
----
+Initialize an admin user:
 
-## Features
-
-### Discovery & Ingestion
-
-- **Passive network discovery** -- Zeek monitors a network interface (SPAN port or tap) and extracts TLS certificates without disrupting traffic
-- **PCAP upload** -- Upload .pcap/.pcapng files for offline certificate analysis with drag-and-drop UI
-- **Active scanning** -- Discover certificates via active reconnaissance
-- **Corelight integration** -- Ingest from Corelight appliances
-
-### Analysis & Scoring
-
-- **Health scoring** -- 24 rules covering expiration, key strength, signature algorithm, chain trust, revocation, CT compliance, wildcard detection, and crypto agility. Grades from A+ (95+) to F
-- **Certificate chain validation** -- Walks issuer chains from leaf to root, identifies orphaned and incomplete chains
-- **Blast radius analysis** -- Select any CA to see every certificate it signed, recursively, with aggregate risk stats
-
-### Deployment
-
-- **On-prem** -- SPAN port or network TAP with dual NIC (management + capture)
-- **AWS** -- VPC Traffic Mirroring with dual ENI on EC2
-- **Azure** -- Virtual Network TAP or Azure Network Watcher PCAP fallback
-- **PCAP-only** -- Single NIC, upload capture files through the web UI
-
-### Visualization
-
-- **PKI Explorer** -- Interactive D3.js force-directed graph of the entire CA hierarchy. Click nodes to inspect, right-click for blast radius, search across loaded and server-side certificates
-- **Certificate Chain Flow** -- Sankey diagram showing trust flow from Root CAs through Intermediates to leaf certificates, colored by CA family
-- **Ownership Treemap** -- Certificates grouped by issuer organization and subject OU, sized by count, colored by health grade
-- **Deployment Map** -- Horizontal bar chart showing certificates by deployment domain (derived from network observations)
-- **Crypto Posture** -- Key algorithm donut, key size distribution, TLS version x cipher strength heatmap, signature algorithm breakdown
-- **Expiry Forecast** -- 52-week stacked bar chart of upcoming expirations, broken down by issuer organization
-- **Source Lineage** -- Discovery source cards with per-source grade distribution, key algorithm breakdown, and observation timeline
-- **Global Search** -- Search bar in the top nav searches across certificate names, fingerprints, SANs, serial numbers, server names, and IPs
-
-### Reports
-
-Visual dashboard with drill-down to detailed reports:
-
-- **Reports Dashboard** -- Treemap domain overview (sized by cert count, colored by grade), CA concentration bars, compliance gauge, and expiry timeline. Click any element to drill into a detailed report.
-- **Domain Certificate Report** -- Grade distribution donut, key algorithm bars, match type breakdown, certificates table, deployments, health findings, and wildcard coverage
-- **CA Authority Report** -- CA identity, issued cert inventory, crypto breakdown, chain context, and findings
-- **Crypto Compliance Report** -- Compliance score gauge, critical issues, remediation priorities, non-agile certs, wildcard inventory
-- **Expiry Risk Report** -- Certificates expiring in 30/60/90 days, grouped by issuer and owner, with ghost certs and deployments at risk
-
-All analytics tabs are drillable — click any chart element to see matching certificates. Reports include Print and Download CSV.
-
-### Export & Integration
-
-- **Venafi Cloud** -- Automated push of discovered certificates to Venafi TLS Protect Cloud (SaaS) via API key authentication. Batch import with endpoint metadata.
-- **Venafi TPP** -- Automated push to on-prem Venafi Trust Protection Platform via OAuth2 and the Discovery/Import API. Includes host, IP, port, and TLS version from network observations.
-- **Unified push scheduler** -- Background goroutine pushes new/updated certificates on a configurable interval (default 60 min). Per-certificate failure tracking with exponential backoff and dead-lettering after 5 failures.
-- **Push status API** -- `GET /api/v1/venafi/status` shows pending, pushed, failed, and dead-lettered counts.
-- **CSV/JSON export** -- Manual download of certificate inventory in formats compatible with Venafi bulk import
-
----
-
-## Analytics Dashboard
-
-CipherFlag includes five analytics tabs:
-
-| Tab | Visualization | Answers |
-|-----|--------------|---------|
-| **Chain Flow** | D3 Sankey diagram | How does trust flow through my PKI? |
-| **Ownership** | Treemap + deployment bars | Who owns what? Where are certs deployed? |
-| **Crypto Posture** | Donut, bars, heatmap | Are we crypto-modern? Where's the weak crypto? |
-| **Expiry Forecast** | Stacked timeline | What's about to expire, and who's affected? |
-| **Source Lineage** | Source cards with icons | Where do we discover certs? What quality per source? |
-
----
-
-## Architecture
-
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   Zeek/PCAP  │────▶│  CipherFlag  │────▶│  PostgreSQL   │
-│   Sensor     │     │  API Server  │     │  Database     │
-└──────────────┘     └──────┬───────┘     └──────────────┘
-                            │
-                     ┌──────┴───────┐
-                     │  SvelteKit   │
-                     │  Frontend    │
-                     └──────────────┘
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/auth/setup-admin \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"changeme","display_name":"Admin"}'
 ```
 
-**Tech Stack:**
-- **Backend:** Go 1.25, chi router, pgx/PostgreSQL, bcrypt/JWT auth
-- **Frontend:** SvelteKit 2, Svelte 5, Tailwind CSS
-- **Visualizations:** D3.js (force, sankey, hierarchy, treemap, zoom), Cytoscape.js
-- **Network Sensor:** Zeek 7.x
-- **Database:** PostgreSQL 15
-- **Auth:** JWT in HTTP-only cookies, bcrypt passwords, admin/viewer RBAC
-- **Deployment:** Docker Compose (3 services), multi-arch images (amd64 + arm64)
+Then send an osquery webhook ingest:
 
-### Docker Images
+```bash
+curl -sS -X POST http://localhost:8080/api/v1/ingest/osquery \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer <agent-token-from-setup>' \
+  -d @discovery-packs/osquery/example-payload.json
+```
 
-| Image | Size | Platforms |
-|-------|------|-----------|
-| `ghcr.io/net4n6-dev/cipherflag:latest` | ~40 MB | linux/amd64, linux/arm64 |
-| `ghcr.io/net4n6-dev/cipherflag-zeek:latest` | ~120 MB | linux/amd64, linux/arm64 |
+Export a CBOM:
 
----
+```bash
+curl -sS http://localhost:8080/api/v1/export/cbom | jq '.bomFormat, .specVersion'
+# "CycloneDX"
+# "1.6"
+```
 
-## Configuration
+### From source (Go 1.25+)
 
-CipherFlag uses two configuration layers:
+```bash
+git clone https://github.com/net4n6-dev/cipherflag.git
+cd cipherflag
+go build ./...
+cp config/cipherflag.toml.example config/cipherflag.toml
+# edit config/cipherflag.toml — set [storage] postgres_url
+./cipherflag migrate
+./cipherflag serve
+```
 
-| File | Purpose |
-|------|---------|
-| `.env` | Docker Compose environment variables (network interface, database password, Venafi credentials) |
-| `config/cipherflag.toml` | Application configuration (analysis rules, polling intervals, export settings) |
-
-See [docs/configuration.md](docs/configuration.md) for a complete reference of all options.
-
----
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [User Guide](docs/cipherflag-user-guide.md) | Comprehensive usage and operations guide |
-| [How-To Guide](https://cipherflag.com/howto.html) | Interactive deployment and usage guide with on-prem, AWS, and Azure walkthroughs |
-| [Quick Start Guide](docs/quickstart.md) | Step-by-step Docker Compose deployment |
-| [Configuration Reference](docs/configuration.md) | All config options for `.env` and `cipherflag.toml` |
-| [Venafi Integration Guide](docs/venafi-export.md) | Setting up Venafi Cloud or TPP integration |
-| [Architecture](docs/architecture.md) | System design, data flow, and data model |
-| [Changelog](CHANGELOG.md) | Release history and version notes |
-
----
-
-## Project Structure
+### CLI subcommands
 
 ```
-cipherflag/
-├── cmd/cipherflag/          # CLI entrypoint (serve, migrate, seed, setup)
-├── config/                  # Runtime configuration (cipherflag.toml)
-├── docker/zeek/             # Zeek sensor container
-├── frontend/
-│   ├── src/routes/          # SvelteKit pages (dashboard, PKI, analytics, certificates)
-│   └── src/lib/components/  # D3 graph + analytics components
-├── internal/
-│   ├── analysis/            # Health scoring engine (24 rules) + chain builder
-│   ├── api/                 # HTTP server, handlers, middleware
-│   ├── certparse/           # X.509 PEM/DER parser
-│   ├── config/              # TOML config loader
-│   ├── export/              # CSV, JSON, and Venafi TPP export
-│   ├── ingest/              # Zeek log poller and PCAP job manager
-│   ├── model/               # Domain types (certificate, chain, analytics)
-│   └── store/               # PostgreSQL store and migrations
-├── docker-compose.yml       # 3-service deployment (Zeek + CipherFlag + PostgreSQL)
-└── docs/                    # Documentation and design specs
+cipherflag serve                   Start the HTTP API server
+cipherflag migrate                 Apply the v2.0 baseline schema
+cipherflag seed                    No-op in CE (no built-in seed dataset)
+cipherflag setup                   Print configuration-driven setup banner
+cipherflag declared-cas <verb>     Manage the operator-declared CA registry
+cipherflag application-metadata    Manage per-application TTL metadata (HNDL)
+cipherflag ownership <verb>        Manage asset ownership sightings
+cipherflag scan-truststore         One-shot OS / JVM / runtime trust-store scan
+cipherflag generate-signing-key    Generate an Ed25519 signing key for CBOMs
+cipherflag sign-cbom <file>        Sign a CBOM JSON with the signing key
+cipherflag verify-cbom <file>      Verify a signed CBOM
+cipherflag version                 Print version
 ```
 
 ---
 
-## API Endpoints
+## Architecture overview
 
-### Authentication
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/auth/login` | Login (returns JWT cookie) |
-| POST | `/api/v1/auth/logout` | Logout (clears cookie) |
-| GET | `/api/v1/auth/me` | Current user profile |
-| PUT | `/api/v1/auth/me/password` | Change password |
-| GET | `/api/v1/auth/status` | Check if users exist |
-| POST | `/api/v1/auth/setup-admin` | First admin registration |
-| GET | `/api/v1/auth/users` | List users (admin) |
-| POST | `/api/v1/auth/users` | Create user (admin) |
-
-### Settings
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/config/sources` | Source configuration |
-| PUT | `/api/v1/config/sources` | Update source config (admin) |
-| GET | `/api/v1/config/interfaces` | List network interfaces for capture |
-| GET | `/api/v1/venafi/config` | Venafi config (credentials masked) |
-| PUT | `/api/v1/venafi/config` | Update Venafi config (admin) |
-| POST | `/api/v1/venafi/test-connection` | Test Venafi credentials (admin) |
-
-### Certificates
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/certificates` | Search and filter certificates |
-| GET | `/api/v1/certificates/{fp}` | Certificate detail + health report |
-| GET | `/api/v1/certificates/{fp}/chain` | Certificate chain (leaf to root) |
-| GET | `/api/v1/certificates/{fp}/health` | Health findings |
-| GET | `/api/v1/certificates/{fp}/observations` | TLS observation history |
-| GET | `/api/v1/search?q=...` | Global search (certs, SANs, fingerprints, IPs) |
-
-### PKI Graph
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/graph/landscape/aggregated` | CA-only graph with aggregate stats |
-| GET | `/api/v1/graph/ca/{fp}/children` | On-demand children of a CA |
-| GET | `/api/v1/graph/ca/{fp}/blast-radius` | Full downstream subgraph of a CA |
-
-### Reports
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/reports/domain?q=...` | Domain certificate report |
-| GET | `/api/v1/reports/ca?issuer_cn=...` | CA authority report (supports partial match) |
-| GET | `/api/v1/reports/compliance` | Crypto compliance report |
-| GET | `/api/v1/reports/expiry?days=30` | Expiry risk report |
-
-### Venafi Integration
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/venafi/status` | Push scheduler status (pending, pushed, failed, dead-lettered) |
-
-### Analytics
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/stats/summary` | Dashboard summary stats |
-| GET | `/api/v1/stats/chain-flow` | Sankey chain flow data |
-| GET | `/api/v1/stats/ownership` | Issuer org x subject OU groupings |
-| GET | `/api/v1/stats/deployment` | Certificates by deployment domain |
-| GET | `/api/v1/stats/crypto-posture` | Key/signature algorithm distribution |
-| GET | `/api/v1/stats/expiry-forecast` | Weekly expiry buckets by issuer |
-| GET | `/api/v1/stats/source-lineage` | Per-source discovery breakdowns |
-| GET | `/api/v1/stats/ciphers` | TLS cipher suite analytics |
-
----
-
-## Security
-
-CipherFlag includes built-in authentication with JWT tokens, bcrypt password hashing, and role-based access control (admin/viewer). On first visit, you'll be prompted to create an admin account.
-
-For production deployments, also consider:
-- Network segmentation (management VLAN only)
-- Reverse proxy with TLS termination (nginx, Caddy)
-- Host firewall rules restricting access to port 8443
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code structure, and PR process.
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Discovery sources                                               │
+│   • osquery webhook        • Layer 2 native scanners             │
+│   • CBOM import endpoint   • Git repo scanner (deterministic)    │
+└────────────────┬─────────────────────────────────────────────────┘
+                 ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Unified ingester (Layer 0)                                      │
+│   • Multi-source dedup    • Host identity resolution             │
+│   • Observation cache     • Provenance + ownership ledger        │
+└────────────────┬─────────────────────────────────────────────────┘
+                 ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Scoring (Layer 4.1 + 4.1b + 4.2 + 4.3)                          │
+│   • Per-asset health reports   • PQC classification              │
+│   • CVE matching               • 4-framework compliance grading  │
+└────────────────┬─────────────────────────────────────────────────┘
+                 ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Export (Layer 5.1 + 5.2 + 5.3)                                  │
+│   • CycloneDX 1.6 CBOM gen/import                                │
+│   • Scheduled push (S3, Splunk HEC, Syslog)                      │
+│   • HTTP API for ad-hoc fetch                                    │
+└──────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) for the full text.
+Apache License 2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+
+Inbound contributions are accepted under Apache 2.0; no Contributor
+License Agreement (CLA) required. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+CipherFlag CE includes software from third parties — see [`NOTICE`](NOTICE)
+for the full attribution list (IBM CBOMkit, HashiCorp golang-lru,
+tree-sitter language bindings, and others).
+
+---
+
+## Documentation
+
+- [`CHANGELOG.md`](CHANGELOG.md) — release history, breaking changes
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute, license terms
+- [`NOTICE`](NOTICE) — third-party dependency attributions
+- `discovery-packs/` — osquery queries + bash/PowerShell scripts
+  for endpoint discovery
+- `docs/` — operator-facing reference material
+
+---
+
+## Status and roadmap
+
+| Capability | Status |
+|---|---|
+| PQC taxonomy + classification | shipped v2.0 |
+| 4-framework compliance bundle | shipped v2.0 |
+| CycloneDX 1.6 CBOM gen/import | shipped v2.0 |
+| Export sinks (S3, Splunk, Syslog) | shipped v2.0 |
+| Git repo deterministic scanner | shipped v2.0 |
+| osquery webhook + 8 discovery scripts | shipped v2.0 |
+| Native scanners (SSH/lib/cert/config/truststore) | shipped v2.0 |
+| Certificate Transparency multi-provider | **deferred to v2.1** (Phase 2) |
+| Production operator UI | **EE-only** (CE retains v1 demo UI) |
+| Risk prioritization + blast-radius | **EE-only** |
+| AI-enriched repo scanning | **EE-only** |
+| Container image scanning | **EE-only** |
+| Active network scanning | **EE-only** |
+| PCI DSS 4.0 compliance | **EE-only** |
+
+---
+
+## Reporting issues
+
+Please open issues at https://github.com/net4n6-dev/cipherflag/issues.
+For security issues, see [`SECURITY.md`](SECURITY.md) (if present) or
+email the maintainer (see `LICENSE` for contact info).

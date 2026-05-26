@@ -7,9 +7,20 @@
 bin/
 *.exe
 node_modules/
+__pycache__/
+*.pyc
 frontend/build/
 frontend/.svelte-kit/
 .env
 *.pcap
 *.pcapng
 .superpowers/
+.worktrees/
+.claire/
+
+# Go build artifacts left at repo root by `go build ./cmd/...` with no -o flag.
+/cipherflag
+/scanner
+
+# License public key — injected at build time via -ldflags / LICENSE_PUBKEY_B64; never committed
+license-public.der

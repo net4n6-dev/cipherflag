@@ -1,3 +1,17 @@
+// Copyright 2026 net4n6-dev
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package analysis
 
 import (
@@ -65,6 +79,11 @@ func checkExpiration(cert *model.Certificate) []model.HealthFinding {
 	var findings []model.HealthFinding
 	days := cert.DaysUntilExpiry()
 
+	// Cert-expiry findings all share the same natural deadline: the cert's
+	// NotAfter date. Operators reading AQ-AP-02 ("what must be fixed before
+	// the October audit?") get a meaningful answer without separate metadata.
+	deadline := cert.NotAfter
+
 	if cert.IsExpired() {
 		findings = append(findings, model.HealthFinding{
 			RuleID:        "EXP-001",
@@ -75,36 +94,40 @@ func checkExpiration(cert *model.Certificate) []model.HealthFinding {
 			Remediation:   "Renew the certificate immediately.",
 			Deduction:     100,
 			ImmediateFail: true,
+			ScopeDeadline: &deadline,
 		})
 	} else if days <= 7 {
 		findings = append(findings, model.HealthFinding{
-			RuleID:      "EXP-002",
-			Title:       "Certificate expires within 7 days",
-			Severity:    model.SeverityCritical,
-			Category:    model.CategoryExpiration,
-			Detail:      "Expiration is imminent.",
-			Remediation: "Renew the certificate immediately.",
-			Deduction:   40,
+			RuleID:        "EXP-002",
+			Title:         "Certificate expires within 7 days",
+			Severity:      model.SeverityCritical,
+			Category:      model.CategoryExpiration,
+			Detail:        "Expiration is imminent.",
+			Remediation:   "Renew the certificate immediately.",
+			Deduction:     40,
+			ScopeDeadline: &deadline,
 		})
 	} else if days <= 30 {
 		findings = append(findings, model.HealthFinding{
-			RuleID:      "EXP-003",
-			Title:       "Certificate expires within 30 days",
-			Severity:    model.SeverityHigh,
-			Category:    model.CategoryExpiration,
-			Detail:      "Certificate will expire soon.",
-			Remediation: "Plan certificate renewal.",
-			Deduction:   20,
+			RuleID:        "EXP-003",
+			Title:         "Certificate expires within 30 days",
+			Severity:      model.SeverityHigh,
+			Category:      model.CategoryExpiration,
+			Detail:        "Certificate will expire soon.",
+			Remediation:   "Plan certificate renewal.",
+			Deduction:     20,
+			ScopeDeadline: &deadline,
 		})
 	} else if days <= 90 {
 		findings = append(findings, model.HealthFinding{
-			RuleID:      "EXP-004",
-			Title:       "Certificate expires within 90 days",
-			Severity:    model.SeverityMedium,
-			Category:    model.CategoryExpiration,
-			Detail:      "Certificate approaching expiration.",
-			Remediation: "Schedule certificate renewal.",
-			Deduction:   5,
+			RuleID:        "EXP-004",
+			Title:         "Certificate expires within 90 days",
+			Severity:      model.SeverityMedium,
+			Category:      model.CategoryExpiration,
+			Detail:        "Certificate approaching expiration.",
+			Remediation:   "Schedule certificate renewal.",
+			Deduction:     5,
+			ScopeDeadline: &deadline,
 		})
 	}
 

@@ -1,0 +1,31 @@
+# Copyright 2026 net4n6-dev
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Curated benign-artifact allow-list for CipherFlag container scanner.
+#
+# v1 seed is intentionally EMPTY. Pre-GA roadmap entry tracks curation
+# for the top ~200 public base images (debian / ubuntu / alpine / node /
+# python / golang / chainguard / wolfi derivatives). See docs/roadmap.md.
+#
+# Entry format:
+#   - image_digest: sha256:<hex>  # the image digest this entry applies to
+#     path: <file path inside the image>
+#     sha256: sha256:<hex>        # blob SHA-256
+#     comment: <free-form note for curators>
+#
+# Multiple image_digest values can pin a known-benign artifact across
+# image variants (e.g. amd64 + arm64 digests of the same image release).
+
+# (no entries — v1 seed)
+[]

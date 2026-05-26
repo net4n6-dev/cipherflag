@@ -1,0 +1,14 @@
+[
+  {
+    "host_identifier": "F5A8B3C2-D4E6-7F89-0A1B-CDEF23456789",
+    "hostname": "db-01.prod.internal",
+    "display_name": "db-01",
+    "platform": "centos",
+    "name": "cipherflag_crypto_packages_rpm",
+    "action": "snapshot",
+    "snapshot": [
+      {"name": "openssl-libs", "version": "3.0.7", "release": "27.el9"},
+      {"name": "nss", "version": "3.90.0", "release": "7.el9_3"}
+    ]
+  }
+]

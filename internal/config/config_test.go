@@ -1,8 +1,23 @@
+// Copyright 2026 net4n6-dev
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package config
 
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -138,6 +153,33 @@ func TestSaveAndReload(t *testing.T) {
 	}
 }
 
+func TestAttritionDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.toml")
+	os.WriteFile(path, []byte("[server]\n"), 0644)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if cfg.Attrition.CheckIntervalMinutes != 60 {
+		t.Errorf("check_interval_minutes = %d, want 60", cfg.Attrition.CheckIntervalMinutes)
+	}
+	if cfg.Attrition.CycleStaleThreshold != 3 {
+		t.Errorf("cycle_stale_threshold = %d, want 3", cfg.Attrition.CycleStaleThreshold)
+	}
+	if cfg.Attrition.CycleRemovedThreshold != 7 {
+		t.Errorf("cycle_removed_threshold = %d, want 7", cfg.Attrition.CycleRemovedThreshold)
+	}
+	if cfg.Attrition.NetworkStaleDays != 7 {
+		t.Errorf("network_stale_days = %d, want 7", cfg.Attrition.NetworkStaleDays)
+	}
+	if cfg.Attrition.NetworkRemovedDays != 30 {
+		t.Errorf("network_removed_days = %d, want 30", cfg.Attrition.NetworkRemovedDays)
+	}
+}
+
 func TestModelScoreToGrade(t *testing.T) {
 	tests := []struct {
 		score         int
@@ -164,5 +206,206 @@ func TestModelScoreToGrade(t *testing.T) {
 		// Can't import model here directly, but we test through the scorer
 		// This is a documentation of expected behavior
 		t.Logf("score=%d immediateFail=%v → %s", tt.score, tt.immediateFail, tt.want)
+	}
+}
+
+func TestLoad_AIDefaults(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "cipherflag.toml")
+	if err := os.WriteFile(path, []byte(``), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.AI.Provider != "anthropic" || cfg.AI.Model != "claude-sonnet-4-6" {
+		t.Errorf("AI defaults: %+v", cfg.AI)
+	}
+	if cfg.AI.PerScanMaxUSD != 20.0 || cfg.AI.PerDayMaxUSD != 100.0 || cfg.AI.PerMonthMaxUSD != 1000.0 {
+		t.Errorf("AI budget defaults: %+v", cfg.AI)
+	}
+}
+
+func TestLoad_RankFormulaDefaultIsBlastRadius(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "cipherflag.toml")
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Analysis.RankFormula != "blast_radius" {
+		t.Errorf("RankFormula = %q, want \"blast_radius\" (default since v1.20.0)", cfg.Analysis.RankFormula)
+	}
+	if !cfg.Analysis.RankFormulaIsDefault {
+		t.Errorf("RankFormulaIsDefault = false, want true (no rank_formula in TOML)")
+	}
+}
+
+func TestLoad_RankFormulaLegacyAccepted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.toml")
+	os.WriteFile(path, []byte(`[storage]
+postgres_url = "postgres://test/test"
+[analysis]
+rank_formula = "legacy"
+`), 0644)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Analysis.RankFormula != "legacy" {
+		t.Errorf("RankFormula = %q, want \"legacy\"", cfg.Analysis.RankFormula)
+	}
+}
+
+func TestLoad_RankFormulaBlastRadiusAccepted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.toml")
+	os.WriteFile(path, []byte(`[storage]
+postgres_url = "postgres://test/test"
+[analysis]
+rank_formula = "blast_radius"
+`), 0644)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Analysis.RankFormula != "blast_radius" {
+		t.Errorf("RankFormula = %q, want \"blast_radius\"", cfg.Analysis.RankFormula)
+	}
+}
+
+func TestLoad_RankFormulaGarbageRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.toml")
+	os.WriteFile(path, []byte(`[storage]
+postgres_url = "postgres://test/test"
+[analysis]
+rank_formula = "garbage"
+`), 0644)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load err = nil, want validation error")
+	}
+	if !strings.Contains(err.Error(), "rank_formula must be") {
+		t.Errorf("err = %v, want canonical validation message", err)
+	}
+	if !strings.Contains(err.Error(), "garbage") {
+		t.Errorf("err = %v, want the invalid value in the message", err)
+	}
+}
+
+// loadFromTOML is a test helper: writes body to a temp file and calls Load.
+func loadFromTOML(t *testing.T, body string) (*Config, error) {
+	t.Helper()
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "cipherflag.toml")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return Load(path)
+}
+
+func TestConfig_DefaultsForPKITrustAndJVMPasswords(t *testing.T) {
+	// Load the empty TOML; defaults should populate.
+	cfg, err := loadFromTOML(t, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Analysis.PKITrustEdgesEnabled {
+		t.Error("PKITrustEdgesEnabled default = true, want false")
+	}
+	if len(cfg.Scanners.JVMKeystorePasswords) != 1 || cfg.Scanners.JVMKeystorePasswords[0] != "changeit" {
+		t.Errorf("JVMKeystorePasswords default = %v, want [changeit]", cfg.Scanners.JVMKeystorePasswords)
+	}
+}
+
+func TestConfig_LoadFromTOML_HonorsTrustOverrides(t *testing.T) {
+	cfg, err := loadFromTOML(t, `
+[analysis]
+pki_trust_edges_enabled = true
+
+[scanners]
+jvm_keystore_passwords = ["changeit", "company-default", "legacy-pw"]
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Analysis.PKITrustEdgesEnabled {
+		t.Error("override not applied")
+	}
+	if len(cfg.Scanners.JVMKeystorePasswords) != 3 {
+		t.Errorf("got %d passwords, want 3", len(cfg.Scanners.JVMKeystorePasswords))
+	}
+}
+
+func TestLoad_RankFormulaIsDefaultTracksTomlPresence(t *testing.T) {
+	cases := []struct {
+		name        string
+		body        string
+		wantFormula string
+		wantIsDef   bool
+	}{
+		{"empty_toml", "", "blast_radius", true},
+		{"explicit_blast_radius", "[analysis]\nrank_formula = \"blast_radius\"\n", "blast_radius", false},
+		{"explicit_legacy", "[analysis]\nrank_formula = \"legacy\"\n", "legacy", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			path := filepath.Join(tmp, "cipherflag.toml")
+			if err := os.WriteFile(path, []byte(tc.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if cfg.Analysis.RankFormula != tc.wantFormula {
+				t.Errorf("RankFormula = %q, want %q", cfg.Analysis.RankFormula, tc.wantFormula)
+			}
+			if cfg.Analysis.RankFormulaIsDefault != tc.wantIsDef {
+				t.Errorf("RankFormulaIsDefault = %v, want %v", cfg.Analysis.RankFormulaIsDefault, tc.wantIsDef)
+			}
+		})
+	}
+}
+
+func TestConfig_CTKindEnableFlags_DefaultsAndOverride(t *testing.T) {
+	// Default (no TOML ct_crtsh sub-block): every CT kind enabled.
+	defaults, err := loadFromTOML(t, `
+[sources.external_sources]
+`)
+	if err != nil {
+		t.Fatalf("loadFromTOML: %v", err)
+	}
+	if !defaults.Sources.ExternalSources.CtCrtsh.Enabled {
+		t.Error("default: ct_crtsh.enabled should be true")
+	}
+	if !defaults.Sources.ExternalSources.CtStatic.Enabled {
+		t.Error("default: ct_static.enabled should be true")
+	}
+
+	// Operator disables ct_crtsh.
+	overridden, err := loadFromTOML(t, `
+[sources.external_sources.ct_crtsh]
+enabled = false
+`)
+	if err != nil {
+		t.Fatalf("loadFromTOML: %v", err)
+	}
+	if overridden.Sources.ExternalSources.CtCrtsh.Enabled {
+		t.Error("override: ct_crtsh.enabled should be false")
+	}
+	// ct_static not overridden — should still default to true.
+	if !overridden.Sources.ExternalSources.CtStatic.Enabled {
+		t.Error("override: ct_static.enabled should remain true when not overridden")
 	}
 }

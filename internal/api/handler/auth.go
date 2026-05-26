@@ -1,3 +1,17 @@
+// Copyright 2026 net4n6-dev
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package handler
 
 import (
@@ -75,25 +89,67 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// Me returns the current user profile. If no auth mode (no users), returns anonymous admin.
+// Me returns the current user profile. Semantically a *status* endpoint
+// rather than a protected resource — always returns 200 with a user
+// object or `user: null`. Moved out of the Auth() middleware group in
+// server.go so a fresh visit without a cookie doesn't produce a console-
+// visible 401 on initial page load.
+//
+// Response shapes:
+//
+//	{ "user": { ... }, "authenticated": true }   — valid session
+//	{ "user": <anonymous admin>, "authenticated": false } — no-users no-auth mode
+//	{ "user": null, "authenticated": false }     — no cookie / expired / invalid
+//
+// Callers distinguish `user: null` from `user: {anonymous}` via the
+// user.id field ("anonymous" for no-auth mode). The frontend
+// getCurrentUser() already handles both.
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
-	u := middleware.GetUser(r.Context())
-	if u == nil {
-		// No-auth mode: anonymous admin
+	token := auth.GetTokenFromCookie(r)
+
+	// No cookie — either no-auth mode (no users exist) or unauthenticated.
+	if token == "" {
+		hasUsers, err := h.store.HasUsers(r.Context())
+		if err == nil && !hasUsers {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"user": map[string]any{
+					"id":           "anonymous",
+					"email":        "admin@localhost",
+					"display_name": "Administrator",
+					"role":         "admin",
+				},
+				"authenticated": false,
+			})
+			return
+		}
+		// Users exist but no cookie — unauthenticated, but return 200
+		// so the status check doesn't pollute the browser console with
+		// a 401 on every initial page load.
 		writeJSON(w, http.StatusOK, map[string]any{
-			"user": map[string]any{
-				"id":           "anonymous",
-				"email":        "admin@localhost",
-				"display_name": "Administrator",
-				"role":         "admin",
-			},
+			"user":          nil,
+			"authenticated": false,
 		})
 		return
 	}
 
-	user, err := h.store.GetUserByID(r.Context(), u.ID)
+	// Cookie present — verify it.
+	claims, err := auth.VerifyJWT(h.jwtSecret, token)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"user":            nil,
+			"authenticated":   false,
+			"session_expired": true,
+		})
+		return
+	}
+
+	user, err := h.store.GetUserByID(r.Context(), claims.Sub)
 	if err != nil || user == nil {
-		writeError(w, http.StatusNotFound, "user not found")
+		// Token valid but user gone (deleted after token issued).
+		writeJSON(w, http.StatusOK, map[string]any{
+			"user":          nil,
+			"authenticated": false,
+		})
 		return
 	}
 
@@ -106,6 +162,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 			"created_at":    user.CreatedAt,
 			"last_login_at": user.LastLoginAt,
 		},
+		"authenticated": true,
 	})
 }
 

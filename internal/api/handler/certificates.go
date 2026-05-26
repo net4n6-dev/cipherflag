@@ -1,3 +1,17 @@
+// Copyright 2026 net4n6-dev
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package handler
 
 import (
@@ -7,7 +21,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/net4n6-dev/cipherflag/internal/analysis"
 	"github.com/net4n6-dev/cipherflag/internal/model"
 	"github.com/net4n6-dev/cipherflag/internal/store"
 )
@@ -85,6 +98,10 @@ func (h *CertHandler) Get(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Chain returns a cert's chain-of-trust tree. CE-flavor: the
+// chain-graph builder (internal/analysis/chain.go) is EE-only because
+// it returns Cytoscape graph data feeding the Layer 8 operator UI.
+// CE serves the leaf cert + its issuer name without the descent tree.
 func (h *CertHandler) Chain(w http.ResponseWriter, r *http.Request) {
 	fp := chi.URLParam(r, "fingerprint")
 
@@ -93,17 +110,12 @@ func (h *CertHandler) Chain(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "certificate not found")
 		return
 	}
-
-	allCerts, err := h.store.GetAllCertificatesForGraph(r.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	reports := loadReportsMap(h.store, r)
-
-	tree := analysis.BuildChainTree(cert, allCerts, reports)
-	writeJSON(w, http.StatusOK, tree)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"certificate":              cert,
+		"chain_tree_unavailable":   true,
+		"chain_tree_requires_ee":   true,
+		"chain_tree_reason":        "Cytoscape chain-graph builder is EE-only; CE returns the leaf certificate only.",
+	})
 }
 
 func (h *CertHandler) Observations(w http.ResponseWriter, r *http.Request) {
@@ -158,6 +170,18 @@ func (h *CertHandler) GlobalSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Prefer multi-type search when the store supports it (CryptoStore).
+	if cs, ok := h.store.(store.CryptoStore); ok {
+		result, err := cs.SearchMultiType(r.Context(), query, limit)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, result)
+		return
+	}
+
+	// Fallback: cert-only search.
 	result, err := h.store.GlobalSearch(r.Context(), query, limit)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

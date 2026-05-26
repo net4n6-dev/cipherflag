@@ -1,10 +1,37 @@
+# Copyright 2026 net4n6-dev
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# CipherFlag CE smoke-deploy compose.
+#
+# Brings up:
+#   - postgres:16          (data store)
+#   - cipherflag           (HTTP API server on :8080)
+#
+# EE-only services NOT included:
+#   - The container-image scanner binary (Layer 6.2 EE)
+#   - Velociraptor / Wazuh / Defender / SentinelOne / Tanium / Absolute /
+#     Netwrix sidecars (Layer 3 EE adapters)
+
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16
     environment:
       POSTGRES_DB: cipherflag
       POSTGRES_USER: cipherflag
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
@@ -13,22 +40,6 @@ services:
       timeout: 5s
       retries: 5
 
-  zeek:
-    build:
-      context: ./docker/zeek
-    image: ghcr.io/net4n6-dev/cipherflag-zeek:latest
-    environment:
-      NETWORK_INTERFACE: ${NETWORK_INTERFACE:-}
-      ZEEK_LOG_DIR: /zeek-logs
-      PCAP_INPUT_DIR: /pcap-input
-    volumes:
-      - zeek-logs:/zeek-logs
-      - pcap-input:/pcap-input
-    network_mode: host
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
-
   cipherflag:
     build:
       context: .
@@ -36,16 +47,15 @@ services:
     environment:
       CIPHERFLAG_CONFIG: /app/config/cipherflag.toml
     ports:
-      - "8443:8443"
+      - "8080:8080"
     volumes:
-      - zeek-logs:/zeek-logs:ro
-      - pcap-input:/pcap-input
       - ./config:/app/config
+      # Mount a working directory for the git repo scanner clone cache.
+      - scanner-clones:/var/cache/cipherflag/scanner/clones
     depends_on:
       postgres:
         condition: service_healthy
 
 volumes:
   pg-data:
-  zeek-logs:
-  pcap-input:
+  scanner-clones:

@@ -1,0 +1,14 @@
+[
+  {
+    "host_identifier": "E4F7D2A1-B3C8-4E5F-9A6D-1234567890AB",
+    "hostname": "web-01.prod.internal",
+    "display_name": "web-01",
+    "platform": "ubuntu",
+    "name": "cipherflag_authorized_keys",
+    "action": "snapshot",
+    "snapshot": [
+      {"uid": "0", "key": "AAAAB3NzaC1yc2EAAAADAQABAAACAQ...", "key_type": "ssh-rsa", "comment": "deploy@ci"},
+      {"uid": "1000", "key": "AAAAC3NzaC1lZDI1NTE5AAAAI...", "key_type": "ssh-ed25519", "comment": "admin@workstation"}
+    ]
+  }
+]

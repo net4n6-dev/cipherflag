@@ -1,0 +1,14 @@
+[
+  {
+    "host_identifier": "E4F7D2A1-B3C8-4E5F-9A6D-1234567890AB",
+    "hostname": "web-01.prod.internal",
+    "display_name": "web-01",
+    "platform": "ubuntu",
+    "name": "cipherflag_ssh_user_keys",
+    "action": "snapshot",
+    "snapshot": [
+      {"uid": "1000", "username": "admin", "path": "/home/admin/.ssh/id_rsa", "encrypted": "0", "key_type": "ssh-rsa", "key_size": "2048", "fingerprint": "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"},
+      {"uid": "1000", "username": "admin", "path": "/home/admin/.ssh/id_ed25519", "encrypted": "1", "key_type": "ssh-ed25519", "key_size": "256", "fingerprint": "bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99:aa"}
+    ]
+  }
+]

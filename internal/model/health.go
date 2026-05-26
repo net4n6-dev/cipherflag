@@ -1,3 +1,17 @@
+// Copyright 2026 net4n6-dev
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package model
 
 import "time"
@@ -48,6 +62,13 @@ type HealthFinding struct {
 	Remediation string          `json:"remediation"`
 	Deduction   int             `json:"deduction"`
 	ImmediateFail bool          `json:"immediate_fail,omitempty"`
+
+	// ScopeDeadline is the date by which this finding must be remediated.
+	// Populated by scorers for deadline-eligible rule families (cert
+	// expiry uses cert.NotAfter; library CVE rules use scored_at +
+	// severity-based interval). Nil when no deadline applies.
+	// Powers AQ-AP-02 (docs/analyst-question-catalog.md §Domain 9).
+	ScopeDeadline *time.Time `json:"scope_deadline,omitempty"`
 }
 
 type HealthReport struct {

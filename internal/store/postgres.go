@@ -1,3 +1,17 @@
+// Copyright 2026 net4n6-dev
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package store
 
 import (
@@ -19,11 +33,21 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+// Option is a functional option for NewPostgresStore. The variadic
+// ...Option parameter is kept in the API so future CE-side options
+// (connection-pool tuning, metric callbacks, etc.) can be added
+// without churning every call site.
+type Option func(*PostgresStore)
+
 type PostgresStore struct {
 	pool *pgxpool.Pool
 }
 
-func NewPostgresStore(ctx context.Context, connString string) (*PostgresStore, error) {
+// Compile-time interface assertions.
+var _ CertStore = (*PostgresStore)(nil)
+var _ CryptoStore = (*PostgresStore)(nil)
+
+func NewPostgresStore(ctx context.Context, connString string, opts ...Option) (*PostgresStore, error) {
 	pool, err := pgxpool.New(ctx, connString)
 	if err != nil {
 		return nil, fmt.Errorf("connect to postgres: %w", err)
@@ -31,7 +55,11 @@ func NewPostgresStore(ctx context.Context, connString string) (*PostgresStore, e
 	if err := pool.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
-	return &PostgresStore{pool: pool}, nil
+	s := &PostgresStore{pool: pool}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s, nil
 }
 
 func (s *PostgresStore) Migrate(ctx context.Context) error {
@@ -116,7 +144,8 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 			subject_alt_names, is_ca, basic_constraints_path_len,
 			key_usage, extended_key_usage,
 			ocsp_responder_urls, crl_distribution_points, scts,
-			source_discovery, first_seen, last_seen, raw_pem
+			source_discovery, first_seen, last_seen, raw_pem,
+			authority_key_id, subject_key_id
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13,
@@ -124,12 +153,15 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 			$17, $18, $19,
 			$20, $21, $22,
 			$23, $24, $25, $26, $27,
-			$28, $29, $30, $31
+			$28, $29, $30, $31,
+			$32, $33
 		)
 		ON CONFLICT (fingerprint_sha256) DO UPDATE SET
 			last_seen = EXCLUDED.last_seen,
 			source_discovery = EXCLUDED.source_discovery,
-			raw_pem = COALESCE(NULLIF(EXCLUDED.raw_pem, ''), certificates.raw_pem)
+			raw_pem = COALESCE(NULLIF(EXCLUDED.raw_pem, ''), certificates.raw_pem),
+			authority_key_id = EXCLUDED.authority_key_id,
+			subject_key_id = EXCLUDED.subject_key_id
 	`,
 		cert.FingerprintSHA256,
 		cert.Subject.CommonName, cert.Subject.Organization, cert.Subject.OrganizationalUnit,
@@ -141,8 +173,17 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 		sans, cert.IsCA, cert.BasicConstraintsPathLen,
 		ku, eku, ocsp, crl, scts,
 		string(cert.SourceDiscovery), cert.FirstSeen, cert.LastSeen, cert.RawPEM,
+		cert.AuthorityKeyID, cert.SubjectKeyID,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// CE-flavor: cert_issuance link table + AKI/SKI resolver are
+	// EE-only (Layer 4.4 SP-1.6 PKI edge engine). AKI/SKI columns
+	// are still persisted (RFC 5280 metadata, useful generally) but
+	// no resolveAndPersistIssuance follow-up call here.
+	return nil
 }
 
 func (s *PostgresStore) GetCertificate(ctx context.Context, fingerprint string) (*model.Certificate, error) {
@@ -174,9 +215,27 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 	argN := 1
 
 	if q.Search != "" {
-		conditions = append(conditions, fmt.Sprintf("search_vector @@ plainto_tsquery('english', $%d)", argN))
+		// Hybrid match: full-text tsvector for natural-language input
+		// + ILIKE pattern on high-signal identity columns so hostname
+		// fragments ("mail", "deprecated") find compound CNs like
+		// deprecated-mail.corp.net that the English-dict tokenizer
+		// folds into a single unsplittable lexeme. `c.subject_alt_names`
+		// is JSONB — cast to text for LIKE.
+		conditions = append(conditions, fmt.Sprintf(`(
+			search_vector @@ plainto_tsquery('english', $%d)
+			OR c.subject_cn ILIKE $%d
+			OR c.issuer_cn ILIKE $%d
+			OR c.subject_org ILIKE $%d
+			OR c.fingerprint_sha256 ILIKE $%d
+			OR c.serial_number ILIKE $%d
+			OR c.subject_alt_names::text ILIKE $%d
+		)`, argN, argN+1, argN+2, argN+3, argN+4, argN+5, argN+6))
 		args = append(args, q.Search)
-		argN++
+		like := "%" + q.Search + "%"
+		for i := 0; i < 6; i++ {
+			args = append(args, like)
+		}
+		argN += 7
 	}
 	if q.Grade != "" {
 		grades := strings.Split(q.Grade, ",")
@@ -301,7 +360,10 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 	}
 	defer rows.Close()
 
-	var certs []model.Certificate
+	// Initialize as empty slice so the JSON response emits `[]` on
+	// zero-match queries — the previous nil slice marshaled as null
+	// and forced every frontend to guard with `?? []`.
+	certs := []model.Certificate{}
 	for rows.Next() {
 		c, err := scanCertificateRows(rows)
 		if err != nil {
@@ -309,9 +371,42 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 		}
 		certs = append(certs, *c)
 	}
+	rows.Close()
+
+	// Pull grades for the current page in a single batch query so list views
+	// can render a Grade column without N+1 /health fetches. Certs with no
+	// health report are simply absent from the map.
+	grades := map[string]string{}
+	if len(certs) > 0 {
+		fps := make([]string, len(certs))
+		for i, c := range certs {
+			fps[i] = c.FingerprintSHA256
+		}
+		gradeRows, err := s.pool.Query(ctx,
+			`SELECT cert_fingerprint, grade FROM health_reports WHERE cert_fingerprint = ANY($1)`,
+			fps,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("load grades for cert page: %w", err)
+		}
+		defer gradeRows.Close()
+		for gradeRows.Next() {
+			var fp, grade string
+			if err := gradeRows.Scan(&fp, &grade); err != nil {
+				return nil, fmt.Errorf("scan grade row: %w", err)
+			}
+			if grade != "" {
+				grades[fp] = grade
+			}
+		}
+		if err := gradeRows.Err(); err != nil {
+			return nil, fmt.Errorf("load grades rows: %w", err)
+		}
+	}
 
 	return &CertSearchResult{
 		Certificates: certs,
+		Grades:       grades,
 		Total:        total,
 		Page:         q.Page,
 		PageSize:     q.PageSize,
@@ -341,7 +436,8 @@ func (s *PostgresStore) BatchUpsertCertificates(ctx context.Context, certs []*mo
 				subject_alt_names, is_ca, basic_constraints_path_len,
 				key_usage, extended_key_usage,
 				ocsp_responder_urls, crl_distribution_points, scts,
-				source_discovery, first_seen, last_seen, raw_pem
+				source_discovery, first_seen, last_seen, raw_pem,
+				authority_key_id, subject_key_id, spki_fingerprint_sha256
 			) VALUES (
 				$1, $2, $3, $4, $5, $6, $7, $8,
 				$9, $10, $11, $12, $13,
@@ -349,12 +445,16 @@ func (s *PostgresStore) BatchUpsertCertificates(ctx context.Context, certs []*mo
 				$17, $18, $19,
 				$20, $21, $22,
 				$23, $24, $25, $26, $27,
-				$28, $29, $30, $31
+				$28, $29, $30, $31,
+				$32, $33, $34
 			)
 			ON CONFLICT (fingerprint_sha256) DO UPDATE SET
 				last_seen = EXCLUDED.last_seen,
 				source_discovery = EXCLUDED.source_discovery,
-				raw_pem = COALESCE(NULLIF(EXCLUDED.raw_pem, ''), certificates.raw_pem)
+				raw_pem = COALESCE(NULLIF(EXCLUDED.raw_pem, ''), certificates.raw_pem),
+				authority_key_id = EXCLUDED.authority_key_id,
+				subject_key_id = EXCLUDED.subject_key_id,
+				spki_fingerprint_sha256 = COALESCE(EXCLUDED.spki_fingerprint_sha256, certificates.spki_fingerprint_sha256)
 		`,
 			cert.FingerprintSHA256,
 			cert.Subject.CommonName, cert.Subject.Organization, cert.Subject.OrganizationalUnit,
@@ -366,6 +466,8 @@ func (s *PostgresStore) BatchUpsertCertificates(ctx context.Context, certs []*mo
 			sans, cert.IsCA, cert.BasicConstraintsPathLen,
 			ku, eku, ocsp, crl, scts,
 			string(cert.SourceDiscovery), cert.FirstSeen, cert.LastSeen, cert.RawPEM,
+			cert.AuthorityKeyID, cert.SubjectKeyID,
+			cert.SPKIFingerprintSHA256,
 		)
 	}
 	br := s.pool.SendBatch(ctx, batch)
@@ -375,6 +477,16 @@ func (s *PostgresStore) BatchUpsertCertificates(ctx context.Context, certs []*mo
 			return fmt.Errorf("batch upsert: %w", err)
 		}
 	}
+	// Close the batch result before running the per-cert resolution loop so
+	// the connection is free for the lookup queries inside the adapter.
+	if err := br.Close(); err != nil {
+		return fmt.Errorf("batch close: %w", err)
+	}
+
+	// CE-flavor: cert_issuance link table + AKI/SKI resolver are
+	// EE-only (Layer 4.4 SP-1.6 PKI edge engine). The bulk-cert path
+	// returns without follow-up issuance resolution; AKI/SKI columns
+	// remain populated on certificates rows for general inspection.
 	return nil
 }
 
@@ -778,7 +890,7 @@ func (s *PostgresStore) GetObservations(ctx context.Context, fingerprint string,
 	}
 	defer rows.Close()
 
-	var obs []model.CertificateObservation
+	obs := []model.CertificateObservation{}
 	for rows.Next() {
 		var o model.CertificateObservation
 		if err := rows.Scan(&o.ID, &o.CertFingerprint, &o.ServerIP, &o.ServerPort, &o.ServerName, &o.ClientIP,
@@ -854,7 +966,7 @@ func (s *PostgresStore) GetAllEndpointProfiles(ctx context.Context) ([]model.End
 	}
 	defer rows.Close()
 
-	var profiles []model.EndpointProfile
+	profiles := []model.EndpointProfile{}
 	for rows.Next() {
 		ep, err := scanEndpointProfileRows(rows)
 		if err != nil {
@@ -896,6 +1008,14 @@ func (s *PostgresStore) GetHealthReport(ctx context.Context, fingerprint string)
 		return nil, err
 	}
 	json.Unmarshal(findingsJSON, &r.Findings)
+	if r.Findings == nil {
+		// DB column can be NULL or "[]" depending on whether findings
+		// were ever scored; a nil slice marshals as `null` on the wire
+		// and breaks `detail.health_report.findings.map(…)` on the
+		// cert detail page. Normalize to empty slice so the contract
+		// matches the JSON tag's `findings: HealthFinding[]` type.
+		r.Findings = []model.HealthFinding{}
+	}
 	return &r, nil
 }
 
@@ -917,6 +1037,9 @@ func (s *PostgresStore) GetAllHealthReports(ctx context.Context) ([]model.Health
 			return nil, err
 		}
 		json.Unmarshal(findingsJSON, &r.Findings)
+		if r.Findings == nil {
+			r.Findings = []model.HealthFinding{}
+		}
 		reports = append(reports, r)
 	}
 	return reports, nil
@@ -964,6 +1087,29 @@ func (s *PostgresStore) GetSummaryStats(ctx context.Context) (*SummaryStats, err
 		}
 	}
 
+	// Extended multi-asset counts
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM ssh_keys").Scan(&stats.SSHKeyCount)
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM crypto_libraries").Scan(&stats.LibraryCount)
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM crypto_configs").Scan(&stats.ConfigCount)
+	// CE has no protocol_endpoints table (Layer 4.1c is EE-only); CE always reports 0.
+	stats.ProtocolCount = 0
+
+	// Host discovery status — hosts table has no discovery_status column;
+	// these fields are populated from certificate discovery_status as a proxy.
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM certificates WHERE discovery_status = 'active'").Scan(&stats.HostCountActive)
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM certificates WHERE discovery_status = 'stale'").Scan(&stats.HostCountStale)
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM certificates WHERE discovery_status = 'removed'").Scan(&stats.HostCountRemoved)
+
+	// PQC posture from asset_health_reports
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM asset_health_reports WHERE pqc_status = 'vulnerable'").Scan(&stats.PQCVulnerable)
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM asset_health_reports WHERE pqc_status = 'weakened'").Scan(&stats.PQCWeakened)
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM asset_health_reports WHERE pqc_status = 'safe'").Scan(&stats.PQCSafe)
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM asset_health_reports WHERE pqc_status = 'hybrid'").Scan(&stats.PQCHybrid)
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM asset_health_reports WHERE pqc_status = 'unknown'").Scan(&stats.PQCUnknown)
+
+	// Critical risk: asset_health_reports.score >= 80
+	s.pool.QueryRow(ctx, "SELECT COUNT(*) FROM asset_health_reports WHERE score >= 80").Scan(&stats.CriticalRiskCount)
+
 	return stats, nil
 }
 
@@ -971,6 +1117,8 @@ func (s *PostgresStore) GetCipherStats(ctx context.Context) (*CipherStats, error
 	cs := &CipherStats{
 		StrengthDistribution: make(map[string]int),
 		TLSVersionDist:       make(map[string]int),
+		SuiteDistribution:    []CipherCount{},
+		TLSCipherMatrix:      []TLSCipherRow{},
 	}
 
 	// Suite distribution
@@ -1104,7 +1252,7 @@ func (s *PostgresStore) GetPKITree(ctx context.Context) (*PKITreeResponse, error
 	}
 
 	// Separate roots vs intermediates
-	var roots []PKITreeNode
+	roots := []PKITreeNode{}
 	intermediatesByIssuer := map[string][]PKITreeNode{}
 	for _, ca := range cas {
 		if ca.cn == ca.issuerCN || !isCASubject[ca.issuerCN] {
@@ -1169,7 +1317,7 @@ func (s *PostgresStore) GetIssuerStats(ctx context.Context) ([]IssuerStat, error
 	}
 	defer rows.Close()
 
-	var stats []IssuerStat
+	stats := []IssuerStat{}
 	for rows.Next() {
 		var s IssuerStat
 		if err := rows.Scan(&s.IssuerCN, &s.IssuerOrg, &s.Country,
@@ -1203,7 +1351,7 @@ func (s *PostgresStore) GetExpiryTimeline(ctx context.Context) (*ExpiryTimeline,
 	}
 	defer rows.Close()
 
-	var buckets []ExpiryBucket
+	buckets := []ExpiryBucket{}
 	for rows.Next() {
 		var b ExpiryBucket
 		var ws time.Time
@@ -1743,6 +1891,22 @@ func (s *PostgresStore) SetIngestionState(ctx context.Context, state *model.Inge
 	return err
 }
 
+// CountAssetsBySource returns the number of distinct (asset_type, asset_id)
+// pairs whose most-recent provenance record carries the given source name.
+// Returns 0 if no records exist for that source.
+func (s *PostgresStore) CountAssetsBySource(ctx context.Context, sourceName string) (int, error) {
+	var n int
+	err := s.pool.QueryRow(ctx, `
+		SELECT COUNT(DISTINCT (asset_type, asset_id))
+		FROM asset_provenance
+		WHERE source = $1
+	`, sourceName).Scan(&n)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // ── PCAP Jobs ───────────────────────────────────────────────────────────────
 
 func (s *PostgresStore) CreatePCAPJob(ctx context.Context, job *model.PCAPJob) error {
@@ -1796,7 +1960,7 @@ func (s *PostgresStore) ListPCAPJobs(ctx context.Context, limit int) ([]model.PC
 	}
 	defer rows.Close()
 
-	var jobs []model.PCAPJob
+	jobs := []model.PCAPJob{}
 	for rows.Next() {
 		var job model.PCAPJob
 		if err := rows.Scan(&job.ID, &job.Filename, &job.FileSize, &job.Status,
@@ -2174,4 +2338,95 @@ func scanEndpointProfileRows(rows pgx.Rows) (*model.EndpointProfile, error) {
 	}
 	json.Unmarshal(suitesJSON, &ep.CipherSuites)
 	return &ep, nil
+}
+
+// ── Sweep queries (Layer 4.1) ────────────────────────────────────────────────
+
+func (s *PostgresStore) ListStaleAssetHealthRows(ctx context.Context, currentVersion, limit int) ([]StaleAssetRow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT asset_type, asset_id
+		FROM asset_health_reports
+		WHERE rule_engine_version < $1
+		ORDER BY scored_at ASC NULLS FIRST
+		LIMIT $2
+	`, currentVersion, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list stale asset health rows: %w", err)
+	}
+	defer rows.Close()
+
+	var out []StaleAssetRow
+	for rows.Next() {
+		var r StaleAssetRow
+		if err := rows.Scan(&r.AssetType, &r.AssetID); err != nil {
+			return nil, fmt.Errorf("scan stale asset row: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (s *PostgresStore) ListUnscoredAssets(ctx context.Context, limit int) ([]StaleAssetRow, error) {
+	// UNION ALL over the 4 CE-bound asset-source tables, filtering out
+	// ones that already have an asset_health_reports row. Covers both
+	// bootstrap (first deploy of scoring) and drift (dedup writes an
+	// asset but scoring fails to produce a row).
+	// CE-flavor: the crypto_protocol leg (protocol_endpoints) is omitted
+	// because Layer 4.1c protocol-endpoint scoring is EE-only.
+	rows, err := s.pool.Query(ctx, `
+		(
+			SELECT 'certificate'::text AS asset_type, fingerprint_sha256 AS asset_id
+			FROM certificates
+			WHERE NOT EXISTS (
+				SELECT 1 FROM asset_health_reports ahr
+				WHERE ahr.asset_type = 'certificate' AND ahr.asset_id = certificates.fingerprint_sha256
+			)
+			LIMIT $1
+		)
+		UNION ALL
+		(
+			SELECT 'ssh_key'::text AS asset_type, id::text AS asset_id
+			FROM ssh_keys
+			WHERE NOT EXISTS (
+				SELECT 1 FROM asset_health_reports ahr
+				WHERE ahr.asset_type = 'ssh_key' AND ahr.asset_id = ssh_keys.id::text
+			)
+			LIMIT $1
+		)
+		UNION ALL
+		(
+			SELECT 'crypto_library'::text AS asset_type, id::text AS asset_id
+			FROM crypto_libraries
+			WHERE NOT EXISTS (
+				SELECT 1 FROM asset_health_reports ahr
+				WHERE ahr.asset_type = 'crypto_library' AND ahr.asset_id = crypto_libraries.id::text
+			)
+			LIMIT $1
+		)
+		UNION ALL
+		(
+			SELECT 'crypto_config'::text AS asset_type, id::text AS asset_id
+			FROM crypto_configs
+			WHERE NOT EXISTS (
+				SELECT 1 FROM asset_health_reports ahr
+				WHERE ahr.asset_type = 'crypto_config' AND ahr.asset_id = crypto_configs.id::text
+			)
+			LIMIT $1
+		)
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list unscored assets: %w", err)
+	}
+	defer rows.Close()
+
+	var out []StaleAssetRow
+	for rows.Next() {
+		var r StaleAssetRow
+		if err := rows.Scan(&r.AssetType, &r.AssetID); err != nil {
+			return nil, fmt.Errorf("scan unscored row: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

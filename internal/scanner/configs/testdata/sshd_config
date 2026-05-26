@@ -1,0 +1,9 @@
+# Example sshd_config
+Port 22
+PasswordAuthentication yes
+PermitRootLogin no
+Ciphers aes256-gcm@openssh.com,aes128-gcm@openssh.com
+MACs hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com
+KexAlgorithms curve25519-sha256,diffie-hellman-group16-sha512
+HostKeyAlgorithms ssh-ed25519,rsa-sha2-512
+Include sshd_config.d/*.conf

@@ -1,0 +1,12 @@
+{
+  "rule": { "id": "100200", "level": 3, "description": "CipherFlag: ssh_key discovered" },
+  "agent": {
+    "id": "001",
+    "name": "web-01.prod",
+    "ip": "10.0.0.5",
+    "os": { "platform": "ubuntu", "version": "22.04" }
+  },
+  "manager": { "name": "wazuh-manager.internal" },
+  "timestamp": "2026-04-11T12:00:00.000+0000",
+  "full_log": "{\"type\":\"ssh_key\",\"fingerprint_sha256\":\"SHA256:keyfingerprint\",\"key_type\":\"ed25519\",\"key_size\":256,\"file_path\":\"/home/admin/.ssh/id_ed25519\",\"owner\":\"admin\",\"is_protected\":true,\"is_authorized\":false,\"grants_root\":false}"
+}

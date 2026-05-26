@@ -2,6 +2,165 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [2.0.0] - 2026-05-26
+
+### Major release: EE→CE port (Phase 1)
+
+This release is a fundamental expansion of CipherFlag CE. The feature
+set grows from v1.x's certificate-inventory demo into a working
+post-quantum migration inventory + CycloneDX 1.6 CBOM toolkit for
+budget-constrained federal/state government and developer audiences.
+
+The release vendors a curated subset of features from the proprietary
+**CipherFlag EE** product under Apache 2.0. EE remains a separate
+product with additional capabilities — see the README §"What's NOT
+included" for the moat list.
+
+### Added
+
+**Foundation (Layer 0)**
+- Unified crypto asset model with multi-source ingestion
+  (`POST /api/v1/ingest`)
+- Host identity resolution with deduplication and provenance tracking
+- Agent-token auth for unattended ingest
+
+**Endpoint discovery (Layer 1)**
+- osquery webhook adapter (`POST /api/v1/ingest/osquery`)
+- 4 bash + 4 PowerShell discovery scripts under `discovery-packs/scripts/`
+- Script-output parser that auto-classifies output into the unified
+  asset model
+
+**Native scanners (Layer 2)**
+- SSH key scanner (system + user `~/.ssh/`)
+- Crypto-library scanner (OpenSSL, libgcrypt, BoringSSL, mbedTLS,
+  GnuTLS, NSS, wolfSSL, language-runtime crypto stdlibs)
+- Cert-file scanner (PEM/DER/PKCS12/JKS on disk; matches private
+  keys to certs by SPKI fingerprint)
+- Config-file scanner (sshd, openssl.cnf, nginx, apache, envoy,
+  haproxy)
+- Truststore scanner (OS bundles, JVM cacerts, language-runtime CA
+  stores)
+
+**Scoring (Layer 4.1 + 4.1b)**
+- 47-rule scoring catalog (CE subset: SSH-001..008, LIB-003..005,
+  CFG-001..004, and PQC-relevant certificate rules)
+- CVE-based library scoring against open NVD/OSV data (LIB-001 +
+  LIB-002); 37 seed CVEs covering known crypto-library
+  vulnerabilities
+
+**PQC taxonomy (Layer 4.2)**
+- 122 recognized algorithm spellings across 8 categories
+- Vulnerable, weakened, hybrid, and quantum-safe classification
+
+**Compliance evaluation (Layer 4.3)**
+- NIST SP 800-131A Rev 2
+- NSA CNSA 2.0
+- FIPS 140-3 (algorithm allowlist)
+- EU NIS2
+
+**CBOM (Layer 5.1 + 5.2 + 5.3)**
+- CycloneDX 1.6 CBOM generation (`GET /api/v1/export/cbom`)
+- CBOM import endpoint (`POST /api/v1/import/cbom`)
+- Scheduled push with file sink + HTTP sink
+- Export sinks: S3 (AWS or S3-compatible), Splunk HEC, Syslog
+  (RFC 5424 + CEF)
+
+**Git repository scanner (Layer 6.1a–c)**
+- Block 1: PEM/DER/SSH/PKCS12/JKS file parsing
+- Block 3: tree-sitter Python + Java parsers, Go AST parser
+- Block 4: server config file parsing (nginx/apache/envoy/haproxy/
+  openssl.cnf)
+- Per-repo CBOM export endpoint
+
+**Performance**
+- In-process observation cache for intake dedup
+  (`internal/ingest/observcache/`)
+
+### Changed
+
+- **Schema baseline.** Replaced incremental v1.x migrations 001-005
+  with single `internal/store/migrations/v2.0_baseline.sql` (24
+  tables). Future CE migrations start at `v2.0.1_*.sql` (see
+  `internal/store/migrations/README.md`).
+- **Repository structure.** `internal/` packages now mirror the
+  layered architecture documented in CipherFlag EE
+  (analysis/compliance/, analysis/pqc/, analysis/scoring/,
+  export/cbom/, ingest/, scanner/, etc.).
+- **CryptoStore interface trimmed** — `internal/store/store.go` no
+  longer declares risk-engine, blast-radius, host-dependency edge,
+  PQC-migration-planner, protocol-endpoint, external-source
+  registry, AD CS event, briefing cache, AI ledger, or multi-tenant
+  teams methods. Those are EE-only.
+- **HTTP API surface** reduced to CE-bound routes. EE-only routes
+  (`/risk/*`, `/blast-radius/*`, `/hosts/{id}/dependencies`,
+  `/hosts/{id}/subgraph`, `/hosts/{id}/blast-radius`,
+  `/hosts/{id}/trust-store`, `/briefing`, `/events/stream`,
+  `/teams`, `/external-sources/*`, `/pqc-migration/*`, `/risk/*`,
+  `/repo/ai/*`, `/repo/images/*`, `/network/targets/*`, `/venafi/*`,
+  `/ad-cs-events`, `/evidence-pack`, `/agency/omb`) are not wired.
+  Five application-management routes from `applications.go` (List,
+  Get, History, ExportCBOM, ExportOMB, OwnershipRollup) are also
+  dropped in CE v2.0 — that handler was excluded from the manifest.
+  The single `/applications/{tag}/metadata` endpoint (GET/PUT/DELETE)
+  IS wired via `appMetaH` and remains CE-bound.
+
+### Removed
+
+- v1.x seed-data fixtures (replaced by real ingest paths from osquery
+  webhook + Layer 2 scanners + git repo scanner)
+- v1.x install script (`scripts/install.sh`) — superseded by
+  `docker-compose up -d`
+- Legacy CE v1 exports (`internal/export/csv.go`,
+  `internal/export/json.go`) — superseded by CBOM
+- Legacy Zeek file poller — `cipherflag serve` now relies on the
+  osquery webhook and Layer 2 scanners for live evidence. The Zeek
+  log poller may be re-introduced in a follow-up minor.
+
+### Known limitations
+
+- **Frontend.** CE v2.0 retains the v1.x demo frontend in
+  `frontend/`. The production operator UI (Layer 8) is part of
+  CipherFlag EE. The v1 frontend was preserved so the upgrade
+  doesn't leave CE with no UI at all; it does not surface the v2
+  feature set.
+- **Certificate Transparency.** CT ingestion (ct_crtsh + ct_static +
+  ct_certspotter + ct_multi) is deferred to v2.1 (Phase 2). The
+  underlying external-source registry is also deferred.
+- **No AI-enriched scanning.** Git-scan modes `triage`, `enrichment`,
+  and `deep` return 409 Conflict — only `deterministic_only` is
+  accepted in CE. AI-enriched modes are EE-only.
+- **No per-asset risk prioritization.** Asset health reports include
+  4-framework compliance grades but no risk score / blast-radius
+  fan-out. Layer 4.4 is EE-only.
+- **No container image scanning.** Layer 6.2 is EE-only.
+- **No active network scanning.** Layer 6.3 is EE-only.
+- **No PCI DSS 4.0 evaluator.** Layer 4.3 ships with 4 of 5
+  compliance frameworks; PCI DSS is EE-only (private-sector
+  commerce focus).
+- **No Venafi / Thales CipherTrust push.** Layer 5.4 is EE-only.
+- **No endpoint adapters beyond osquery.** Layer 3 (Velociraptor,
+  Wazuh, Defender, SentinelOne, Tanium, Absolute, Netwrix) is
+  EE-only.
+
+### Compatibility
+
+**v2.0.0 is a breaking change from v1.x.** There is no automated
+upgrade path for v1.x deployments. The schema baseline is option (ii)
+from the port design spec: existing v1.x users must reinitialize
+their database. v1.x users with valuable data should export it
+(`/api/v1/export/certificates` on v1) before upgrading.
+
+### Acknowledgments
+
+This release vendors features from CipherFlag EE under Apache 2.0.
+EE source SHA is referenced in the squashed port commit. Manifest +
+extraction tooling lives at `docs/superpowers/ce-port/` (in the EE
+repository).
+
+Third-party software acknowledgments: see `NOTICE`.
+
+---
+
 ## [1.1] - 2026-03-31
 
 ### Added

@@ -1,0 +1,12 @@
+{
+  "rule": { "id": "100200", "level": 3, "description": "CipherFlag: certificate discovered" },
+  "agent": {
+    "id": "001",
+    "name": "web-01.prod",
+    "ip": "10.0.0.5",
+    "os": { "platform": "ubuntu", "version": "22.04" }
+  },
+  "manager": { "name": "wazuh-manager.internal" },
+  "timestamp": "2026-04-11T12:00:00.000+0000",
+  "full_log": "{\"type\":\"certificate\",\"fingerprint_sha256\":\"abc123def456\",\"subject_cn\":\"web-01.example.com\",\"issuer_cn\":\"Example Root CA\",\"not_before\":\"2024-01-01T00:00:00Z\",\"not_after\":\"2027-01-15T00:00:00Z\",\"key_algorithm\":\"RSA\",\"key_size\":2048,\"file_path\":\"/etc/ssl/certs/web-01.pem\",\"store_type\":\"pem\"}"
+}
