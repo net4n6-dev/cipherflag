@@ -1,0 +1,935 @@
+# Copyright 2026 net4n6-dev
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# PQC catalog watchlist for scripts/catalogs/refresh-pqc.go.
+#
+# The generator merges:
+#  - NIST FIPS 203/204/205 (hardcoded in refresh-pqc.go)
+#  - IETF hybrid draft variants (hardcoded in refresh-pqc.go)
+#  - `overrides:` below (re-classify any of the above)
+#  - `classical:` below (algorithms not in PQC registries — preserved verbatim)
+#  - `synonyms:` below (alternative spellings)
+#
+# Stale-entry policy: an entry in upstream that disappears between
+# refreshes is REMOVED. To preserve a historical entry, add it under
+# `classical:` or `overrides:`.
+
+overrides:
+  - canonical: falcon-512
+    status: QuantumSafe
+    category: pqc-sig
+    source: "https://falcon-sign.info/"
+  - canonical: falcon-1024
+    status: QuantumSafe
+    category: pqc-sig
+    source: "https://falcon-sign.info/"
+
+# Classical / non-NIST-PQC entries ported from the pre-generator
+# internal/analysis/pqc/catalog.go (~192 entries). Status / category
+# values mirror the historical hand-curated catalog; Source defaults to
+# "manual" when omitted (set in mergeAllPqcSources).
+classical:
+  - canonical: rsa
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: dsa
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: dh
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: ecdsa
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: ecdh
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: ed25519
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: ed448
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: x25519
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: x448
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: aes-128
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-128-gcm
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-128-cbc
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-128-ctr
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-192
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-192-gcm
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-192-cbc
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: chacha20
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: chacha20-poly1305
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-256
+    status: QuantumSafe
+    category: symmetric
+  - canonical: aes-256-gcm
+    status: QuantumSafe
+    category: symmetric
+  - canonical: aes-256-cbc
+    status: QuantumSafe
+    category: symmetric
+  - canonical: aes-256-ctr
+    status: QuantumSafe
+    category: symmetric
+  - canonical: 3des
+    status: QuantumVulnerable
+    category: symmetric
+  - canonical: des
+    status: QuantumVulnerable
+    category: symmetric
+  - canonical: rc4
+    status: QuantumVulnerable
+    category: symmetric
+  - canonical: md5
+    status: QuantumVulnerable
+    category: hash
+  - canonical: sha-1
+    status: QuantumVulnerable
+    category: hash
+  - canonical: sha-224
+    status: QuantumWeakened
+    category: hash
+  - canonical: sha-256
+    status: QuantumWeakened
+    category: hash
+  - canonical: sha3-256
+    status: QuantumWeakened
+    category: hash
+  - canonical: sha-384
+    status: QuantumSafe
+    category: hash
+  - canonical: sha-512
+    status: QuantumSafe
+    category: hash
+  - canonical: sha3-384
+    status: QuantumSafe
+    category: hash
+  - canonical: sha3-512
+    status: QuantumSafe
+    category: hash
+  - canonical: sha256-rsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha384-rsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha512-rsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha256-ecdsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha384-ecdsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha512-ecdsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: diffie-hellman-group14
+    status: QuantumVulnerable
+    category: kex
+  - canonical: diffie-hellman-group16
+    status: QuantumVulnerable
+    category: kex
+  - canonical: diffie-hellman-group18
+    status: QuantumVulnerable
+    category: kex
+  - canonical: diffie-hellman-group-exchange-sha256
+    status: QuantumVulnerable
+    category: kex
+  - canonical: ecdh-sha2-nistp256
+    status: QuantumVulnerable
+    category: kex
+  - canonical: ecdh-sha2-nistp384
+    status: QuantumVulnerable
+    category: kex
+  - canonical: ecdh-sha2-nistp521
+    status: QuantumVulnerable
+    category: kex
+  - canonical: curve25519-sha256
+    status: QuantumVulnerable
+    category: kex
+  - canonical: curve448-sha512
+    status: QuantumVulnerable
+    category: kex
+  - canonical: pbkdf2
+    status: QuantumSafe
+    category: kdf
+  - canonical: hkdf
+    status: QuantumSafe
+    category: kdf
+  - canonical: scrypt
+    status: QuantumSafe
+    category: kdf
+  - canonical: argon2
+    status: QuantumSafe
+    category: kdf
+  - canonical: argon2id
+    status: QuantumSafe
+    category: kdf
+  # Additional hybrid KEMs beyond the two IETF-hardcoded variants. Kept
+  # in pqc-kem (rather than kex) for parity with the pre-generator
+  # catalog; revisit once IETF hardcoded list expands.
+  - canonical: x448-ml-kem-1024
+    status: QuantumHybrid
+    category: pqc-kem
+  - canonical: p-256-ml-kem-768
+    status: QuantumHybrid
+    category: pqc-kem
+  - canonical: p-384-ml-kem-1024
+    status: QuantumHybrid
+    category: pqc-kem
+  - canonical: aes-gcm
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-ccm
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-cbc
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-ctr
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-xts
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-128-ccm
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-256-ccm
+    status: QuantumSafe
+    category: symmetric
+  - canonical: aes-128-xts
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aes-256-xts
+    status: QuantumSafe
+    category: symmetric
+  - canonical: camellia-128
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: camellia-192
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: camellia-256
+    status: QuantumSafe
+    category: symmetric
+  - canonical: aria-128
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aria-192
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: aria-256
+    status: QuantumSafe
+    category: symmetric
+  - canonical: sm4
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: seed
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: blowfish
+    status: QuantumVulnerable
+    category: symmetric
+  - canonical: cast5
+    status: QuantumVulnerable
+    category: symmetric
+  - canonical: idea
+    status: QuantumVulnerable
+    category: symmetric
+  - canonical: rc2
+    status: QuantumVulnerable
+    category: symmetric
+  - canonical: cmac-aes
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: gmac
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: md2
+    status: QuantumVulnerable
+    category: hash
+  - canonical: md4
+    status: QuantumVulnerable
+    category: hash
+  - canonical: sha-0
+    status: QuantumVulnerable
+    category: hash
+  - canonical: ripemd-160
+    status: QuantumWeakened
+    category: hash
+  - canonical: sha3-224
+    status: QuantumWeakened
+    category: hash
+  - canonical: shake-128
+    status: QuantumWeakened
+    category: hash
+  - canonical: shake-256
+    status: QuantumSafe
+    category: hash
+  - canonical: blake2b-256
+    status: QuantumWeakened
+    category: hash
+  - canonical: blake2b-384
+    status: QuantumSafe
+    category: hash
+  - canonical: blake2b-512
+    status: QuantumSafe
+    category: hash
+  - canonical: blake2s-256
+    status: QuantumWeakened
+    category: hash
+  - canonical: blake3
+    status: QuantumWeakened
+    category: hash
+  - canonical: sm3
+    status: QuantumWeakened
+    category: hash
+  - canonical: hmac-md5
+    status: QuantumVulnerable
+    category: hash
+  - canonical: hmac-sha1
+    status: QuantumVulnerable
+    category: hash
+  - canonical: hmac-sha256
+    status: QuantumWeakened
+    category: hash
+  - canonical: hmac-sha384
+    status: QuantumSafe
+    category: hash
+  - canonical: hmac-sha512
+    status: QuantumSafe
+    category: hash
+  - canonical: bcrypt
+    status: QuantumSafe
+    category: kdf
+  - canonical: ansi-x963-kdf
+    status: QuantumSafe
+    category: kdf
+  - canonical: concat-kdf
+    status: QuantumSafe
+    category: kdf
+  - canonical: sp800-108-kdf
+    status: QuantumSafe
+    category: kdf
+  - canonical: ecdh-p256
+    status: QuantumVulnerable
+    category: kex
+  - canonical: ecdh-p384
+    status: QuantumVulnerable
+    category: kex
+  - canonical: ecdh-p521
+    status: QuantumVulnerable
+    category: kex
+  - canonical: ecdh-brainpoolp256r1
+    status: QuantumVulnerable
+    category: kex
+  - canonical: ecdh-brainpoolp384r1
+    status: QuantumVulnerable
+    category: kex
+  - canonical: ecdh-brainpoolp512r1
+    status: QuantumVulnerable
+    category: kex
+  - canonical: dh-2048
+    status: QuantumVulnerable
+    category: kex
+  - canonical: dh-3072
+    status: QuantumVulnerable
+    category: kex
+  - canonical: dh-4096
+    status: QuantumVulnerable
+    category: kex
+  - canonical: sm2
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: ed25519ph
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: ed448ph
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: sha1-rsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: md5-rsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha224-rsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha1-ecdsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha224-ecdsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha1-dsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha256-dsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha512-dsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha256-sm2
+    status: QuantumVulnerable
+    category: signature
+  - canonical: bike-l1
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: bike-l2
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: bike-l3
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: hqc-128
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: hqc-192
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: hqc-256
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: frodokem-640
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: frodokem-976
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: frodokem-1344
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: ntruprime-761
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: ntruprime-857
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: mceliece-348864
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: mceliece-460896
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: mceliece-6688128
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: slh-dsa-shake-128s
+    status: QuantumSafe
+    category: pqc-sig
+    security_level: 1
+  - canonical: slh-dsa-shake-128f
+    status: QuantumSafe
+    category: pqc-sig
+    security_level: 1
+  - canonical: slh-dsa-shake-192s
+    status: QuantumSafe
+    category: pqc-sig
+    security_level: 3
+  - canonical: slh-dsa-shake-192f
+    status: QuantumSafe
+    category: pqc-sig
+    security_level: 3
+  - canonical: slh-dsa-shake-256s
+    status: QuantumSafe
+    category: pqc-sig
+    security_level: 5
+  - canonical: slh-dsa-shake-256f
+    status: QuantumSafe
+    category: pqc-sig
+    security_level: 5
+  - canonical: secp256k1
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: secp192r1
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: secp224r1
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: sect283k1
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: sect409k1
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: sect571k1
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: gost-r-34.10-2012
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: sm9
+    status: QuantumVulnerable
+    category: asymmetric
+  - canonical: salsa20
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: chacha12
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: chacha8
+    status: QuantumVulnerable
+    category: symmetric
+  - canonical: rc5
+    status: QuantumVulnerable
+    category: symmetric
+  - canonical: gost-28147-89
+    status: QuantumVulnerable
+    category: symmetric
+  - canonical: twofish
+    status: QuantumWeakened
+    category: symmetric
+  - canonical: sha-512-224
+    status: QuantumWeakened
+    category: hash
+  - canonical: sha-512-256
+    status: QuantumWeakened
+    category: hash
+  - canonical: tiger
+    status: QuantumVulnerable
+    category: hash
+  - canonical: whirlpool
+    status: QuantumSafe
+    category: hash
+  - canonical: streebog-256
+    status: QuantumWeakened
+    category: hash
+  - canonical: streebog-512
+    status: QuantumSafe
+    category: hash
+  - canonical: keccak-256
+    status: QuantumWeakened
+    category: hash
+  - canonical: keccak-512
+    status: QuantumSafe
+    category: hash
+  - canonical: kmac-128
+    status: QuantumWeakened
+    category: hash
+  - canonical: kmac-256
+    status: QuantumSafe
+    category: hash
+  - canonical: hmac-sha3-256
+    status: QuantumWeakened
+    category: hash
+  - canonical: hmac-sha3-512
+    status: QuantumSafe
+    category: hash
+  - canonical: sha3-256-rsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha3-384-rsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha3-512-rsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha3-256-ecdsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha3-384-ecdsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: sha3-512-ecdsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: shake256-rsa
+    status: QuantumVulnerable
+    category: signature
+  - canonical: ecdh-brainpoolp224r1
+    status: QuantumVulnerable
+    category: kex
+  - canonical: dh-8192
+    status: QuantumVulnerable
+    category: kex
+  - canonical: ecdh-secp256k1
+    status: QuantumVulnerable
+    category: kex
+  - canonical: x9.42-kdf
+    status: QuantumSafe
+    category: kdf
+  - canonical: hkdf-sha256
+    status: QuantumSafe
+    category: kdf
+  - canonical: hkdf-sha384
+    status: QuantumSafe
+    category: kdf
+  - canonical: saber
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: ntru-hps-2048677
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: ntru-hrss-701
+    status: QuantumSafe
+    category: pqc-kem
+  - canonical: mayo-1
+    status: QuantumSafe
+    category: pqc-sig
+  - canonical: mayo-3
+    status: QuantumSafe
+    category: pqc-sig
+  - canonical: mayo-5
+    status: QuantumSafe
+    category: pqc-sig
+  - canonical: cross-rsdp-128-small
+    status: QuantumSafe
+    category: pqc-sig
+  - canonical: cross-rsdp-256-small
+    status: QuantumSafe
+    category: pqc-sig
+  - canonical: xmss-sha2-20-256
+    status: QuantumSafe
+    category: pqc-sig
+  - canonical: lms-sha256-m32-h25
+    status: QuantumSafe
+    category: pqc-sig
+
+# Synonym expansions — alternative spellings. Ported from
+# internal/analysis/pqc/synonyms.go pre-generator. Must NOT overlap
+# canonical keys (TestSynonyms_NoCircularReferences).
+synonyms:
+  - canonical: ml-kem-768
+    aliases: ["mlkem768", "kyber768", "kyber-768", "kyber", "crystals-kyber"]
+  - canonical: ml-kem-512
+    aliases: ["mlkem512", "kyber512", "kyber-512"]
+  - canonical: ml-kem-1024
+    aliases: ["mlkem1024", "kyber1024", "kyber-1024"]
+  - canonical: ml-dsa-44
+    aliases: ["mldsa44", "dilithium2", "dilithium-2"]
+  - canonical: ml-dsa-65
+    aliases: ["mldsa65", "dilithium3", "dilithium-3", "crystals-dilithium"]
+  - canonical: ml-dsa-87
+    aliases: ["mldsa87", "dilithium5", "dilithium-5"]
+
+  # RSA variants
+  - canonical: rsa
+    aliases:
+      - "ssh-rsa"
+      - "rsaencryption"
+      - "rsa-1024"
+      - "rsa-2048"
+      - "rsa-3072"
+      - "rsa-4096"
+      - "rsa-pss"
+      - "rsassa-pss"
+      - "aes256-gcm-sha384"
+      - "aes128-gcm-sha256"
+      - "aes256-sha256"
+      - "aes128-sha256"
+      - "aes256-sha"
+      - "aes128-sha"
+      - "des-cbc3-sha"
+      - "rc4-sha"
+      - "rc4-md5"
+      - "rsa-with-aes-256-gcm-sha384"
+      - "rsa-with-aes-128-gcm-sha256"
+      - "rsa-with-aes-256-cbc-sha256"
+      - "rsa-with-aes-128-cbc-sha256"
+      - "rsa-with-aes-256-cbc-sha"
+      - "rsa-with-aes-128-cbc-sha"
+      - "rsa-with-3des-ede-cbc-sha"
+      - "rsa-with-rc4-128-sha"
+      - "rsa-with-rc4-128-md5"
+      - "tls_rsa_with_aes_256_gcm_sha384"
+      - "tls_rsa_with_aes_128_gcm_sha256"
+      - "tls_rsa_with_aes_256_cbc_sha256"
+      - "tls_rsa_with_aes_128_cbc_sha256"
+      - "tls_rsa_with_aes_256_cbc_sha"
+      - "tls_rsa_with_aes_128_cbc_sha"
+      - "tls_rsa_with_3des_ede_cbc_sha"
+
+  # DSA variants
+  - canonical: dsa
+    aliases: ["ssh-dss", "id-dsa"]
+
+  # ECDSA variants (curve dropped — same classification)
+  - canonical: ecdsa
+    aliases:
+      - "ecdsa-sha2-nistp256"
+      - "ecdsa-sha2-nistp384"
+      - "ecdsa-sha2-nistp521"
+      - "id-ecpublickey"
+      - "ecdsa-p256"
+      - "ecdsa-p384"
+      - "ecdsa-p521"
+
+  # Ed25519 / Ed448 variants
+  - canonical: ed25519
+    aliases: ["ssh-ed25519", "id-ed25519"]
+  - canonical: ed448
+    aliases: ["ssh-ed448", "id-ed448"]
+
+  # DH variants — includes TLS 1.2 DHE cipher suites
+  - canonical: dh
+    aliases:
+      - "diffie-hellman"
+      - "id-dh"
+      - "dhe-rsa-aes256-gcm-sha384"
+      - "dhe-rsa-aes128-gcm-sha256"
+      - "dhe-rsa-aes256-sha256"
+      - "dhe-rsa-aes128-sha256"
+      - "dhe-rsa-aes256-sha"
+      - "dhe-rsa-aes128-sha"
+      - "dhe-rsa-chacha20-poly1305"
+      - "dhe-rsa-des-cbc3-sha"
+      - "dhe-dss-aes256-gcm-sha384"
+      - "dhe-dss-aes128-gcm-sha256"
+      - "dhe-dss-aes256-sha256"
+      - "dhe-dss-aes128-sha256"
+      - "dhe-dss-aes256-sha"
+      - "dhe-dss-aes128-sha"
+      - "edh-rsa-des-cbc3-sha"
+      - "edh-dss-des-cbc3-sha"
+      - "tls_dhe_rsa_with_aes_256_gcm_sha384"
+      - "tls_dhe_rsa_with_aes_128_gcm_sha256"
+      - "tls_dhe_rsa_with_chacha20_poly1305_sha256"
+      - "tls_dhe_rsa_with_aes_256_cbc_sha256"
+      - "tls_dhe_rsa_with_aes_128_cbc_sha256"
+
+  # AES spelling variants
+  - canonical: aes-128
+    aliases: ["aes128", "aes-128-cfb", "aes-128-ofb"]
+  - canonical: aes-192
+    aliases: ["aes192"]
+  - canonical: aes-256
+    aliases:
+      - "aes256"
+      - "aes-256-cfb"
+      - "aes-256-cfb1"
+      - "aes-256-cfb8"
+      - "aes-256-ofb"
+  - canonical: aes-128-gcm
+    aliases: ["aes128-gcm", "aes128_gcm", "tls_aes_128_gcm_sha256"]
+  - canonical: aes-192-gcm
+    aliases: ["aes192-gcm"]
+  - canonical: aes-256-gcm
+    aliases: ["aes256-gcm", "aes256_gcm", "tls_aes_256_gcm_sha384"]
+  - canonical: aes-128-cbc
+    aliases: ["aes128-cbc", "aes-128-cbc-hmac-sha1"]
+  - canonical: aes-192-cbc
+    aliases: ["aes192-cbc"]
+  - canonical: aes-256-cbc
+    aliases: ["aes256-cbc", "aes-256-cbc-hmac-sha256"]
+  - canonical: aes-128-ctr
+    aliases: ["aes128-ctr"]
+  - canonical: aes-256-ctr
+    aliases: ["aes256-ctr"]
+  - canonical: aes-128-ccm
+    aliases: ["tls_aes_128_ccm_sha256", "tls_aes_128_ccm_8_sha256"]
+  - canonical: chacha20-poly1305
+    aliases: ["chacha20_poly1305", "chachapoly", "tls_chacha20_poly1305_sha256"]
+
+  # X.509 / PKIX OID-name signature variants
+  - canonical: md5-rsa
+    aliases: ["md5withrsaencryption", "md5withrsa"]
+  - canonical: sha1-rsa
+    aliases: ["sha1withrsaencryption", "sha1withrsa"]
+  - canonical: sha224-rsa
+    aliases: ["sha224withrsaencryption"]
+  - canonical: sha256-rsa
+    aliases: ["sha256withrsaencryption"]
+  - canonical: sha384-rsa
+    aliases: ["sha384withrsaencryption"]
+  - canonical: sha512-rsa
+    aliases: ["sha512withrsaencryption"]
+  - canonical: sha1-ecdsa
+    aliases: ["ecdsa-with-sha1"]
+  - canonical: sha224-ecdsa
+    aliases: ["ecdsa-with-sha224"]
+  - canonical: sha256-ecdsa
+    aliases: ["ecdsa-with-sha256"]
+  - canonical: sha384-ecdsa
+    aliases: ["ecdsa-with-sha384"]
+  - canonical: sha512-ecdsa
+    aliases: ["ecdsa-with-sha512"]
+  - canonical: sha1-dsa
+    aliases: ["dsa-with-sha1"]
+
+  # Hash spelling variants
+  - canonical: sha-1
+    aliases: ["sha1"]
+  - canonical: sha-224
+    aliases: ["sha224"]
+  - canonical: sha-256
+    aliases: ["sha256"]
+  - canonical: sha-384
+    aliases: ["sha384"]
+  - canonical: sha-512
+    aliases: ["sha512"]
+  - canonical: sha3-256
+    aliases: ["sha3_256"]
+  - canonical: sha3-384
+    aliases: ["sha3_384"]
+  - canonical: sha3-512
+    aliases: ["sha3_512"]
+  - canonical: sha-512-224
+    aliases: ["sha-512/224", "sha512-224", "sha512/224"]
+  - canonical: sha-512-256
+    aliases: ["sha-512/256", "sha512-256", "sha512/256"]
+
+  # SPHINCS+ (SLH-DSA pre-standardisation)
+  - canonical: slh-dsa-sha2-128f
+    aliases: ["sphincs+", "sphincs+-sha256-128f-simple"]
+  - canonical: slh-dsa-sha2-128s
+    aliases: ["sphincs+-sha256-128s-simple"]
+  - canonical: slh-dsa-sha2-192f
+    aliases: ["sphincs+-sha256-192f-simple"]
+  - canonical: slh-dsa-sha2-192s
+    aliases: ["sphincs+-sha256-192s-simple"]
+  - canonical: slh-dsa-sha2-256f
+    aliases: ["sphincs+-sha256-256f-simple"]
+  - canonical: slh-dsa-sha2-256s
+    aliases: ["sphincs+-sha256-256s-simple"]
+  - canonical: slh-dsa-shake-128f
+    aliases: ["sphincs+-shake-128f-simple"]
+  - canonical: slh-dsa-shake-128s
+    aliases: ["sphincs+-shake-128s-simple"]
+  - canonical: slh-dsa-shake-192f
+    aliases: ["sphincs+-shake-192f-simple"]
+  - canonical: slh-dsa-shake-192s
+    aliases: ["sphincs+-shake-192s-simple"]
+  - canonical: slh-dsa-shake-256f
+    aliases: ["sphincs+-shake-256f-simple"]
+  - canonical: slh-dsa-shake-256s
+    aliases: ["sphincs+-shake-256s-simple"]
+
+  # 3DES spellings
+  - canonical: 3des
+    aliases: ["3des-cbc", "des-ede3-cbc", "triple-des"]
+
+  # TLS 1.2 ECDHE cipher suites → ecdh-p256
+  - canonical: ecdh-p256
+    aliases:
+      - "ecdhe-rsa-aes256-gcm-sha384"
+      - "ecdhe-ecdsa-aes256-gcm-sha384"
+      - "ecdhe-rsa-aes256-sha384"
+      - "ecdhe-ecdsa-aes256-sha384"
+      - "ecdhe-rsa-aes256-sha"
+      - "ecdhe-ecdsa-aes256-sha"
+      - "ecdhe-rsa-aes128-gcm-sha256"
+      - "ecdhe-ecdsa-aes128-gcm-sha256"
+      - "ecdhe-rsa-aes128-sha256"
+      - "ecdhe-ecdsa-aes128-sha256"
+      - "ecdhe-rsa-aes128-sha"
+      - "ecdhe-ecdsa-aes128-sha"
+      - "ecdhe-rsa-chacha20-poly1305"
+      - "ecdhe-ecdsa-chacha20-poly1305"
+      - "ecdhe-rsa-des-cbc3-sha"
+      - "ecdhe-ecdsa-des-cbc3-sha"
+      - "ecdhe-rsa-rc4-sha"
+      - "ecdhe-ecdsa-rc4-sha"
+      - "ecdhe-rsa-camellia256-sha384"
+      - "ecdhe-ecdsa-camellia256-sha384"
+      - "ecdhe-rsa-camellia128-sha256"
+      - "ecdhe-ecdsa-camellia128-sha256"
+      - "tls_ecdhe_rsa_with_aes_256_gcm_sha384"
+      - "tls_ecdhe_ecdsa_with_aes_256_gcm_sha384"
+      - "tls_ecdhe_rsa_with_aes_128_gcm_sha256"
+      - "tls_ecdhe_ecdsa_with_aes_128_gcm_sha256"
+      - "tls_ecdhe_rsa_with_chacha20_poly1305_sha256"
+      - "tls_ecdhe_ecdsa_with_chacha20_poly1305_sha256"
+      - "tls_ecdhe_rsa_with_aes_256_cbc_sha384"
+      - "tls_ecdhe_ecdsa_with_aes_256_cbc_sha384"
+      - "tls_ecdhe_rsa_with_aes_128_cbc_sha256"
+      - "tls_ecdhe_ecdsa_with_aes_128_cbc_sha256"
+      - "tls_ecdhe_rsa_with_3des_ede_cbc_sha"
+
+  # Falcon brand (overrides hardcodes falcon-512/1024).
+  - canonical: falcon-512
+    aliases: ["falcon"]
+
+  # Camellia mode spellings
+  - canonical: camellia-256
+    aliases: ["camellia-256-cbc"]
+  - canonical: camellia-128
+    aliases: ["camellia-128-cbc"]
+
+  # Named-curve aliases
+  - canonical: secp192r1
+    aliases: ["p-192"]
+  - canonical: secp224r1
+    aliases: ["p-224"]
+  - canonical: sect283k1
+    aliases: ["k-283"]
+  - canonical: sect409k1
+    aliases: ["k-409"]
+  - canonical: sect571k1
+    aliases: ["k-571"]
+
+  # SSH cipher / MAC names
+  - canonical: hmac-sha256
+    aliases: ["hmac-sha2-256"]
+  - canonical: hmac-sha512
+    aliases: ["hmac-sha2-512"]
+  - canonical: hmac-md5
+    aliases: ["hmac-md5-96"]
+  - canonical: rc4
+    aliases: ["arcfour", "arcfour128", "arcfour256"]
+  - canonical: blowfish
+    aliases: ["blowfish-cbc"]
+  - canonical: cast5
+    aliases: ["cast128-cbc"]
+
+  # GOST / Streebog
+  - canonical: gost-r-34.10-2012
+    aliases: ["gost34.10", "gost3410"]
+  - canonical: streebog-256
+    aliases: ["streebog", "gost3411-2012-256"]
+  - canonical: streebog-512
+    aliases: ["gost3411-2012-512"]
+
+  # PQC short-name aliases
+  - canonical: ntru-hps-2048677
+    aliases: ["ntru-hps"]
+  - canonical: ntru-hrss-701
+    aliases: ["ntru-hrss"]
+  - canonical: mayo-1
+    aliases: ["mayo"]
+  - canonical: cross-rsdp-128-small
+    aliases: ["cross"]
+  - canonical: xmss-sha2-20-256
+    aliases: ["xmss"]
+  - canonical: lms-sha256-m32-h25
+    aliases: ["lms"]

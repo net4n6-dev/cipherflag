@@ -2,6 +2,19 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [2.1.0] - 2026-05-29
+
+### Added
+- Reproducible Layer 4 catalog generators under `scripts/catalogs/` (`make refresh-catalogs`): EOL (endoflife.date), FIPS (manual NIST CMVP watchlist), PQC (NIST FIPS 203/204/205 + IETF hybrids + watchlist classical).
+- Per-entry `Source` URL on the EOL, FIPS, and PQC catalogs.
+- `HealthFinding.Evidence` map — `source_url` on EOL (LIB-003) and FIPS (LIB-005) findings; the frontend renders a "source" link / "manually curated" indicator on both the certificate detail page and the graph detail panel. Vitest test infrastructure introduced for the frontend.
+
+### Changed
+- `rule_engine_version` bumped 4 → 5: the cron sweeper re-classifies all stored assets on first deploy, backfilling `Evidence` and flagging libraries previously classified "unknown" (expanded catalog coverage). Expect a wave of new EOL/FIPS findings on first post-upgrade scan.
+
+### Notes
+- The FIPS catalog is a manually-curated watchlist (NIST CMVP has no clean API). The liboqs PQC registry fetch and a CI auto-refresh job are deferred; refresh is the manual `make refresh-catalogs` contributor workflow.
+
 ## [2.0.0] - 2026-05-26
 
 ### Major release: EE→CE port (Phase 1)

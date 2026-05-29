@@ -1,0 +1,13 @@
+entries:
+  - library_name: openssl
+    version_prefix: "3.0.0-fips"
+    cert: 4282
+    expires: "2028-09-22"
+    note: "OpenSSL 3.0.0 FIPS Provider; CMVP #4282"
+    fips_level: "fips140-3-l1"
+  - library_name: bouncycastle
+    version_prefix: "1.78"
+    cert: 0
+    expires: "2030-01-01"
+    note: "BouncyCastle 1.78 FIPS"
+    fips_level: "fips140-3-l1"

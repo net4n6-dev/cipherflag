@@ -69,6 +69,12 @@ type HealthFinding struct {
 	// severity-based interval). Nil when no deadline applies.
 	// Powers AQ-AP-02 (docs/analyst-question-catalog.md §Domain 9).
 	ScopeDeadline *time.Time `json:"scope_deadline,omitempty"`
+
+	// Evidence is a free-form map for finding-specific provenance data.
+	// For catalog-derived findings (LIB-003, LIB-005), includes "source_url"
+	// pointing at the upstream catalog record so operators can click through
+	// to verify the deduction. Matches the pattern at internal/model/lineage.go.
+	Evidence map[string]any `json:"evidence,omitempty"`
 }
 
 type HealthReport struct {

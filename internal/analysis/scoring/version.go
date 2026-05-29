@@ -41,4 +41,8 @@ package scoring
 //        PROTO-002/003/004 (weak SSH kex/cipher/MAC), PROTO-005 (TLS
 //        1.0/1.1), PROTO-006 (null/export cipher). Bumping to 4 triggers
 //        the cron sweeper to rescore all protocol endpoint rows.
-const CurrentRuleEngineVersion = 4
+//   - 5: Layer 4 Catalog Hardening — comprehensive EOL/FIPS/PQC catalogs
+//        regenerated from upstream + per-finding evidence.source_url. Bumping
+//        to 5 causes the cron sweeper to re-classify every stored row,
+//        backfilling Evidence on existing findings.
+const CurrentRuleEngineVersion = 5

@@ -1,0 +1,433 @@
+# Copyright 2026 net4n6-dev
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Products tracked at endoflife.date treated as crypto libraries.
+# Update via PR when a new endoflife.date entry becomes relevant.
+products:
+  - slug: openssl
+    library_name: openssl
+  - slug: nodejs
+    library_name: node
+
+# Manual overlay — entries not on endoflife.date.
+# Merged into the output unchanged. Source = "manual".
+manual:
+  # ── GnuTLS ──────────────────────────────────────────────────────────────────
+  - library_name: gnutls
+    version_prefix: "2."
+    reason: "GnuTLS 2.x fully superseded"
+  - library_name: gnutls
+    version_prefix: "3.0."
+    reason: "GnuTLS 3.0.x EOL 2014"
+  - library_name: gnutls
+    version_prefix: "3.1."
+    reason: "GnuTLS 3.1.x EOL 2014"
+  - library_name: gnutls
+    version_prefix: "3.2."
+    reason: "GnuTLS 3.2.x EOL 2017"
+  - library_name: gnutls
+    version_prefix: "3.3."
+    reason: "GnuTLS 3.3.x EOL 2018"
+  - library_name: gnutls
+    version_prefix: "3.4."
+    reason: "GnuTLS 3.4.x EOL 2019"
+  - library_name: gnutls
+    version_prefix: "3.5."
+    reason: "GnuTLS 3.5.x EOL 2019"
+  - library_name: gnutls
+    version_prefix: "3.6."
+    reason: "GnuTLS 3.6.x EOL 2023"
+
+  # ── libgcrypt ────────────────────────────────────────────────────────────────
+  - library_name: libgcrypt
+    version_prefix: "1.6."
+    reason: "libgcrypt 1.6.x superseded"
+  - library_name: libgcrypt
+    version_prefix: "1.7."
+    reason: "libgcrypt 1.7.x superseded"
+  - library_name: libgcrypt
+    version_prefix: "1.8."
+    reason: "libgcrypt 1.8.x superseded by 1.10+"
+
+  # ── NSS ─────────────────────────────────────────────────────────────────────
+  # Dot-terminated prefixes prevent "3.1" from matching "3.101" (current ESR).
+  - library_name: nss
+    version_prefix: "3.10."
+    reason: "NSS 3.1x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.11."
+    reason: "NSS 3.1x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.12."
+    reason: "NSS 3.1x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.13."
+    reason: "NSS 3.1x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.14."
+    reason: "NSS 3.1x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.15."
+    reason: "NSS 3.1x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.16."
+    reason: "NSS 3.1x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.17."
+    reason: "NSS 3.1x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.18."
+    reason: "NSS 3.1x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.19."
+    reason: "NSS 3.1x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.2"
+    reason: "NSS 3.2x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.3"
+    reason: "NSS 3.3x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.4"
+    reason: "NSS 3.4x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.5"
+    reason: "NSS 3.5x series (pre-ESR)"
+  - library_name: nss
+    version_prefix: "3.67"
+    reason: "NSS pre-3.68 before ESR cycle"
+
+  # ── wolfSSL ──────────────────────────────────────────────────────────────────
+  - library_name: wolfssl
+    version_prefix: "3."
+    reason: "wolfSSL 3.x fully superseded"
+  - library_name: wolfssl
+    version_prefix: "4.0"
+    reason: "wolfSSL 4.0.x superseded"
+  - library_name: wolfssl
+    version_prefix: "4.1"
+    reason: "wolfSSL 4.1.x superseded"
+  - library_name: wolfssl
+    version_prefix: "4.2"
+    reason: "wolfSSL 4.2.x superseded"
+  - library_name: wolfssl
+    version_prefix: "4.3"
+    reason: "wolfSSL 4.3.x superseded"
+  - library_name: wolfssl
+    version_prefix: "4.4"
+    reason: "wolfSSL 4.4.x superseded"
+  - library_name: wolfssl
+    version_prefix: "4.5"
+    reason: "wolfSSL 4.5.x superseded"
+  - library_name: wolfssl
+    version_prefix: "4.6"
+    reason: "wolfSSL 4.6.x superseded"
+  - library_name: wolfssl
+    version_prefix: "4.7"
+    reason: "wolfSSL 4.7.x superseded"
+  - library_name: wolfssl
+    version_prefix: "4.8"
+    reason: "wolfSSL 4.8.x superseded"
+  - library_name: wolfssl
+    version_prefix: "5.0"
+    reason: "wolfSSL 5.0.x superseded"
+  - library_name: wolfssl
+    version_prefix: "5.1"
+    reason: "wolfSSL 5.1.x superseded"
+  - library_name: wolfssl
+    version_prefix: "5.2"
+    reason: "wolfSSL 5.2.x superseded"
+  - library_name: wolfssl
+    version_prefix: "5.3"
+    reason: "wolfSSL 5.3.x superseded"
+  - library_name: wolfssl
+    version_prefix: "5.4"
+    reason: "wolfSSL 5.4.x superseded"
+
+  # ── LibreSSL ─────────────────────────────────────────────────────────────────
+  - library_name: libressl
+    version_prefix: "2."
+    reason: "LibreSSL 2.x fully superseded"
+  - library_name: libressl
+    version_prefix: "3.0."
+    reason: "LibreSSL 3.0.x EOL"
+  - library_name: libressl
+    version_prefix: "3.1."
+    reason: "LibreSSL 3.1.x EOL"
+  - library_name: libressl
+    version_prefix: "3.2."
+    reason: "LibreSSL 3.2.x EOL"
+  - library_name: libressl
+    version_prefix: "3.3."
+    reason: "LibreSSL 3.3.x EOL"
+  - library_name: libressl
+    version_prefix: "3.4."
+    reason: "LibreSSL 3.4.x EOL"
+  - library_name: libressl
+    version_prefix: "3.5."
+    reason: "LibreSSL 3.5.x EOL"
+  - library_name: libressl
+    version_prefix: "3.6."
+    reason: "LibreSSL 3.6.x EOL"
+  - library_name: libressl
+    version_prefix: "3.7."
+    reason: "LibreSSL 3.7.x EOL"
+
+  # ── Mbed TLS ─────────────────────────────────────────────────────────────────
+  - library_name: mbedtls
+    version_prefix: "2."
+    reason: "Mbed TLS 2.x fully superseded by 3.x"
+  - library_name: mbedtls
+    version_prefix: "3.0."
+    reason: "Mbed TLS 3.0.x EOL"
+  - library_name: mbedtls
+    version_prefix: "3.1."
+    reason: "Mbed TLS 3.1.x EOL"
+  - library_name: mbedtls
+    version_prefix: "3.2."
+    reason: "Mbed TLS 3.2.x EOL"
+  - library_name: mbedtls
+    version_prefix: "3.3."
+    reason: "Mbed TLS 3.3.x EOL"
+  - library_name: mbedtls
+    version_prefix: "3.4."
+    reason: "Mbed TLS 3.4.x EOL"
+  - library_name: mbedtls
+    version_prefix: "3.5."
+    reason: "Mbed TLS 3.5.x superseded by 3.6 LTS"
+
+  # ── BouncyCastle ─────────────────────────────────────────────────────────────
+  # 1.70 is the first LTS baseline; 1.4x–1.6x are EOL.
+  - library_name: bouncycastle
+    version_prefix: "1.4"
+    reason: "BouncyCastle 1.4x pre-LTS baseline"
+  - library_name: bouncycastle
+    version_prefix: "1.5"
+    reason: "BouncyCastle 1.5x pre-LTS baseline"
+  - library_name: bouncycastle
+    version_prefix: "1.6"
+    reason: "BouncyCastle 1.6x pre-1.70 LTS"
+
+  # ── Nettle ───────────────────────────────────────────────────────────────────
+  - library_name: nettle
+    version_prefix: "2."
+    reason: "Nettle 2.x fully superseded"
+  - library_name: nettle
+    version_prefix: "3.0."
+    reason: "Nettle 3.0.x EOL"
+  - library_name: nettle
+    version_prefix: "3.1."
+    reason: "Nettle 3.1.x EOL"
+  - library_name: nettle
+    version_prefix: "3.2."
+    reason: "Nettle 3.2.x EOL"
+  - library_name: nettle
+    version_prefix: "3.3."
+    reason: "Nettle 3.3.x EOL"
+  - library_name: nettle
+    version_prefix: "3.4."
+    reason: "Nettle 3.4.x EOL"
+  - library_name: nettle
+    version_prefix: "3.5."
+    reason: "Nettle 3.5.x EOL"
+  - library_name: nettle
+    version_prefix: "3.6."
+    reason: "Nettle 3.6.x EOL"
+
+  # ── PyCA cryptography (Python) ────────────────────────────────────────────────
+  # Project ships frequent breaking releases; anything below 42.x is superseded.
+  - library_name: cryptography
+    version_prefix: "1."
+    reason: "PyCA cryptography 1.x EOL — upgrade to >=42.x"
+  - library_name: cryptography
+    version_prefix: "2."
+    reason: "PyCA cryptography 2.x EOL"
+  - library_name: cryptography
+    version_prefix: "3."
+    reason: "PyCA cryptography 3.x EOL"
+  - library_name: cryptography
+    version_prefix: "36."
+    reason: "PyCA cryptography 36.x superseded"
+  - library_name: cryptography
+    version_prefix: "37."
+    reason: "PyCA cryptography 37.x superseded"
+  - library_name: cryptography
+    version_prefix: "38."
+    reason: "PyCA cryptography 38.x superseded"
+  - library_name: cryptography
+    version_prefix: "39."
+    reason: "PyCA cryptography 39.x superseded"
+  - library_name: cryptography
+    version_prefix: "40."
+    reason: "PyCA cryptography 40.x superseded"
+  - library_name: cryptography
+    version_prefix: "41."
+    reason: "PyCA cryptography 41.x superseded"
+
+  # ── pycrypto (abandoned 2014) ─────────────────────────────────────────────────
+  # Empty version_prefix matches every version — the whole project is EOL.
+  - library_name: pycrypto
+    version_prefix: ""
+    reason: "pycrypto is entirely abandoned since 2014; migrate to pycryptodome or PyCA cryptography"
+
+  # ── pycryptodome ──────────────────────────────────────────────────────────────
+  - library_name: pycryptodome
+    version_prefix: "3.0."
+    reason: "pycryptodome 3.0.x superseded"
+  - library_name: pycryptodome
+    version_prefix: "3.1."
+    reason: "pycryptodome 3.1.x superseded"
+  - library_name: pycryptodome
+    version_prefix: "3.2."
+    reason: "pycryptodome 3.2.x superseded"
+
+  # ── pyopenssl ─────────────────────────────────────────────────────────────────
+  - library_name: pyopenssl
+    version_prefix: "0."
+    reason: "pyopenssl 0.x EOL"
+  - library_name: pyopenssl
+    version_prefix: "16."
+    reason: "pyopenssl 16.x EOL"
+  - library_name: pyopenssl
+    version_prefix: "17."
+    reason: "pyopenssl 17.x EOL"
+  - library_name: pyopenssl
+    version_prefix: "18."
+    reason: "pyopenssl 18.x EOL"
+  - library_name: pyopenssl
+    version_prefix: "19."
+    reason: "pyopenssl 19.x EOL"
+
+  # ── paramiko (Python SSH) ─────────────────────────────────────────────────────
+  - library_name: paramiko
+    version_prefix: "1."
+    reason: "paramiko 1.x EOL — upgrade to >=3.x for security patches"
+  - library_name: paramiko
+    version_prefix: "2.0."
+    reason: "paramiko 2.0.x EOL"
+  - library_name: paramiko
+    version_prefix: "2.1."
+    reason: "paramiko 2.1.x EOL"
+  - library_name: paramiko
+    version_prefix: "2.2."
+    reason: "paramiko 2.2.x EOL"
+
+  # ── libssh ────────────────────────────────────────────────────────────────────
+  - library_name: libssh
+    version_prefix: "0.7."
+    reason: "libssh 0.7.x EOL"
+  - library_name: libssh
+    version_prefix: "0.8."
+    reason: "libssh 0.8.x EOL"
+  - library_name: libssh
+    version_prefix: "0.9."
+    reason: "libssh 0.9.x EOL"
+
+  # ── libssh2 ───────────────────────────────────────────────────────────────────
+  - library_name: libssh2
+    version_prefix: "1.7."
+    reason: "libssh2 1.7.x EOL"
+  - library_name: libssh2
+    version_prefix: "1.8."
+    reason: "libssh2 1.8.x EOL"
+
+  # ── Botan (C++) ───────────────────────────────────────────────────────────────
+  - library_name: botan
+    version_prefix: "1."
+    reason: "Botan 1.x EOL"
+  - library_name: botan
+    version_prefix: "2.0."
+    reason: "Botan 2.0.x superseded"
+  - library_name: botan
+    version_prefix: "2.1."
+    reason: "Botan 2.1.x superseded"
+  - library_name: botan
+    version_prefix: "2.2."
+    reason: "Botan 2.2.x superseded"
+  - library_name: botan
+    version_prefix: "2.3."
+    reason: "Botan 2.3.x superseded"
+
+  # ── Crypto++ / cryptopp ───────────────────────────────────────────────────────
+  - library_name: cryptopp
+    version_prefix: "5."
+    reason: "Crypto++ 5.x fully superseded"
+  - library_name: cryptopp
+    version_prefix: "6.0."
+    reason: "Crypto++ 6.0.x superseded"
+  - library_name: cryptopp
+    version_prefix: "6.1."
+    reason: "Crypto++ 6.1.x superseded"
+  - library_name: cryptopp
+    version_prefix: "7.0."
+    reason: "Crypto++ 7.0.x superseded"
+
+  # ── Rust: ring ────────────────────────────────────────────────────────────────
+  - library_name: ring
+    version_prefix: "0.12."
+    reason: "ring 0.12.x EOL"
+  - library_name: ring
+    version_prefix: "0.13."
+    reason: "ring 0.13.x EOL"
+  - library_name: ring
+    version_prefix: "0.14."
+    reason: "ring 0.14.x EOL"
+  - library_name: ring
+    version_prefix: "0.15."
+    reason: "ring 0.15.x EOL"
+  - library_name: ring
+    version_prefix: "0.16."
+    reason: "ring 0.16.x EOL"
+
+  # ── Rust: rustls ──────────────────────────────────────────────────────────────
+  # Prefix "0.1" matches 0.1-0.19; "0.20." matches 0.20.x explicitly.
+  # Modern rustls versions (0.21+) are NOT prefix-matched.
+  - library_name: rustls
+    version_prefix: "0.1"
+    reason: "rustls 0.1x EOL"
+  - library_name: rustls
+    version_prefix: "0.20."
+    reason: "rustls 0.20.x EOL"
+
+  # ── AWS s2n-tls ───────────────────────────────────────────────────────────────
+  - library_name: s2n-tls
+    version_prefix: "0."
+    reason: "s2n-tls 0.x pre-1.0 EOL"
+
+  # ── Apache MINA SSHD (Java) ───────────────────────────────────────────────────
+  - library_name: apache-mina-sshd
+    version_prefix: "0."
+    reason: "Apache MINA SSHD 0.x EOL"
+  - library_name: apache-mina-sshd
+    version_prefix: "1."
+    reason: "Apache MINA SSHD 1.x EOL"
+
+  # ── OpenSSL (legacy pre-1.0 series) ─────────────────────────────────────────
+  - library_name: openssl
+    version_prefix: "0.9."
+    reason: "OpenSSL 0.9.x EOL (pre-1.0 series; long unsupported)"
+  - library_name: openssl
+    version_prefix: "1.0."
+    reason: "OpenSSL 1.0.x EOL 2019-12-31 (1.0.0/1.0.1/1.0.2 all end-of-life)"
+
+  # ── Fully abandoned / renamed projects (all versions EOL) ─────────────────────
+  - library_name: polarssl
+    version_prefix: ""
+    reason: "PolarSSL renamed to Mbed TLS in 2015; migrate to Mbed TLS 3.6 LTS"
+  - library_name: matrixssl
+    version_prefix: ""
+    reason: "MatrixSSL is EOL as of 2021"
+  - library_name: axtls
+    version_prefix: ""
+    reason: "axTLS is abandoned since 2018"

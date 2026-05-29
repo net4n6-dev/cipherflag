@@ -136,6 +136,7 @@ func checkLibraryEOL(lib *model.CryptoLibrary) []model.HealthFinding {
 				Remediation:   "Upgrade to a supported release; check upstream security advisories for migration notes.",
 				Deduction:     35,
 				ScopeDeadline: &deadline,
+				Evidence:      map[string]any{"source_url": entry.Source},
 			}}
 		}
 	}
@@ -162,13 +163,14 @@ func checkLibraryPQC(lib *model.CryptoLibrary) []model.HealthFinding {
 func checkLibraryFIPS(lib *model.CryptoLibrary) []model.HealthFinding {
 	name := strings.ToLower(lib.LibraryName)
 	for _, entry := range fipsStarterMap {
-		if entry.LibraryName == name && strings.HasPrefix(lib.Version, entry.VersionPrefix) {
+		if entry.LibraryName == name && fipsVersionMatch(entry.VersionPrefix, lib.Version) {
 			return []model.HealthFinding{{
 				RuleID:   "LIB-005",
 				Title:    "FIPS-validated library version",
 				Severity: model.SeverityInfo,
 				Category: model.CategoryGovernance,
 				Detail:   entry.Note,
+				Evidence: map[string]any{"source_url": entry.Source},
 			}}
 		}
 	}

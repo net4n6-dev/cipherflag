@@ -1,0 +1,59 @@
+# Audit record for CE Phase 2 (L4 catalog hardening) port.
+# Documentation only — not executed by extract.sh (guided surgical port).
+phase: "2-l4"
+ee_source_repo: /Users/Erik/projects/cipherflag-EE
+ee_source_tag: v1.27.0
+ee_source_sha: aa991b1
+ce_target_version: v2.1.0
+ce_branch: ce-port-phase2-l4
+vendored:
+  - scripts/catalogs/go.mod
+  - scripts/catalogs/go.sum
+  - scripts/catalogs/README.md
+  - scripts/catalogs/internal/codegen/codegen.go        # adapted: Emit() prepends Apache header
+  - scripts/catalogs/internal/codegen/codegen_test.go
+  - scripts/catalogs/refresh-eol.go                      # monolithic (no _gen split)
+  - scripts/catalogs/refresh-eol_test.go
+  - scripts/catalogs/refresh-fips.go                     # //go:build ignore
+  - scripts/catalogs/fips_gen.go
+  - scripts/catalogs/refresh-fips_test.go
+  - scripts/catalogs/refresh-pqc.go                      # //go:build ignore
+  - scripts/catalogs/pqc_gen.go
+  - scripts/catalogs/refresh-pqc_test.go
+  - scripts/catalogs/watchlists/eol.yaml                 # +2 OpenSSL manual entries (CE-preserve)
+  - scripts/catalogs/watchlists/fips.yaml
+  - scripts/catalogs/watchlists/pqc.yaml
+  - scripts/catalogs/testdata/endoflife_openssl.json
+  - scripts/catalogs/testdata/fips_sample.yaml
+  - internal/analysis/pqc/catalog.go                     # regenerated (208 canonical, +secp256r1-ml-kem-768)
+  - internal/analysis/pqc/synonyms.go                    # regenerated
+  - internal/analysis/pqc/catalog_invariants_test.go
+  - internal/analysis/scoring/library_eol_data.go        # EE snapshot + Apache header + 2 OpenSSL preserves (150 entries)
+  - internal/analysis/scoring/library_eol_data_test.go
+  - internal/analysis/scoring/library_fips_data.go       # regenerated (62 entries, 10 "*" sentinels)
+  - internal/analysis/scoring/library_fips_data_test.go
+  - internal/analysis/scoring/library_fips_lookup.go     # relocated LibraryFIPSLevel + fipsVersionMatch
+surgical_edits:
+  - internal/model/health.go                             # +Evidence map[string]any
+  - internal/analysis/pqc/types.go                       # +Source string on Classification
+  - internal/analysis/scoring/library.go                 # LIB-003/005 Evidence + fipsVersionMatch
+  - internal/analysis/scoring/version.go                 # CurrentRuleEngineVersion 4 -> 5
+  - internal/analysis/scoring/library_test.go            # new TDD tests + openssl 3.2->3.4 stale-fixture fix
+  - internal/analysis/pqc/classify_test.go               # Source field test + rsa Source="manual" fixture update
+  - frontend/src/lib/api.ts                              # +evidence?: { source_url?: string }
+ce_specific:
+  - frontend/src/lib/components/findings/FindingSource.svelte        # new shared component
+  - frontend/src/lib/components/findings/FindingSource.test.ts
+  - frontend/src/lib/components/graph/GraphDetailPanel.svelte        # render FindingSource
+  - frontend/src/routes/certificates/[fingerprint]/+page.svelte     # render FindingSource
+  - frontend/vite.config.ts                              # Vitest test block + svelteTesting()
+  - frontend/vitest-setup.ts                             # new
+  - frontend/tsconfig.json                               # vitest/jest-dom types
+  - frontend/package.json                                # vitest + testing-library devDeps + test scripts
+  - Makefile                                             # refresh-catalogs targets
+  - .gitignore                                           # scripts/catalogs/catalogs artifact
+reconciliation:
+  pqc:  "CE 207 ⊆ EE 208 (gains secp256r1-ml-kem-768); 0 dropped"
+  eol:  "CE 122 -> 150; 2 CE-unique OpenSSL prefixes (0.9., 1.0.) preserved via eol.yaml manual:; 0 dropped"
+  fips: "CE 60 -> 62; 10 empty-prefix entries now '*' sentinel matched by fipsVersionMatch; 0 dropped"
+moat_excluded: "CT multi-provider arc (separate later increment); AI tier; container/active scanners; non-osquery adapters; Layer 4.4 risk/blast-radius; PCI DSS 4.0; Layer 8 UX; Thales CipherTrust"

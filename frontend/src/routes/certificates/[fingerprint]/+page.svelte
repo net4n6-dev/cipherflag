@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import cytoscape from 'cytoscape';
 	import { api, type CertDetail, type GraphResponse } from '$lib/api';
+	import FindingSource from '$lib/components/findings/FindingSource.svelte';
 
 	let detail: CertDetail | null = $state(null);
 	let chainGraph: GraphResponse | null = $state(null);
@@ -257,6 +258,7 @@
 								{#if finding.remediation}
 									<p class="finding-rem">{finding.remediation}</p>
 								{/if}
+								<FindingSource sourceUrl={finding.evidence?.source_url} />
 							</div>
 						{/each}
 					</div>

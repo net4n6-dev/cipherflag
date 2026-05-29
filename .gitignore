@@ -24,3 +24,6 @@ frontend/.svelte-kit/
 
 # License public key — injected at build time via -ldflags / LICENSE_PUBKEY_B64; never committed
 license-public.der
+
+# scripts/catalogs generator build artifact (accidental `go build` output)
+scripts/catalogs/catalogs

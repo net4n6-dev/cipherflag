@@ -79,4 +79,10 @@ type Classification struct {
 	// an analogous classical algorithm's strength). Zero for classical
 	// algorithms (the field doesn't apply).
 	SecurityLevel uint8
+
+	// Source is the upstream URL pointing at this entry's authoritative
+	// record (NIST FIPS PDF, IETF draft) or the literal "manual" for
+	// hand-curated entries. Populated by the catalog refresh generator
+	// (scripts/catalogs/refresh-pqc.go); empty for QuantumUnknown.
+	Source string
 }

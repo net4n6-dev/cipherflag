@@ -3,6 +3,7 @@
 	import type { ForceNode } from './graph-types';
 	import { gradeColor } from './graph-types';
 	import { onMount } from 'svelte';
+	import FindingSource from '$lib/components/findings/FindingSource.svelte';
 
 	interface Props {
 		node: ForceNode;
@@ -184,6 +185,7 @@
 						{#if finding.remediation}
 							<div class="finding-rem">{finding.remediation}</div>
 						{/if}
+						<FindingSource sourceUrl={finding.evidence?.source_url} />
 					</div>
 				{/each}
 			</div>

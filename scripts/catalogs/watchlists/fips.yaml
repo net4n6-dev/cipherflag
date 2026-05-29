@@ -1,0 +1,427 @@
+# Copyright 2026 net4n6-dev
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# NIST CMVP validated module entries.
+# Each entry corresponds to a single cert at csrc.nist.gov.
+# To add: search https://csrc.nist.gov/projects/cryptographic-module-validation-program/validated-modules/search
+# Find the cert number; add the entry; run `make refresh-catalogs`.
+entries:
+  - library_name: openssl
+    version_prefix: "3.0.0-fips"
+    cert: 4282
+    expires: "2028-09-22"
+    note: "OpenSSL 3.0.0 FIPS Provider; CMVP #4282"
+    fips_level: "fips140-3-l1"
+  - library_name: openssl
+    version_prefix: "3.0.8-fips"
+    cert: 4685
+    expires: "2030-04-11"
+    note: "OpenSSL 3.0.8 FIPS Provider; CMVP #4685"
+    fips_level: "fips140-3-l1"
+
+  # ── OpenSSL ─────────────────────────────────────────────────────────────────
+  - library_name: openssl
+    version_prefix: "3.0.0"
+    cert: 4282
+    expires: ""
+    note: "OpenSSL 3.0 FIPS provider (CMVP #4282); requires explicit FIPS provider activation"
+    fips_level: "fips140-3-l1"
+  - library_name: openssl
+    version_prefix: "3.0.8"
+    cert: 4282
+    expires: ""
+    note: "OpenSSL 3.0 FIPS provider later revision (CMVP #4282)"
+    fips_level: "fips140-3-l1"
+  - library_name: openssl
+    version_prefix: "3.2."
+    cert: 0
+    expires: ""
+    note: "OpenSSL 3.2 FIPS provider"
+    fips_level: "fips140-3-l1"
+
+  # ── OpenSSL legacy FIPS object module ────────────────────────────────────────
+  - library_name: openssl-fips
+    version_prefix: "2.0.16"
+    cert: 1747
+    expires: ""
+    note: "OpenSSL FIPS Object Module 2.0 final (CMVP #1747)"
+    fips_level: "fips140-2-l1"
+
+  # ── OpenSSL FIPS-tagged distribution builds ──────────────────────────────────
+  - library_name: openssl
+    version_prefix: "1.0.2k-fips"
+    cert: 1747
+    expires: ""
+    note: "OpenSSL 1.0.2k-fips (RHEL 7 / CentOS 7; CMVP #1747)"
+    fips_level: "fips140-2-l1"
+  - library_name: openssl
+    version_prefix: "1.0.2m-fips"
+    cert: 0
+    expires: ""
+    note: "OpenSSL 1.0.2m-fips (commercial FIPS build)"
+    fips_level: "fips140-2-l1"
+  - library_name: openssl
+    version_prefix: "1.0.2o-fips"
+    cert: 0
+    expires: ""
+    note: "OpenSSL 1.0.2o-fips"
+    fips_level: "fips140-2-l1"
+  - library_name: openssl
+    version_prefix: "1.0.2u-fips"
+    cert: 0
+    expires: ""
+    note: "OpenSSL 1.0.2u-fips (RHEL 7 later revision)"
+    fips_level: "fips140-2-l1"
+  - library_name: openssl
+    version_prefix: "1.1.1k-fips"
+    cert: 0
+    expires: ""
+    note: "OpenSSL 1.1.1k-fips (RHEL 8)"
+    fips_level: "fips140-2-l1"
+  - library_name: openssl
+    version_prefix: "3.0.7-fips"
+    cert: 4282
+    expires: ""
+    note: "OpenSSL 3.0.7-fips (RHEL 9 / CMVP #4282)"
+    fips_level: "fips140-3-l1"
+  - library_name: openssl
+    version_prefix: "3.0.9-fips"
+    cert: 0
+    expires: ""
+    note: "OpenSSL 3.0.9-fips"
+    fips_level: "fips140-3-l1"
+
+  # ── wolfSSL ──────────────────────────────────────────────────────────────────
+  - library_name: wolfssl
+    version_prefix: "4.7.0"
+    cert: 3389
+    expires: ""
+    note: "wolfCrypt FIPS 140-2 (CMVP #3389)"
+    fips_level: "fips140-2-l1"
+  - library_name: wolfssl
+    version_prefix: "5.2.0"
+    cert: 0
+    expires: ""
+    note: "wolfCrypt FIPS 140-3"
+    fips_level: "fips140-3-l1"
+  - library_name: wolfssl
+    version_prefix: "5.6.0"
+    cert: 0
+    expires: ""
+    note: "wolfCrypt FIPS 140-3 later revision"
+    fips_level: "fips140-3-l1"
+  - library_name: wolfssl
+    version_prefix: "5.6.4"
+    cert: 4718
+    expires: ""
+    note: "wolfCrypt FIPS 140-3 (CMVP #4718)"
+    fips_level: "fips140-3-l1"
+  - library_name: wolfssl
+    version_prefix: "5.7.0"
+    cert: 0
+    expires: ""
+    note: "wolfCrypt FIPS 140-3 later revision"
+    fips_level: "fips140-3-l1"
+  - library_name: wolfssl
+    version_prefix: "5.7.2"
+    cert: 0
+    expires: ""
+    note: "wolfCrypt FIPS 140-3 later revision"
+    fips_level: "fips140-3-l1"
+
+  # ── wolfSSH (separate module from wolfSSL) ────────────────────────────────────
+  - library_name: wolfssh
+    version_prefix: "1.4.15"
+    cert: 0
+    expires: ""
+    note: "wolfSSH FIPS 140-3 (uses wolfCrypt FIPS)"
+    fips_level: "fips140-3-l1"
+
+  # ── BouncyCastle FIPS ─────────────────────────────────────────────────────────
+  - library_name: bouncycastle-fips
+    version_prefix: "1.0.2.3"
+    cert: 3673
+    expires: ""
+    note: "BC FIPS Java 1.0.2.3 (CMVP #3673)"
+    fips_level: "fips140-2-l1"
+  - library_name: bouncycastle-fips
+    version_prefix: "2.0.0"
+    cert: 0
+    expires: ""
+    note: "BC FIPS Java 2.0.0 (CMVP 140-3)"
+    fips_level: "fips140-3-l1"
+  - library_name: bouncycastle-fips
+    version_prefix: "2.0.3"
+    cert: 0
+    expires: ""
+    note: "BC FIPS Java 2.0.3"
+    fips_level: "fips140-3-l1"
+
+  # ── NSS ───────────────────────────────────────────────────────────────────────
+  - library_name: nss
+    version_prefix: "3.79"
+    cert: 4594
+    expires: ""
+    note: "NSS ESR FIPS validated (CMVP #4594)"
+    fips_level: "fips140-2-l1"
+  - library_name: nss
+    version_prefix: "3.90"
+    cert: 0
+    expires: ""
+    note: "NSS 3.90 ESR FIPS validated"
+    fips_level: "fips140-2-l1"
+  - library_name: nss
+    version_prefix: "3.101"
+    cert: 0
+    expires: ""
+    note: "NSS ESR FIPS validated"
+    fips_level: "fips140-2-l1"
+  - library_name: nss
+    version_prefix: "3.112"
+    cert: 0
+    expires: ""
+    note: "NSS 3.112 ESR FIPS validated"
+    fips_level: "fips140-2-l1"
+
+  # ── libgcrypt ─────────────────────────────────────────────────────────────────
+  - library_name: libgcrypt
+    version_prefix: "1.8.5"
+    cert: 3765
+    expires: ""
+    note: "RHEL 8 FIPS-validated libgcrypt (CMVP #3765)"
+    fips_level: "fips140-2-l1"
+  - library_name: libgcrypt
+    version_prefix: "1.10."
+    cert: 0
+    expires: ""
+    note: "libgcrypt 1.10.x FIPS validated"
+    fips_level: "fips140-2-l1"
+
+  # ── Mbed TLS ──────────────────────────────────────────────────────────────────
+  - library_name: mbedtls
+    version_prefix: "2.28."
+    cert: 4660
+    expires: ""
+    note: "Mbed TLS 2.28 LTS (FIPS builds via downstream; CMVP #4660)"
+    fips_level: "fips140-2-l1"
+  - library_name: mbedtls
+    version_prefix: "3.6."
+    cert: 0
+    expires: ""
+    note: "Mbed TLS 3.6 LTS FIPS builds"
+    fips_level: "fips140-3-l1"
+
+  # ── Microsoft CNG (Windows platform provider) ─────────────────────────────────
+  - library_name: microsoft-cng
+    version_prefix: "win7"
+    cert: 1327
+    expires: ""
+    note: "[windows] Microsoft CNG FIPS 140-2 (CMVP #1327)"
+    fips_level: "fips140-2-l1"
+  - library_name: microsoft-cng
+    version_prefix: "win8.1"
+    cert: 2357
+    expires: ""
+    note: "[windows] Microsoft CNG FIPS 140-2 (CMVP #2357)"
+    fips_level: "fips140-2-l1"
+  - library_name: microsoft-cng
+    version_prefix: "win10-1809"
+    cert: 3197
+    expires: ""
+    note: "[windows] Microsoft CNG FIPS 140-2 (CMVP #3197)"
+    fips_level: "fips140-2-l1"
+  - library_name: microsoft-cng
+    version_prefix: "win10-1903"
+    cert: 3197
+    expires: ""
+    note: "[windows] Microsoft CNG FIPS 140-2 (CMVP #3197)"
+    fips_level: "fips140-2-l1"
+  - library_name: microsoft-cng
+    version_prefix: "win10-2004"
+    cert: 3644
+    expires: ""
+    note: "[windows] Microsoft CNG FIPS 140-2 (CMVP #3644)"
+    fips_level: "fips140-2-l1"
+  - library_name: microsoft-cng
+    version_prefix: "win10-21h2"
+    cert: 4536
+    expires: ""
+    note: "[windows] Microsoft CNG FIPS 140-3 (CMVP #4536)"
+    fips_level: "fips140-3-l1"
+  - library_name: microsoft-cng
+    version_prefix: "win11-22h2"
+    cert: 4491
+    expires: ""
+    note: "[windows] Microsoft CNG FIPS 140-3 (CMVP #4491)"
+    fips_level: "fips140-3-l1"
+  - library_name: microsoft-cng
+    version_prefix: "server2016"
+    cert: 2356
+    expires: ""
+    note: "[windows] Microsoft CNG FIPS 140-2 (CMVP #2356)"
+    fips_level: "fips140-2-l1"
+  - library_name: microsoft-cng
+    version_prefix: "server2019"
+    cert: 3197
+    expires: ""
+    note: "[windows] Microsoft CNG FIPS 140-2 (CMVP #3197)"
+    fips_level: "fips140-2-l1"
+  - library_name: microsoft-cng
+    version_prefix: "server2022"
+    cert: 4536
+    expires: ""
+    note: "[windows] Microsoft CNG FIPS 140-3 (CMVP #4536)"
+    fips_level: "fips140-3-l1"
+
+  # ── Microsoft legacy CAPI (Windows XP/Vista/7 era) ────────────────────────────
+  - library_name: microsoft-rsaenh
+    version_prefix: "*"
+    cert: 560
+    expires: ""
+    note: "[windows] Microsoft RSA Enhanced CSP legacy FIPS (CMVP #560)"
+    fips_level: "fips140-2-l1"
+
+  # ── Java SunJCE ───────────────────────────────────────────────────────────────
+  - library_name: java-sunjce
+    version_prefix: "1.8.0_271"
+    cert: 3514
+    expires: ""
+    note: "[java] JDK 8 SunJCE FIPS 140-2 (CMVP #3514)"
+    fips_level: "fips140-2-l1"
+  - library_name: java-sunjce
+    version_prefix: "11.0.9"
+    cert: 3672
+    expires: ""
+    note: "[java] JDK 11 SunJCE FIPS 140-2 (CMVP #3672)"
+    fips_level: "fips140-2-l1"
+  - library_name: java-sunjce
+    version_prefix: "17.0.1"
+    cert: 4642
+    expires: ""
+    note: "[java] JDK 17 SunJCE FIPS 140-3 (CMVP #4642)"
+    fips_level: "fips140-3-l1"
+  - library_name: java-sunjce
+    version_prefix: "21.0.1"
+    cert: 4846
+    expires: ""
+    note: "[java] JDK 21 SunJCE FIPS 140-3 (CMVP #4846)"
+    fips_level: "fips140-3-l1"
+  - library_name: java-sunjce
+    version_prefix: "21.0.5"
+    cert: 0
+    expires: ""
+    note: "[java] JDK 21 SunJCE FIPS 140-3 later revision"
+    fips_level: "fips140-3-l1"
+
+  # ── Java SunJSSE (TLS layer) ──────────────────────────────────────────────────
+  - library_name: java-sunjsse
+    version_prefix: "11.0.9"
+    cert: 3672
+    expires: ""
+    note: "[java] JDK 11 SunJSSE FIPS 140-2 (CMVP #3672)"
+    fips_level: "fips140-2-l1"
+  - library_name: java-sunjsse
+    version_prefix: "17.0.1"
+    cert: 4642
+    expires: ""
+    note: "[java] JDK 17 SunJSSE FIPS 140-3 (CMVP #4642)"
+    fips_level: "fips140-3-l1"
+
+  # ── AWS LibCrypto (aws-lc) — fork of BoringSSL with FIPS validation ───────────
+  - library_name: aws-lc
+    version_prefix: "1."
+    cert: 4631
+    expires: ""
+    note: "AWS-LC 1.x FIPS 140-3 validated (CMVP #4631)"
+    fips_level: "fips140-3-l1"
+  - library_name: aws-lc-fips
+    version_prefix: "2."
+    cert: 4759
+    expires: ""
+    note: "AWS-LC-FIPS 2.x FIPS 140-3 (CMVP #4759)"
+    fips_level: "fips140-3-l1"
+
+  # ── Google BoringCrypto — FIPS-validated subset of BoringSSL ──────────────────
+  - library_name: boringcrypto
+    version_prefix: "*"
+    cert: 3318
+    expires: ""
+    note: "Google BoringCrypto FIPS 140-2 (CMVP #3318 / FIPS 140-3 in progress)"
+    fips_level: "fips140-2-l1"
+
+  # ── IBM JCE (Semeru / IBM SDK for Java) ───────────────────────────────────────
+  - library_name: ibm-jce
+    version_prefix: "8."
+    cert: 2711
+    expires: ""
+    note: "[java] IBM JCE 8 FIPS 140-2 (CMVP #2711)"
+    fips_level: "fips140-2-l1"
+  - library_name: ibm-jce
+    version_prefix: "11."
+    cert: 0
+    expires: ""
+    note: "[java] IBM JCE 11 FIPS 140-3 (Semeru Runtimes)"
+    fips_level: "fips140-3-l1"
+
+  # ── Commercial FIPS-validated libraries ───────────────────────────────────────
+  - library_name: rsa-bsafe
+    version_prefix: "*"
+    cert: 0
+    expires: ""
+    note: "[commercial] RSA BSAFE Crypto-J FIPS 140-2 (Dell)"
+    fips_level: "fips140-2-l1"
+  - library_name: dell-bsafe
+    version_prefix: "*"
+    cert: 0
+    expires: ""
+    note: "[commercial] Dell BSAFE Crypto-J FIPS 140-2"
+    fips_level: "fips140-2-l1"
+  - library_name: cryptocomply
+    version_prefix: "*"
+    cert: 0
+    expires: ""
+    note: "[commercial] SafeLogic CryptoComply FIPS 140-2 / 140-3"
+    fips_level: "fips140-2-l1"
+
+  # ── HSM client libraries (PKCS#11 / vendor SDK surface) ──────────────────────
+  - library_name: thales-luna
+    version_prefix: "*"
+    cert: 0
+    expires: ""
+    note: "[hsm] Thales Luna Network HSM 7 FIPS 140-3 Level 3"
+    fips_level: "fips140-3-l3"
+  - library_name: entrust-nshield
+    version_prefix: "*"
+    cert: 0
+    expires: ""
+    note: "[hsm] Entrust nShield HSM FIPS 140-3 Level 3"
+    fips_level: "fips140-3-l3"
+  - library_name: aws-cloudhsm
+    version_prefix: "*"
+    cert: 0
+    expires: ""
+    note: "[hsm] AWS CloudHSM PKCS#11 client (Luna-backed, FIPS 140-3 Level 3)"
+    fips_level: "fips140-3-l3"
+  - library_name: azure-keyvault
+    version_prefix: "*"
+    cert: 0
+    expires: ""
+    note: "[hsm] Azure Key Vault Premium HSM FIPS 140-2 Level 2 (Managed HSM L3)"
+    fips_level: "fips140-2-l2"
+  - library_name: yubico-yubihsm
+    version_prefix: "*"
+    cert: 0
+    expires: ""
+    note: "[hsm] YubiHSM 2 FIPS 140-3 Level 3"
+    fips_level: "fips140-3-l3"

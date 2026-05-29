@@ -128,11 +128,12 @@ func TestLIB003_NSS3101NotEOL(t *testing.T) {
 	}
 }
 
-func TestLIB003_OpenSSL32NotEOL(t *testing.T) {
-	lib := &model.CryptoLibrary{ID: "x", LibraryName: "openssl", Version: "3.2.0"}
+func TestLIB003_OpenSSL34NotEOL(t *testing.T) {
+	// 3.2 is EOL as of 2025-11-23 per endoflife.date; use 3.4 (still supported).
+	lib := &model.CryptoLibrary{ID: "x", LibraryName: "openssl", Version: "3.4.0"}
 	r := ScoreLibrary(lib, nil)
 	if findFinding(r, "LIB-003") != nil {
-		t.Error("LIB-003 fired for openssl 3.2.0 (not EOL)")
+		t.Error("LIB-003 fired for openssl 3.4.0 (not EOL)")
 	}
 }
 
@@ -533,5 +534,46 @@ func TestLIBCVE_LowSeverityIgnored(t *testing.T) {
 	r := ScoreLibrary(lib, lowCVEs)
 	if findFinding(r, "LIB-001") != nil || findFinding(r, "LIB-002") != nil {
 		t.Error("low severity CVE should produce no findings")
+	}
+}
+
+func TestCheckLibraryEOL_FindingIncludesSourceURL(t *testing.T) {
+	lib := &model.CryptoLibrary{LibraryName: "openssl", Version: "1.0.2k"}
+	findings := checkLibraryEOL(lib)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 EOL finding, got %d", len(findings))
+	}
+	src, ok := findings[0].Evidence["source_url"]
+	if !ok || src == "" {
+		t.Errorf("LIB-003 finding missing Evidence[\"source_url\"]: %#v", findings[0].Evidence)
+	}
+}
+
+func TestFipsVersionMatch(t *testing.T) {
+	cases := []struct {
+		prefix, version string
+		want            bool
+	}{
+		{"*", "anything", true},
+		{"*", "", true},
+		{"3.0.0", "3.0.0-fips", true},
+		{"3.0.0", "1.1.1", false},
+		{"", "x", true},
+	}
+	for _, c := range cases {
+		if got := fipsVersionMatch(c.prefix, c.version); got != c.want {
+			t.Errorf("fipsVersionMatch(%q,%q)=%v want %v", c.prefix, c.version, got, c.want)
+		}
+	}
+}
+
+func TestCheckLibraryFIPS_FindingIncludesSourceURL(t *testing.T) {
+	lib := &model.CryptoLibrary{LibraryName: "boringcrypto", Version: "0.0.0"}
+	findings := checkLibraryFIPS(lib)
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 FIPS finding for boringcrypto, got %d", len(findings))
+	}
+	if _, ok := findings[0].Evidence["source_url"]; !ok {
+		t.Errorf("LIB-005 finding missing Evidence[\"source_url\"]: %#v", findings[0].Evidence)
 	}
 }

@@ -88,6 +88,7 @@ export interface HealthFinding {
 	remediation: string;
 	deduction: number;
 	immediate_fail?: boolean;
+	evidence?: { source_url?: string };
 }
 
 export interface CertDetail {

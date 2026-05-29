@@ -24,6 +24,7 @@ func TestClassify_KnownCanonical(t *testing.T) {
 		Status:    QuantumVulnerable,
 		Canonical: "rsa",
 		Category:  CategoryAsymmetric,
+		Source:    "manual",
 	}
 	if got != want {
 		t.Errorf("Classify(rsa) = %+v, want %+v", got, want)
@@ -36,6 +37,7 @@ func TestClassify_KnownSynonym(t *testing.T) {
 		Status:    QuantumVulnerable,
 		Canonical: "rsa",
 		Category:  CategoryAsymmetric,
+		Source:    "manual",
 	}
 	if got != want {
 		t.Errorf("Classify(ssh-rsa) = %+v, want %+v", got, want)
@@ -113,5 +115,13 @@ func TestClassify_KyberResolvesToMLKEM(t *testing.T) {
 	}
 	if got.Status != QuantumSafe {
 		t.Errorf("Classify(kyber768).Status = %v, want QuantumSafe", got.Status)
+	}
+}
+
+func TestClassification_HasSourceField(t *testing.T) {
+	c := Classify("rsa")
+	_ = c.Source // field must exist
+	if c.Status == QuantumUnknown {
+		t.Fatalf("expected rsa to be classified, got unknown")
 	}
 }
