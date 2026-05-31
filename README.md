@@ -91,6 +91,18 @@ calls home, no telemetry, and no commercial license required.
   observation count by 60-90% on long-running deployments with
   high-cardinality ingest sources.
 
+**Layer 3 — commercial endpoint connectors (CE, off by default)**
+- Microsoft Defender for Endpoint, SentinelOne, Tanium, Absolute,
+  and Netwrix endpoint connectors ship in CE; all use documented
+  vendor REST APIs and require no vendor SDK or license agreement.
+  Enable each connector in `config/cipherflag.toml`.
+
+**Layer 5.4 — Venafi TPP + Cloud push export (CE)**
+- Push-exports the CBOM inventory to a Venafi Trust Protection
+  Platform (TPP) instance or Venafi Cloud tenant via the documented
+  Venafi REST API. Configurable endpoint and credentials in
+  `config/cipherflag.toml`.
+
 ---
 
 ## What's NOT included (CipherFlag EE)
@@ -103,15 +115,17 @@ A separate **CipherFlag EE** product (commercial license) adds:
 - **Layer 6.2** — Container image scanner (binary crypto detect,
   OCI registry extraction, AI enrichment tier)
 - **Layer 6.3** — Active network scanner
-- **Layer 3** — 7 endpoint platform integrations (Velociraptor,
-  Wazuh, MS Defender, SentinelOne, Tanium, Absolute, Netwrix)
+- **Layer 3** — Velociraptor endpoint integration (requires vendor
+  gRPC SDK — EE-only; Wazuh is handled via webhook and not a
+  dedicated connector)
 - **Layer 4.1c** — TLS/SSH protocol-version scoring rules
   (PROTO-001..006) + `protocol_endpoints` aggregate
 - **Layer 4.3** — PCI DSS 4.0 compliance evaluator
 - **Layer 4.4** — Per-asset risk prioritization with blast-radius
   analysis (host-dependency graph + PKI edge engine)
-- **Layer 5.4** — Thales CipherTrust + Venafi (TPP + Cloud) export
-  adapters
+- **Layer 5.4** — Thales CipherTrust + advanced Venafi TPP
+  policy-folder management (deep TPP policy engine and CipherTrust
+  adapters; the basic Venafi TPP + Cloud push export ships in CE)
 - **Layer 8** — Operator UX (the production frontend; CE retains
   the v1 demo frontend as a known limitation)
 - **Certificate Transparency multi-provider arc** (deferred to
@@ -256,6 +270,8 @@ tree-sitter language bindings, and others).
 | Git repo deterministic scanner | shipped v2.0 |
 | osquery webhook + 8 discovery scripts | shipped v2.0 |
 | Native scanners (SSH/lib/cert/config/truststore) | shipped v2.0 |
+| Endpoint connectors: Defender/SentinelOne/Tanium/Absolute/Netwrix | shipped v2.1 (CE, off by default) |
+| Venafi TPP + Cloud push export | shipped v2.1 (CE) |
 | Certificate Transparency multi-provider | **deferred to v2.1** (Phase 2) |
 | Production operator UI | **EE-only** (CE retains v1 demo UI) |
 | Risk prioritization + blast-radius | **EE-only** |

@@ -1,0 +1,14 @@
+{
+  "EventTime": "2026-04-11T12:30:00Z",
+  "Who": "DOMAIN\\bob",
+  "Action": "Renewed",
+  "ObjectType": "Certificate",
+  "What": "CN=web-02.corp.local",
+  "Where": "corp-CA01-CA",
+  "DataSource": "Active Directory",
+  "Details": {
+    "SerialNumber": "ff00ff00",
+    "Issuer": "CN=corp-CA01-CA,DC=corp,DC=local",
+    "Template": "WebServer"
+  }
+}

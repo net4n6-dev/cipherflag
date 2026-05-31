@@ -96,6 +96,7 @@ func NewRouter(
 	shadowCAH := handler.NewShadowCAHandler(st)
 	appMetaH := handler.NewApplicationMetadataHandler(st)
 	assetOwnH := handler.NewAssetOwnershipHandler(st)
+	venafiH := handler.NewVenafiHandler(st, cfg, cfgPath)
 
 	// Health check
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +193,15 @@ func NewRouter(
 			r.Get("/reports/ca", reportsH.CAReport)
 			r.Get("/reports/compliance", reportsH.ComplianceReport)
 			r.Get("/reports/expiry", reportsH.ExpiryReport)
+
+			// Venafi push export (Layer 3 connector; disabled by default)
+			r.Get("/venafi/status", venafiH.Status)
+			r.Get("/venafi/config", venafiH.GetConfig)
+			r.Route("/venafi", func(r chi.Router) {
+				r.Use(middleware.RequireAdmin)
+				r.Put("/config", venafiH.UpdateConfig)
+				r.Post("/test-connection", venafiH.TestConnection)
+			})
 
 			// Config
 			r.Get("/config/sources", configH.GetSources)

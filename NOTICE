@@ -26,6 +26,9 @@ top of each ported file.
 
 == go.mod dependencies ==
 
+- github.com/Azure/go-ntlmssp — Apache-2.0
+  https://github.com/Azure/go-ntlmssp/blob/v0.1.0/LICENSE
+
 - github.com/BurntSushi/toml — MIT
   https://github.com/BurntSushi/toml/blob/v1.6.0/COPYING
 

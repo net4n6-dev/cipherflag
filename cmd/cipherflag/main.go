@@ -31,7 +31,14 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/auth"
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
+	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
+	"github.com/net4n6-dev/cipherflag/internal/ingest"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/absolute"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/defender"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/netwrix"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/sentinelone"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/tanium"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/cachegc"
 	scanscheduler "github.com/net4n6-dev/cipherflag/internal/scanner/scheduler"
 	"github.com/net4n6-dev/cipherflag/internal/store"
@@ -198,6 +205,35 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 			Msg("cbom runtime started")
 	}
 
+	// Venafi push scheduler (Layer 3 export connector).
+	// Disabled by default; enabled via cfg.Export.Venafi.Enabled.
+	venafiInterval := time.Duration(cfg.Export.Venafi.PushIntervalMinutes) * time.Minute
+	if cfg.Export.Venafi.Enabled {
+		pushCtx, pushCancel := context.WithCancel(ctx)
+		defer pushCancel()
+
+		var venafiClient venafi.VenafiClient
+
+		if cfg.Export.Venafi.Platform == "cloud" {
+			venafiClient = venafi.NewCloudClient(cfg.Export.Venafi.Region, cfg.Export.Venafi.APIKey)
+			log.Info().
+				Str("platform", "cloud").
+				Str("region", cfg.Export.Venafi.Region).
+				Msg("venafi cloud client configured")
+		} else {
+			sdkBase, authBase := venafi.NormalizeTPPBaseURLs(cfg.Export.Venafi.BaseURL)
+			tppClient := venafi.NewClient(sdkBase, authBase, cfg.Export.Venafi.ClientID, cfg.Export.Venafi.RefreshToken)
+			venafiClient = venafi.NewTPPAdapter(tppClient, cfg.Export.Venafi.Folder)
+			log.Info().
+				Str("platform", "tpp").
+				Str("base_url", cfg.Export.Venafi.BaseURL).
+				Msg("venafi tpp client configured")
+		}
+
+		pusher := venafi.NewPusher(venafiClient, st, venafiInterval)
+		go pusher.Run(pushCtx)
+	}
+
 	// CE-flavor: the Zeek log-file ingest poller
 	// (internal/ingest/poller.go) and the legacy PCAP job manager
 	// (internal/ingest/pcap.go) were excluded from the Phase 1 manifest.
@@ -205,6 +241,122 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	// the osquery webhook + native scanners + git repo scanner. Zeek log
 	// ingest can be re-enabled in a follow-up minor; the unified ingester
 	// + scorer wiring below stays generic enough to accept it.
+
+	// Microsoft Defender for Endpoint connector (off by default).
+	if cfg.Sources.Defender.Enabled {
+		dfCtx, dfCancel := context.WithCancel(ctx)
+		defer dfCancel()
+
+		dfClient, err := defender.NewClient(defender.Config{
+			TenantID:     cfg.Sources.Defender.TenantID,
+			ClientID:     cfg.Sources.Defender.ClientID,
+			ClientSecret: cfg.Sources.Defender.ClientSecret,
+			APIBaseURL:   cfg.Sources.Defender.APIBaseURL,
+			HTTPTimeout:  time.Duration(cfg.Sources.Defender.HTTPTimeoutSeconds) * time.Second,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init defender client")
+		}
+		defer dfClient.Close()
+		dfIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		dfPoller := defender.NewPoller(dfClient, dfIngester, st, cfg.Sources.Defender)
+		go dfPoller.Run(dfCtx)
+		log.Info().Str("tenant_id", cfg.Sources.Defender.TenantID).Msg("defender poller started")
+	}
+
+	// SentinelOne endpoint connector (off by default).
+	if cfg.Sources.SentinelOne.Enabled {
+		s1Ctx, s1Cancel := context.WithCancel(ctx)
+		defer s1Cancel()
+
+		s1Client, err := sentinelone.NewClient(sentinelone.Config{
+			APIToken:    cfg.Sources.SentinelOne.APIToken,
+			ConsoleURL:  cfg.Sources.SentinelOne.ConsoleURL,
+			HTTPTimeout: time.Duration(cfg.Sources.SentinelOne.HTTPTimeoutSeconds) * time.Second,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init sentinelone client")
+		}
+		defer s1Client.Close()
+
+		s1Ingester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		s1Poller, err := sentinelone.NewPoller(s1Client, s1Ingester, st, cfg.Sources.SentinelOne)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init sentinelone poller")
+		}
+		go s1Poller.Run(s1Ctx)
+		log.Info().Str("console_url", cfg.Sources.SentinelOne.ConsoleURL).Msg("sentinelone poller started")
+	}
+
+	// Tanium endpoint connector (off by default).
+	if cfg.Sources.Tanium.Enabled {
+		tnCtx, tnCancel := context.WithCancel(ctx)
+		defer tnCancel()
+
+		tnClient, err := tanium.NewClient(tanium.Config{
+			APIToken:    cfg.Sources.Tanium.APIToken,
+			ConsoleURL:  cfg.Sources.Tanium.ConsoleURL,
+			HTTPTimeout: time.Duration(cfg.Sources.Tanium.HTTPTimeoutSeconds) * time.Second,
+			PageSize:    cfg.Sources.Tanium.PageSize,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init tanium client")
+		}
+		defer tnClient.Close()
+
+		tnIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		tnPoller := tanium.NewPoller(tnClient, tnIngester, st, cfg.Sources.Tanium)
+		go tnPoller.Run(tnCtx)
+		log.Info().Str("console_url", cfg.Sources.Tanium.ConsoleURL).Msg("tanium poller started")
+	}
+
+	// Absolute endpoint connector (off by default).
+	if cfg.Sources.Absolute.Enabled {
+		absCtx, absCancel := context.WithCancel(ctx)
+		defer absCancel()
+
+		absClient, err := absolute.NewClient(absolute.Config{
+			TokenID:     cfg.Sources.Absolute.TokenID,
+			SecretKey:   cfg.Sources.Absolute.SecretKey,
+			ConsoleURL:  cfg.Sources.Absolute.ConsoleURL,
+			HTTPTimeout: time.Duration(cfg.Sources.Absolute.HTTPTimeoutSeconds) * time.Second,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init absolute client")
+		}
+		defer absClient.Close()
+
+		absIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		absPoller, err := absolute.NewPoller(absClient, absIngester, st, cfg.Sources.Absolute)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init absolute poller")
+		}
+		go absPoller.Run(absCtx)
+		log.Info().Str("console_url", cfg.Sources.Absolute.ConsoleURL).Msg("absolute poller started")
+	}
+
+	// Netwrix Auditor AD CS connector (off by default).
+	// NewPoller takes the store directly — no ingester required for this connector.
+	if cfg.Sources.Netwrix.Enabled {
+		nwCtx, nwCancel := context.WithCancel(ctx)
+		defer nwCancel()
+
+		nwClient, err := netwrix.NewClient(netwrix.Config{
+			BaseURL:         cfg.Sources.Netwrix.BaseURL,
+			Username:        cfg.Sources.Netwrix.Username,
+			Password:        cfg.Sources.Netwrix.Password,
+			InsecureSkipTLS: cfg.Sources.Netwrix.InsecureSkipTLS,
+			HTTPTimeout:     time.Duration(cfg.Sources.Netwrix.HTTPTimeoutSeconds) * time.Second,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init netwrix client")
+		}
+		defer nwClient.Close()
+
+		nwPoller := netwrix.NewPoller(nwClient, st, cfg.Sources.Netwrix)
+		go nwPoller.Run(nwCtx)
+		log.Info().Str("base_url", cfg.Sources.Netwrix.BaseURL).Msg("netwrix poller started")
+	}
 
 	jwtSecret := auth.GenerateSecret(cfg.Storage.PostgresURL)
 	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer)

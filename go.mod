@@ -3,6 +3,7 @@ module github.com/net4n6-dev/cipherflag
 go 1.25.6
 
 require (
+	github.com/Azure/go-ntlmssp v0.1.0
 	github.com/BurntSushi/toml v1.6.0
 	github.com/CycloneDX/cyclonedx-go v0.10.0
 	github.com/aws/aws-sdk-go-v2 v1.41.6

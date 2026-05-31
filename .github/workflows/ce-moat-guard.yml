@@ -1,0 +1,28 @@
+name: CE Moat Guard
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  no-ee-imports:
+    name: No EE-only imports in CE
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fail on EE-only imports in CE
+        run: |
+          set -euo pipefail
+          # Forbidden import substrings — vendor/SDK module paths and EE-only internal packages.
+          # NOTE: aws-sdk-go-v2 is intentionally NOT here; the S3 CBOM export sink
+          # (internal/export/cbom/sinks/s3/) legitimately depends on it in CE.
+          pattern='www\.velocidex\.com|anthropic-sdk-go|anchore/syft|anchore/stereoscope|google/go-containerregistry|net4n6-dev/cipherflag/internal/ai|net4n6-dev/cipherflag/internal/scanner/image|net4n6-dev/cipherflag/internal/ingest/velociraptor|net4n6-dev/cipherflag/internal/ingest/aws'
+          if grep -rnE "\"($pattern)" --include='*.go' .; then
+            echo "ERROR: EE-only import detected in public CE source (see matches above)." >&2
+            exit 1
+          fi
+          echo "OK: no EE-only imports found."

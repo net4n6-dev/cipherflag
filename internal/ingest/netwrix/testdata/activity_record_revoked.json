@@ -1,0 +1,13 @@
+{
+  "EventTime": "2026-04-11T13:00:00Z",
+  "Who": "DOMAIN\\admin",
+  "Action": "Revoked",
+  "ObjectType": "Certificate",
+  "What": "CN=web-03.corp.local",
+  "Where": "corp-CA01-CA",
+  "DataSource": "Active Directory",
+  "Details": {
+    "SerialNumber": "12345678",
+    "Issuer": "CN=corp-CA01-CA,DC=corp,DC=local"
+  }
+}
