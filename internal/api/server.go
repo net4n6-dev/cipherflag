@@ -31,6 +31,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/osquery"
 	"github.com/net4n6-dev/cipherflag/internal/store"
+	"github.com/net4n6-dev/cipherflag/internal/web"
 )
 
 // NewRouter builds the HTTP router with all CE-flavor API routes.
@@ -284,5 +285,10 @@ func NewRouter(
 	})
 
 	log.Info().Msg("CE API routes registered")
+
+	// SPA catch-all. Registered last so all /api/v1 and /healthz routes
+	// take precedence; unmatched /api/* still gets a JSON 404 from the
+	// handler, everything else gets the embedded SPA shell.
+	r.NotFound(web.Handler().ServeHTTP)
 	return r
 }

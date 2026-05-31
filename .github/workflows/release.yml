@@ -81,6 +81,30 @@ jobs:
         with:
           go-version: '1.25'
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build frontend and stage for embed
+        run: |
+          # The CLI binary embeds the SPA via //go:embed all:dist in
+          # internal/web. Build the static frontend and copy it into the
+          # embed dir BEFORE `go build`, mirroring the Dockerfile go-builder
+          # stage — otherwise the binary ships the placeholder index.html
+          # and `GET /` serves "frontend not built" instead of the UI.
+          cd frontend
+          npm ci
+          npm run build
+          cd ..
+          rm -rf internal/web/dist
+          mkdir -p internal/web/dist
+          cp -r frontend/build/. internal/web/dist/
+          # Fail loudly if the real build did not land (guards against a
+          # silent regression that would re-ship the placeholder).
+          test -f internal/web/dist/index.html
+          grep -q '/_app/' internal/web/dist/index.html
+
       - name: Build
         env:
           GOOS: ${{ matrix.goos }}
