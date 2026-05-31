@@ -35,6 +35,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/absolute"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/defender"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/netwrix"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/sentinelone"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/tanium"
@@ -329,6 +330,29 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		}
 		go absPoller.Run(absCtx)
 		log.Info().Str("console_url", cfg.Sources.Absolute.ConsoleURL).Msg("absolute poller started")
+	}
+
+	// Netwrix Auditor AD CS connector (off by default).
+	// NewPoller takes the store directly — no ingester required for this connector.
+	if cfg.Sources.Netwrix.Enabled {
+		nwCtx, nwCancel := context.WithCancel(ctx)
+		defer nwCancel()
+
+		nwClient, err := netwrix.NewClient(netwrix.Config{
+			BaseURL:         cfg.Sources.Netwrix.BaseURL,
+			Username:        cfg.Sources.Netwrix.Username,
+			Password:        cfg.Sources.Netwrix.Password,
+			InsecureSkipTLS: cfg.Sources.Netwrix.InsecureSkipTLS,
+			HTTPTimeout:     time.Duration(cfg.Sources.Netwrix.HTTPTimeoutSeconds) * time.Second,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init netwrix client")
+		}
+		defer nwClient.Close()
+
+		nwPoller := netwrix.NewPoller(nwClient, st, cfg.Sources.Netwrix)
+		go nwPoller.Run(nwCtx)
+		log.Info().Str("base_url", cfg.Sources.Netwrix.BaseURL).Msg("netwrix poller started")
 	}
 
 	jwtSecret := auth.GenerateSecret(cfg.Storage.PostgresURL)
