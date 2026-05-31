@@ -35,6 +35,8 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/defender"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/sentinelone"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/tanium"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/cachegc"
 	scanscheduler "github.com/net4n6-dev/cipherflag/internal/scanner/scheduler"
 	"github.com/net4n6-dev/cipherflag/internal/store"
@@ -255,6 +257,30 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		dfPoller := defender.NewPoller(dfClient, dfIngester, st, cfg.Sources.Defender)
 		go dfPoller.Run(ctx)
 		log.Info().Str("tenant_id", cfg.Sources.Defender.TenantID).Msg("defender poller started")
+	}
+
+	// SentinelOne endpoint connector (off by default).
+	if cfg.Sources.SentinelOne.Enabled {
+		s1Ctx, s1Cancel := context.WithCancel(ctx)
+		defer s1Cancel()
+
+		s1Client, err := sentinelone.NewClient(sentinelone.Config{
+			APIToken:    cfg.Sources.SentinelOne.APIToken,
+			ConsoleURL:  cfg.Sources.SentinelOne.ConsoleURL,
+			HTTPTimeout: time.Duration(cfg.Sources.SentinelOne.HTTPTimeoutSeconds) * time.Second,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init sentinelone client")
+		}
+		defer s1Client.Close()
+
+		s1Ingester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		s1Poller, err := sentinelone.NewPoller(s1Client, s1Ingester, st, cfg.Sources.SentinelOne)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init sentinelone poller")
+		}
+		go s1Poller.Run(s1Ctx)
+		log.Info().Str("console_url", cfg.Sources.SentinelOne.ConsoleURL).Msg("sentinelone poller started")
 	}
 
 	jwtSecret := auth.GenerateSecret(cfg.Storage.PostgresURL)

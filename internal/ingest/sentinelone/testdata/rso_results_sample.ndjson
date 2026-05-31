@@ -1,0 +1,3 @@
+{"type":"library","name":"openssl","version":"3.0.14","package_name":"openssl","package_manager":"apt","install_path":"/usr/lib/x86_64-linux-gnu/libssl.so.3"}
+{"type":"ssh_key","file_path":"/home/alice/.ssh/id_ed25519","key_type":"ssh-ed25519","fingerprint_sha256":"abc","owner":"alice"}
+{"type":"certificate","fingerprint_sha256":"def","subject_cn":"example.com","issuer_cn":"Let's Encrypt R3","serial_number":"01","not_before":"2026-01-01T00:00:00Z","not_after":"2026-04-01T00:00:00Z","key_algorithm":"RSA","key_size":2048,"signature_algorithm":"SHA256-RSA","file_path":"/etc/ssl/cert.pem","store_type":"pem"}
