@@ -1,9 +1,23 @@
-# Stage 1: Build Go binary
+# Stage 1: Build frontend (static SPA)
+FROM node:22-alpine AS frontend-builder
+WORKDIR /build
+# Copy install-time inputs BEFORE `npm ci`:
+#   - package.json / package-lock.json: deterministic dep resolution
+#   - .npmrc: minimal install config (engine-strict)
+COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
+RUN npm ci
+COPY frontend/ .
+RUN npm run build
+
+# Stage 2: Build Go binary (embeds the frontend)
 FROM golang:1.25-alpine AS go-builder
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+# Place the static frontend build where //go:embed all:dist expects it.
+# This overlays the committed placeholder internal/web/dist/index.html.
+COPY --from=frontend-builder /build/build ./internal/web/dist
 # LICENSE_PUBKEY_B64 — base64-encoded Ed25519 public key for AI-license
 # verification. When non-empty, injected via -ldflags into
 # internal/ai/license.PinnedPublicKeyB64. When empty (default), the
@@ -20,25 +34,11 @@ RUN LDFLAGS="-s -w" && \
     fi && \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="$LDFLAGS" -o cipherflag ./cmd/cipherflag/
 
-# Stage 2: Build frontend
-FROM node:22-alpine AS frontend-builder
-WORKDIR /build
-# Copy install-time inputs BEFORE `npm ci`. Three files the install needs:
-#   - package.json / package-lock.json: deterministic dep resolution
-#   - .npmrc: minimal install config (engine-strict)
-# CE does not vendor Histoire or use patch-package (EE-only stack);
-# accordingly there is no frontend/patches/ directory in CE.
-COPY frontend/package.json frontend/package-lock.json frontend/.npmrc ./
-RUN npm ci
-COPY frontend/ .
-RUN npm run build
-
 # Stage 3: Runtime
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=go-builder /build/cipherflag .
-COPY --from=frontend-builder /build/build ./frontend/build
 COPY config/cipherflag.toml ./config/
 COPY internal/store/migrations ./internal/store/migrations
 EXPOSE 8443
