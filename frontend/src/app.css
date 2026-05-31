@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 
 /* ── CipherFlag Dark Theme ─────────────────────────────────────────────── */
 
@@ -7,7 +9,7 @@
 	--cf-bg-secondary: #111827;
 	--cf-bg-tertiary: #1f2937;
 	--cf-bg-card: #151d2e;
-	--cf-border: #1e293b;
+	--cf-border: #1f2937;
 	--cf-border-hover: #334155;
 	--cf-text-primary: #f1f5f9;
 	--cf-text-secondary: #94a3b8;
@@ -35,26 +37,84 @@
 	--cf-node-endpoint: #f472b6;
 	--cf-edge-default: #334155;
 	--cf-edge-fresh: #38bdf8;
+
+	/* EE operator-shell tokens (dark) — added for shell parity */
+	--cf-bg-base: #0a0e17;
+	--cf-bg-surface: #111827;
+	--cf-bg-elevated: #1a2332;
+	--cf-bg-active: #1e3a5f;
+	--cf-bg-sidebar: #0d1320;
+	--cf-border-accent: #2a3a4e;
+	--cf-text-disabled: #475569;
+	--cf-accent-secondary: #818cf8;
+	--cf-pqc-vulnerable: #ef4444; --cf-pqc-weakened: #f97316; --cf-pqc-safe: #22c55e; --cf-pqc-hybrid: #3b82f6; --cf-pqc-unknown: #64748b;
+	--cf-severity-critical: #ef4444; --cf-severity-high: #f97316; --cf-severity-medium: #eab308; --cf-severity-low: #22c55e; --cf-severity-info: #64748b;
+	--cf-status-active: #22c55e; --cf-status-stale: #eab308; --cf-status-removed: #64748b;
+	--cf-badge-bg-alpha: 0.13;
+	--font-sans: 'Inter Variable', sans-serif;
+}
+
+[data-theme="light"] {
+	--cf-bg-base: #f8fafc;
+	--cf-bg-surface: #ffffff;
+	--cf-bg-elevated: #f1f5f9;
+	--cf-bg-active: #dbeafe;
+	--cf-bg-sidebar: #ffffff;
+	--cf-border: #e2e8f0;
+	--cf-border-accent: #cbd5e1;
+	--cf-text-primary: #0f172a;
+	--cf-text-secondary: #475569;
+	--cf-text-muted: #64748b;
+	--cf-text-disabled: #94a3b8;
+	--cf-accent: #0284c7;
+	--cf-accent-secondary: #6366f1;
+	--cf-grade-a: #15803d; --cf-grade-b: #65a30d; --cf-grade-c: #a16207; --cf-grade-d: #c2410c; --cf-grade-f: #b91c1c;
+	--cf-pqc-vulnerable: #b91c1c; --cf-pqc-weakened: #c2410c; --cf-pqc-safe: #15803d; --cf-pqc-hybrid: #1d4ed8; --cf-pqc-unknown: #475569;
+	--cf-severity-critical: #b91c1c; --cf-severity-high: #c2410c; --cf-severity-medium: #a16207; --cf-severity-low: #15803d; --cf-severity-info: #475569;
+	--cf-status-active: #15803d; --cf-status-stale: #a16207; --cf-status-removed: #64748b;
+	--cf-badge-bg-alpha: 0.10;
+	color-scheme: light;
+	/* Legacy CE token overrides for light theme — all 6 names are referenced in existing pages */
+	--cf-bg-primary: #f8fafc;
+	--cf-bg-secondary: #ffffff;
+	--cf-bg-tertiary: #f1f5f9;
+	--cf-bg-card: #ffffff;
+	--cf-border-hover: #cbd5e1;
+	--cf-accent-hover: #0284c7;
+}
+
+body {
+	background-color: var(--cf-bg-base);
+	color: var(--cf-text-primary);
+	font-family: Inter, system-ui, -apple-system, sans-serif;
+	font-size: 13px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
 }
 
 html, body {
 	margin: 0;
 	padding: 0;
-	background: var(--cf-bg-primary);
-	color: var(--cf-text-primary);
-	font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-	-webkit-font-smoothing: antialiased;
+	transition: background-color 200ms ease, color 200ms ease;
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-	width: 6px;
-	height: 6px;
+	width: 10px;
+	height: 10px;
 }
 ::-webkit-scrollbar-track {
-	background: var(--cf-bg-secondary);
+	background: var(--cf-bg-base);
 }
 ::-webkit-scrollbar-thumb {
-	background: var(--cf-border-hover);
-	border-radius: 3px;
+	background: var(--cf-border-accent);
+	border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+	background: var(--cf-text-muted);
+}
+
+:focus-visible {
+	outline: 2px solid var(--cf-accent);
+	outline-offset: 2px;
 }
