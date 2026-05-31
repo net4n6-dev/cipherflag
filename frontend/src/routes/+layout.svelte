@@ -4,7 +4,6 @@
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
-	import GlobalSearch from '$lib/components/GlobalSearch.svelte';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
 	import { initTheme } from '$lib/stores/theme.svelte';
 	import { getCurrentUser, checkAuthStatus, logout as doLogout, type AuthUser } from '$lib/auth';
@@ -108,7 +107,7 @@
 		>
 			{@render children()}
 		</AppShell>
-		<GlobalSearch />
+		<!-- Global search: TopBar shows a search affordance; wiring it to open the GlobalSearch overlay is a tracked follow-up. -->
 	{:else}
 		<div
 			style="display:flex;align-items:center;justify-content:center;height:100vh;color:var(--cf-text-muted);"
