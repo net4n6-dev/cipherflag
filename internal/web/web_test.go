@@ -25,8 +25,9 @@ import (
 
 func testFS() fs.FS {
 	return fstest.MapFS{
-		"index.html":  {Data: []byte("<!doctype html><title>CipherFlag</title>")},
-		"favicon.ico": {Data: []byte("ICODATA")},
+		"index.html":            {Data: []byte("<!doctype html><title>CipherFlag</title>")},
+		"favicon.ico":           {Data: []byte("ICODATA")},
+		"_app/immutable/app.js": {Data: []byte("APPJS")},
 	}
 }
 
@@ -85,5 +86,25 @@ func TestHandler_EmbeddedHandlerConstructs(t *testing.T) {
 	// Handler() must not panic — proves //go:embed all:dist resolved.
 	if Handler() == nil {
 		t.Fatal("Handler() returned nil")
+	}
+}
+
+func TestHandler_BareAPIPathReturnsJSON404(t *testing.T) {
+	rec := get(t, handlerForFS(testFS()), "/api")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("content-type = %q, want application/json", ct)
+	}
+}
+
+func TestHandler_DirectoryPathFallsBackToSPA(t *testing.T) {
+	rec := get(t, handlerForFS(testFS()), "/_app/immutable")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (SPA fallback, not a 301)", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("content-type = %q, want text/html (SPA fallback)", ct)
 	}
 }

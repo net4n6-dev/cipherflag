@@ -48,36 +48,39 @@ func Handler() http.Handler {
 //     routing and deep-link refresh.
 func handlerForFS(sub fs.FS) http.Handler {
 	fileServer := http.FileServerFS(sub)
+	// Read the SPA shell once at construction; if it's missing the embed is
+	// broken, which is a build-time invariant — fail fast like Handler().
+	indexHTML, err := fs.ReadFile(sub, "index.html")
+	if err != nil {
+		panic("web: index.html missing from embedded FS: " + err.Error())
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") {
+		// API paths never receive the HTML shell. Match both the bare
+		// "/api" and any "/api/..." subpath.
+		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = w.Write([]byte(`{"error":"not found"}`))
 			return
 		}
 
+		// p == "" only for "/"; skip the probe and fall through to the SPA
+		// shell. Serve a real file only when it exists AND is not a directory
+		// (a directory would make FileServerFS emit a spurious redirect).
 		if p := strings.TrimPrefix(r.URL.Path, "/"); p != "" {
 			if f, err := sub.Open(p); err == nil {
+				info, statErr := f.Stat()
 				_ = f.Close()
-				fileServer.ServeHTTP(w, r)
-				return
+				if statErr == nil && !info.IsDir() {
+					fileServer.ServeHTTP(w, r)
+					return
+				}
 			}
 		}
 
-		serveIndex(w, sub)
+		// SPA fallback: index.html with 200, even when the path didn't exist.
+		// (w.Write implicitly sends 200, so no explicit WriteHeader.)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(indexHTML)
 	})
-}
-
-// serveIndex writes index.html with a 200 even when the requested path
-// did not exist (SPA fallback), so http.ServeFileFS with the original
-// path is intentionally not used.
-func serveIndex(w http.ResponseWriter, sub fs.FS) {
-	data, err := fs.ReadFile(sub, "index.html")
-	if err != nil {
-		http.Error(w, "index.html not found", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(data)
 }
