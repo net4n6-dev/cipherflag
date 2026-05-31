@@ -31,7 +31,7 @@ services:
       POSTGRES_USER: cipherflag
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
     healthcheck:
@@ -47,7 +47,7 @@ services:
     environment:
       CIPHERFLAG_CONFIG: /app/config/cipherflag.toml
     ports:
-      - "8080:8080"
+      - "8443:8443"
     volumes:
       - ./config:/app/config
       # Mount a working directory for the git repo scanner clone cache.

@@ -2,11 +2,11 @@
 
 [server]
 listen = "0.0.0.0:8443"
-frontend_url = "http://localhost:5174"
+frontend_url = "http://localhost:5175"
 
 [storage]
 # PostgreSQL (primary)
-postgres_url = "postgres://cipherflag:dev@localhost:5432/cipherflag?sslmode=disable"
+postgres_url = "postgres://cipherflag:changeme@postgres:5432/cipherflag?sslmode=disable"
 
 # SQLite fallback (for dev / small deployments)
 # sqlite_path = "./data/cipherflag.db"
