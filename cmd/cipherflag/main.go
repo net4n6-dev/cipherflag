@@ -244,6 +244,9 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 
 	// Microsoft Defender for Endpoint connector (off by default).
 	if cfg.Sources.Defender.Enabled {
+		dfCtx, dfCancel := context.WithCancel(ctx)
+		defer dfCancel()
+
 		dfClient, err := defender.NewClient(defender.Config{
 			TenantID:     cfg.Sources.Defender.TenantID,
 			ClientID:     cfg.Sources.Defender.ClientID,
@@ -257,7 +260,7 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		defer dfClient.Close()
 		dfIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
 		dfPoller := defender.NewPoller(dfClient, dfIngester, st, cfg.Sources.Defender)
-		go dfPoller.Run(ctx)
+		go dfPoller.Run(dfCtx)
 		log.Info().Str("tenant_id", cfg.Sources.Defender.TenantID).Msg("defender poller started")
 	}
 
