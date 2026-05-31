@@ -2,7 +2,7 @@
 
 [server]
 listen = "0.0.0.0:8443"
-frontend_url = "http://localhost:5175"
+frontend_url = "http://localhost:5174"
 
 [storage]
 # PostgreSQL (primary)

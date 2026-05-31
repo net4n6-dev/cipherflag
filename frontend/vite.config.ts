@@ -6,6 +6,13 @@ import { svelteTesting } from '@testing-library/svelte/vite';
 
 export default defineConfig({
 	plugins: [tailwindcss(), sveltekit(), svelteTesting()],
+	// Never emit source maps into the build; adapter-static output is
+	// embedded into the Go binary via //go:embed, so a map would ship
+	// readable source in released artifacts. Pin it rather than rely on
+	// the bundler default.
+	build: {
+		sourcemap: false
+	},
 	server: {
 		port: 5174,
 		proxy: {
