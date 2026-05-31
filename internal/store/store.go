@@ -201,6 +201,13 @@ type CertStore interface {
 	GetIngestionState(ctx context.Context, sourceName string) (*model.IngestionState, error)
 	SetIngestionState(ctx context.Context, state *model.IngestionState) error
 
+	// Venafi push export
+	GetCertsForVenafiPush(ctx context.Context, pushInterval time.Duration, limit int) ([]model.Certificate, error)
+	GetLatestObservationsForCerts(ctx context.Context, fingerprints []string) (map[string]*model.CertificateObservation, error)
+	MarkVenafiPushSuccess(ctx context.Context, fingerprints []string) error
+	MarkVenafiPushFailure(ctx context.Context, fingerprints []string) error
+	GetVenafiPushStats(ctx context.Context) (*model.VenafiPushStats, error)
+
 	// PCAP Jobs (legacy CE-v1; retained for binary compatibility, no API surface)
 	CreatePCAPJob(ctx context.Context, job *model.PCAPJob) error
 	GetPCAPJob(ctx context.Context, id string) (*model.PCAPJob, error)

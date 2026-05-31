@@ -31,6 +31,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/auth"
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
+	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/cachegc"
 	scanscheduler "github.com/net4n6-dev/cipherflag/internal/scanner/scheduler"
@@ -196,6 +197,45 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 			Dur("push_interval", cfg.CBOM.PushInterval).
 			Dur("min_emit_interval", cfg.CBOM.MinEmitInterval).
 			Msg("cbom runtime started")
+	}
+
+	// Venafi push scheduler (Layer 3 export connector).
+	// Disabled by default; enabled via cfg.Export.Venafi.Enabled.
+	venafiInterval := time.Duration(cfg.Export.Venafi.PushIntervalMinutes) * time.Minute
+	if cfg.Export.Venafi.Enabled {
+		pushCtx, pushCancel := context.WithCancel(ctx)
+		defer pushCancel()
+
+		var venafiClient venafi.VenafiClient
+
+		if cfg.Export.Venafi.Platform == "cloud" {
+			venafiClient = venafi.NewCloudClient(cfg.Export.Venafi.Region, cfg.Export.Venafi.APIKey)
+			log.Info().
+				Str("platform", "cloud").
+				Str("region", cfg.Export.Venafi.Region).
+				Msg("venafi cloud client configured")
+		} else {
+			authBase := cfg.Export.Venafi.BaseURL
+			sdkBase := cfg.Export.Venafi.BaseURL
+			if len(authBase) > 6 && authBase[len(authBase)-6:] == "vedsdk" {
+				authBase = authBase[:len(authBase)-6] + "vedauth"
+			} else {
+				sdkBase = authBase + "/vedsdk"
+				authBase = authBase + "/vedauth"
+			}
+			tppClient := venafi.NewClient(sdkBase, authBase, cfg.Export.Venafi.ClientID, cfg.Export.Venafi.RefreshToken)
+			venafiClient = venafi.NewTPPAdapter(tppClient, cfg.Export.Venafi.Folder)
+			log.Info().
+				Str("platform", "tpp").
+				Str("base_url", cfg.Export.Venafi.BaseURL).
+				Msg("venafi tpp client configured")
+		}
+
+		pusher := venafi.NewPusher(venafiClient, st, venafiInterval)
+		go pusher.Run(pushCtx)
+		log.Info().
+			Int("interval_min", cfg.Export.Venafi.PushIntervalMinutes).
+			Msg("venafi push scheduler started")
 	}
 
 	// CE-flavor: the Zeek log-file ingest poller
