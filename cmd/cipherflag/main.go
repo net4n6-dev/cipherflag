@@ -33,6 +33,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/absolute"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/defender"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/sentinelone"
@@ -281,6 +282,53 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		}
 		go s1Poller.Run(s1Ctx)
 		log.Info().Str("console_url", cfg.Sources.SentinelOne.ConsoleURL).Msg("sentinelone poller started")
+	}
+
+	// Tanium endpoint connector (off by default).
+	if cfg.Sources.Tanium.Enabled {
+		tnCtx, tnCancel := context.WithCancel(ctx)
+		defer tnCancel()
+
+		tnClient, err := tanium.NewClient(tanium.Config{
+			APIToken:    cfg.Sources.Tanium.APIToken,
+			ConsoleURL:  cfg.Sources.Tanium.ConsoleURL,
+			HTTPTimeout: time.Duration(cfg.Sources.Tanium.HTTPTimeoutSeconds) * time.Second,
+			PageSize:    cfg.Sources.Tanium.PageSize,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init tanium client")
+		}
+		defer tnClient.Close()
+
+		tnIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		tnPoller := tanium.NewPoller(tnClient, tnIngester, st, cfg.Sources.Tanium)
+		go tnPoller.Run(tnCtx)
+		log.Info().Str("console_url", cfg.Sources.Tanium.ConsoleURL).Msg("tanium poller started")
+	}
+
+	// Absolute endpoint connector (off by default).
+	if cfg.Sources.Absolute.Enabled {
+		absCtx, absCancel := context.WithCancel(ctx)
+		defer absCancel()
+
+		absClient, err := absolute.NewClient(absolute.Config{
+			TokenID:     cfg.Sources.Absolute.TokenID,
+			SecretKey:   cfg.Sources.Absolute.SecretKey,
+			ConsoleURL:  cfg.Sources.Absolute.ConsoleURL,
+			HTTPTimeout: time.Duration(cfg.Sources.Absolute.HTTPTimeoutSeconds) * time.Second,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init absolute client")
+		}
+		defer absClient.Close()
+
+		absIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		absPoller, err := absolute.NewPoller(absClient, absIngester, st, cfg.Sources.Absolute)
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init absolute poller")
+		}
+		go absPoller.Run(absCtx)
+		log.Info().Str("console_url", cfg.Sources.Absolute.ConsoleURL).Msg("absolute poller started")
 	}
 
 	jwtSecret := auth.GenerateSecret(cfg.Storage.PostgresURL)
