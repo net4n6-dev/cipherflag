@@ -1,0 +1,44 @@
+{
+  "Schema": [
+    {"Name": "DeviceId", "Type": "String"},
+    {"Name": "DeviceName", "Type": "String"},
+    {"Name": "OSPlatform", "Type": "String"},
+    {"Name": "OSVersion", "Type": "String"},
+    {"Name": "SoftwareName", "Type": "String"},
+    {"Name": "SoftwareVendor", "Type": "String"},
+    {"Name": "SoftwareVersion", "Type": "String"},
+    {"Name": "Timestamp", "Type": "DateTime"}
+  ],
+  "Results": [
+    {
+      "DeviceId": "device-001",
+      "DeviceName": "WIN-WEB-01",
+      "OSPlatform": "Windows10",
+      "OSVersion": "10.0.19045",
+      "SoftwareName": "OpenSSL",
+      "SoftwareVendor": "OpenSSL Project",
+      "SoftwareVersion": "3.0.14",
+      "Timestamp": "2026-04-12T08:00:00Z"
+    },
+    {
+      "DeviceId": "device-001",
+      "DeviceName": "WIN-WEB-01",
+      "OSPlatform": "Windows10",
+      "OSVersion": "10.0.19045",
+      "SoftwareName": "Bouncy Castle",
+      "SoftwareVendor": "Legion of the Bouncy Castle",
+      "SoftwareVersion": "1.78",
+      "Timestamp": "2026-04-12T08:00:00Z"
+    },
+    {
+      "DeviceId": "device-002",
+      "DeviceName": "lin-app-02",
+      "OSPlatform": "Ubuntu",
+      "OSVersion": "22.04",
+      "SoftwareName": "libssl3",
+      "SoftwareVendor": "Canonical",
+      "SoftwareVersion": "3.0.2-0ubuntu1.10",
+      "Timestamp": "2026-04-12T08:05:00Z"
+    }
+  ]
+}

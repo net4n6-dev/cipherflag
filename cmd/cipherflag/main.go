@@ -32,6 +32,8 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
+	"github.com/net4n6-dev/cipherflag/internal/ingest"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/defender"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/cachegc"
 	scanscheduler "github.com/net4n6-dev/cipherflag/internal/scanner/scheduler"
@@ -235,6 +237,25 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	// the osquery webhook + native scanners + git repo scanner. Zeek log
 	// ingest can be re-enabled in a follow-up minor; the unified ingester
 	// + scorer wiring below stays generic enough to accept it.
+
+	// Microsoft Defender for Endpoint connector (off by default).
+	if cfg.Sources.Defender.Enabled {
+		dfClient, err := defender.NewClient(defender.Config{
+			TenantID:     cfg.Sources.Defender.TenantID,
+			ClientID:     cfg.Sources.Defender.ClientID,
+			ClientSecret: cfg.Sources.Defender.ClientSecret,
+			APIBaseURL:   cfg.Sources.Defender.APIBaseURL,
+			HTTPTimeout:  time.Duration(cfg.Sources.Defender.HTTPTimeoutSeconds) * time.Second,
+		})
+		if err != nil {
+			log.Fatal().Err(err).Msg("failed to init defender client")
+		}
+		defer dfClient.Close()
+		dfIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		dfPoller := defender.NewPoller(dfClient, dfIngester, st, cfg.Sources.Defender)
+		go dfPoller.Run(ctx)
+		log.Info().Str("tenant_id", cfg.Sources.Defender.TenantID).Msg("defender poller started")
+	}
 
 	jwtSecret := auth.GenerateSecret(cfg.Storage.PostgresURL)
 	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer)
