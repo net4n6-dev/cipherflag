@@ -202,8 +202,7 @@ func (h *VenafiHandler) TestConnection(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "TPP credentials are not fully configured")
 			return
 		}
-		authBase := v.BaseURL + "/vedauth"
-		sdkBase := v.BaseURL + "/vedsdk"
+		sdkBase, authBase := venafi.NormalizeTPPBaseURLs(v.BaseURL)
 		tppClient := venafi.NewClient(sdkBase, authBase, v.ClientID, v.RefreshToken)
 		client = venafi.NewTPPAdapter(tppClient, v.Folder)
 	}

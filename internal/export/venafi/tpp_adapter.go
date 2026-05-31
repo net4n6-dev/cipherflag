@@ -4,7 +4,25 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
 )
+
+// NormalizeTPPBaseURLs derives the vedsdk and vedauth base URLs from a raw
+// TPP base URL. If base already ends in "vedsdk" the auth base is derived by
+// swapping the suffix; otherwise "/vedsdk" and "/vedauth" are appended. This
+// ensures that both the push scheduler (main.go) and the test-connection
+// handler produce identical URLs regardless of how base_url is stored in
+// config.
+func NormalizeTPPBaseURLs(base string) (sdkBase, authBase string) {
+	if strings.HasSuffix(base, "vedsdk") {
+		authBase = base[:len(base)-len("vedsdk")] + "vedauth"
+		sdkBase = base
+		return
+	}
+	sdkBase = base + "/vedsdk"
+	authBase = base + "/vedauth"
+	return
+}
 
 // TPPAdapter wraps the existing TPP Client to implement VenafiClient.
 type TPPAdapter struct {

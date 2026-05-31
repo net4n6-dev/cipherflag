@@ -215,14 +215,7 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 				Str("region", cfg.Export.Venafi.Region).
 				Msg("venafi cloud client configured")
 		} else {
-			authBase := cfg.Export.Venafi.BaseURL
-			sdkBase := cfg.Export.Venafi.BaseURL
-			if len(authBase) > 6 && authBase[len(authBase)-6:] == "vedsdk" {
-				authBase = authBase[:len(authBase)-6] + "vedauth"
-			} else {
-				sdkBase = authBase + "/vedsdk"
-				authBase = authBase + "/vedauth"
-			}
+			sdkBase, authBase := venafi.NormalizeTPPBaseURLs(cfg.Export.Venafi.BaseURL)
 			tppClient := venafi.NewClient(sdkBase, authBase, cfg.Export.Venafi.ClientID, cfg.Export.Venafi.RefreshToken)
 			venafiClient = venafi.NewTPPAdapter(tppClient, cfg.Export.Venafi.Folder)
 			log.Info().
@@ -233,9 +226,6 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 
 		pusher := venafi.NewPusher(venafiClient, st, venafiInterval)
 		go pusher.Run(pushCtx)
-		log.Info().
-			Int("interval_min", cfg.Export.Venafi.PushIntervalMinutes).
-			Msg("venafi push scheduler started")
 	}
 
 	// CE-flavor: the Zeek log-file ingest poller
