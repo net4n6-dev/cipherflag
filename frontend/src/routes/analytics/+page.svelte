@@ -6,6 +6,8 @@
 	import CryptoPostureTab from '$lib/components/analytics/CryptoPostureTab.svelte';
 	import ExpiryForecastTab from '$lib/components/analytics/ExpiryForecastTab.svelte';
 	import SourceLineageTab from '$lib/components/analytics/SourceLineageTab.svelte';
+	import LibraryDistTab from '$lib/components/analytics/LibraryDistTab.svelte';
+	import SSHAnalyticsTab from '$lib/components/analytics/SSHAnalyticsTab.svelte';
 
 	const TABS = [
 		{ id: 'chain-flow', label: 'Chain Flow' },
@@ -13,6 +15,8 @@
 		{ id: 'crypto-posture', label: 'Crypto Posture' },
 		{ id: 'expiry-forecast', label: 'Expiry Forecast' },
 		{ id: 'source-lineage', label: 'Source Lineage' },
+		{ id: 'library-dist', label: 'Library Distribution' },
+		{ id: 'ssh-analytics', label: 'SSH Key Analytics' },
 	] as const;
 
 	type TabId = typeof TABS[number]['id'];
@@ -52,6 +56,10 @@
 			<ExpiryForecastTab />
 		{:else if activeTab === 'source-lineage'}
 			<SourceLineageTab />
+		{:else if activeTab === 'library-dist'}
+			<LibraryDistTab />
+		{:else if activeTab === 'ssh-analytics'}
+			<SSHAnalyticsTab />
 		{/if}
 	</div>
 </div>
