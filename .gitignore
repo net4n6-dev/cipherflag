@@ -17,6 +17,10 @@ frontend/.svelte-kit/
 .superpowers/
 .worktrees/
 .claire/
+.claude/
+research/
+# Private dev/handover notes — never publish (reference EE internals)
+docs/handover-*.md
 
 # Go build artifacts left at repo root by `go build ./cmd/...` with no -o flag.
 /cipherflag
