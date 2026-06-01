@@ -61,7 +61,7 @@
 		'RSA': '#38bdf8', 'ECDSA': '#a78bfa', 'Ed25519': '#34d399', 'Unknown': '#64748b',
 	};
 
-	async function loadData() {
+	async function loadData(isRefresh = false) {
 		try {
 			const [s, iss, pkiData, compliance, crypto] = await Promise.all([
 				api.getSummary(),
@@ -79,7 +79,11 @@
 			cryptoAlgos = crypto.key_algorithms ?? [];
 			sigAlgos = crypto.signature_algorithms ?? [];
 		} catch (e) {
-			error = e instanceof Error ? e.message : 'Failed to load dashboard';
+			if (!isRefresh) {
+				error = e instanceof Error ? e.message : 'Failed to load dashboard';
+			}
+			// On a live background refresh, keep the last-good data rather than
+			// blanking the dashboard with a full-screen error on a transient blip.
 		}
 		loading = false;
 	}
@@ -93,7 +97,7 @@
 	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 	function scheduleRefresh() {
 		clearTimeout(refreshTimer);
-		refreshTimer = setTimeout(() => { loadData(); }, 2000);
+		refreshTimer = setTimeout(() => { loadData(true); }, 2000);
 	}
 
 	$effect(() => {
