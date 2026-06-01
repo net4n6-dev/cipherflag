@@ -70,9 +70,12 @@ calls home, no telemetry, and no commercial license required.
 - File sink and HTTP sink for build-pipeline integration
 
 **Layer 5.2 — CBOM import**
-- `POST /api/v1/import/cbom` accepts foreign CycloneDX BOMs,
-  re-classifies algorithms via the PQC taxonomy, and ingests assets
-  into the unified inventory
+- `POST /api/v1/import/cbom` accepts foreign CycloneDX BOMs and
+  re-classifies their algorithms via the PQC taxonomy. By default it
+  imports certificate components into the unified inventory; pass
+  `?host_id=<uuid>` to also import SSH keys, libraries, and crypto
+  configs against that host (without a host they are counted as
+  skipped)
 
 **Layer 5.3 — export sinks**
 - S3 (AWS or S3-compatible: MinIO, Wasabi, Backblaze)
