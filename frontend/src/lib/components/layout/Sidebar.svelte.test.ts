@@ -5,7 +5,7 @@ import Sidebar from './Sidebar.svelte';
 describe('Sidebar', () => {
   it('renders the CE-native nav items', () => {
     const { getByText } = render(Sidebar, { props: { currentPath: '/' } });
-    for (const label of ['Dashboard', 'Certificates', 'PKI Explorer', 'Analytics', 'Reports', 'Statistics', 'Upload', 'Settings']) {
+    for (const label of ['Dashboard', 'Certificates', 'PKI Constellation', 'Analytics', 'Reports', 'Statistics', 'Upload', 'Settings']) {
       expect(getByText(label)).toBeTruthy();
     }
   });

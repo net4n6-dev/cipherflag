@@ -23,7 +23,7 @@
       { label: 'Certificates', href: '/certificates', icon: Shield },
     ]},
     { label: 'Explore', items: [
-      { label: 'PKI Explorer', href: '/pki', icon: Orbit },
+      { label: 'PKI Constellation', href: '/constellation', icon: Orbit },
       { label: 'Analytics', href: '/analytics', icon: BarChart3 },
       { label: 'Reports', href: '/reports', icon: FileText },
       { label: 'Statistics', href: '/stats', icon: Layers },

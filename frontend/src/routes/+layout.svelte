@@ -18,7 +18,8 @@
 	const BREADCRUMB_LABELS: Record<string, string> = {
 		'': 'Dashboard',
 		certificates: 'Certificates',
-		pki: 'PKI Explorer',
+		pki: 'PKI Constellation',
+		constellation: 'PKI Constellation',
 		analytics: 'Analytics',
 		reports: 'Reports',
 		stats: 'Statistics',
