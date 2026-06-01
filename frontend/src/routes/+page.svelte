@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { api, type SummaryStats, type IssuerStat, type PKITreeResponse, type ComplianceReportPriority } from '$lib/api';
 	import RadialTree from '$lib/components/dashboard/RadialTree.svelte';
+	import { onAssetScored, onAssetDiscovered } from '$lib/events.svelte';
 
 	let stats: SummaryStats | null = $state(null);
 	let issuers: IssuerStat[] = $state([]);
@@ -60,7 +61,7 @@
 		'RSA': '#38bdf8', 'ECDSA': '#a78bfa', 'Ed25519': '#34d399', 'Unknown': '#64748b',
 	};
 
-	onMount(async () => {
+	async function loadData() {
 		try {
 			const [s, iss, pkiData, compliance, crypto] = await Promise.all([
 				api.getSummary(),
@@ -81,6 +82,28 @@
 			error = e instanceof Error ? e.message : 'Failed to load dashboard';
 		}
 		loading = false;
+	}
+
+	onMount(() => {
+		loadData();
+	});
+
+	// Live refresh: re-pull dashboard data when assets are scored or discovered.
+	// Debounced so a burst of ingest events triggers at most one reload per 2s.
+	let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+	function scheduleRefresh() {
+		clearTimeout(refreshTimer);
+		refreshTimer = setTimeout(() => { loadData(); }, 2000);
+	}
+
+	$effect(() => {
+		const offScored = onAssetScored(scheduleRefresh);
+		const offDiscovered = onAssetDiscovered(scheduleRefresh);
+		return () => {
+			offScored();
+			offDiscovered();
+			clearTimeout(refreshTimer);
+		};
 	});
 
 	let risk = $derived(riskLevel(complianceScore));
