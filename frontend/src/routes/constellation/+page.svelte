@@ -55,12 +55,28 @@
     return dimmed;
   });
 
+  // ── WebGL capability probe ──────────────────────────────────────────────────
+  // The 3D scene needs a real WebGL context, not just the threlte module. Checking
+  // the import alone is insufficient: threlte's <Canvas> throws "Error creating
+  // WebGL context" on GPU-less / WebGL-disabled clients, which would leave a blank
+  // graph. When WebGL is unavailable we fall back to the 2D SVG view.
+  function webglAvailable(): boolean {
+    if (typeof document === 'undefined') return false;
+    try {
+      const canvas = document.createElement('canvas');
+      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+      return gl != null;
+    } catch {
+      return false;
+    }
+  }
+
   // ── Data loading ──────────────────────────────────────────────────────────
   onMount(async () => {
     // Check if threlte is available
     try {
       await import('@threlte/core');
-      threlteAvailable = true;
+      threlteAvailable = webglAvailable();
     } catch {
       threlteAvailable = false;
     }
@@ -234,8 +250,8 @@
     <div class="graph-container" data-tick={tickCounter}>
       {#if !threlteAvailable}
         <!-- Fallback: render a simplified 2D SVG view using the same data -->
-        <svg class="fallback-svg" onclick={handleBackgroundClick} role="img" aria-label="PKI constellation graph">
-          <g transform="translate(50%, 50%)">
+        <svg class="fallback-svg" viewBox="-160 -160 320 320" preserveAspectRatio="xMidYMid meet" onclick={handleBackgroundClick} role="img" aria-label="PKI constellation graph">
+          <g>
             {#each edges as edge}
               {@const src = typeof edge.source === 'object' ? edge.source : nodes.find(n => n.id === edge.source)}
               {@const tgt = typeof edge.target === 'object' ? edge.target : nodes.find(n => n.id === edge.target)}
