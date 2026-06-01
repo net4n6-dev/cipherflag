@@ -30,6 +30,7 @@
 		"@types/d3-shape": "^3.1.8",
 		"@types/d3-transition": "^3.0.9",
 		"@types/d3-zoom": "^3.0.8",
+		"@types/three": "^0.184.1",
 		"jsdom": "^29.1.1",
 		"svelte": "^5.49.2",
 		"svelte-check": "^4.3.6",
@@ -41,10 +42,13 @@
 	"dependencies": {
 		"@fontsource-variable/inter": "^5.2.8",
 		"@fontsource-variable/jetbrains-mono": "^5.2.8",
+		"@threlte/core": "^8.5.16",
+		"@threlte/extras": "^9.20.1",
 		"@types/cytoscape": "^3.21.9",
 		"cytoscape": "^3.33.1",
 		"d3-drag": "^3.0.0",
 		"d3-force": "^3.0.0",
+		"d3-force-3d": "^3.0.6",
 		"d3-hierarchy": "^3.1.2",
 		"d3-sankey": "^0.12.3",
 		"d3-scale": "^4.0.2",
@@ -52,6 +56,7 @@
 		"d3-shape": "^3.2.0",
 		"d3-transition": "^3.0.1",
 		"d3-zoom": "^3.0.0",
-		"lucide-svelte": "^1.0.1"
+		"lucide-svelte": "^1.0.1",
+		"three": "^0.184.0"
 	}
 }
