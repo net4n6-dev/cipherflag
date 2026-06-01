@@ -150,14 +150,18 @@ func NewRouter(
 			// Global search
 			r.Get("/search", certH.GlobalSearch)
 
-			// Stats (CE subset — no chain-flow / source-lineage graph views,
-			// no ownership/deployment Cytoscape data)
+			// Stats (full analytics suite — CE parity with EE; the host
+			// dependency/blast-radius Cytoscape graph views remain EE-only)
 			r.Get("/stats/summary", statsH.Summary)
 			r.Get("/stats/ciphers", statsH.Ciphers)
 			r.Get("/stats/issuers", statsH.Issuers)
 			r.Get("/stats/expiry-timeline", statsH.ExpiryTimeline)
 			r.Get("/stats/crypto-posture", statsH.CryptoPosture)
 			r.Get("/stats/expiry-forecast", statsH.ExpiryForecast)
+			r.Get("/stats/chain-flow", statsH.ChainFlow)
+			r.Get("/stats/ownership", statsH.Ownership)
+			r.Get("/stats/deployment", statsH.Deployment)
+			r.Get("/stats/source-lineage", statsH.SourceLineage)
 
 			// PKI tree
 			r.Get("/pki/tree", statsH.PKITree)
