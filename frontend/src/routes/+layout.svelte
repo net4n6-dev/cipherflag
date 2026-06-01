@@ -6,6 +6,7 @@
 	import { goto } from '$app/navigation';
 	import AppShell from '$lib/components/layout/AppShell.svelte';
 	import { initTheme } from '$lib/stores/theme.svelte';
+	import { connect as sseConnect, disconnect as sseDisconnect, sseState } from '$lib/events.svelte';
 	import { getCurrentUser, checkAuthStatus, logout as doLogout, type AuthUser } from '$lib/auth';
 
 	let { children } = $props();
@@ -64,9 +65,11 @@
 			return;
 		}
 		authChecked = true;
+		sseConnect();
 	});
 
 	async function handleLogout() {
+		sseDisconnect();
 		await doLogout();
 		currentUser = null;
 		goto('/login');
@@ -100,7 +103,7 @@
 		<AppShell
 			{currentPath}
 			{breadcrumb}
-			sseConnected={false}
+			sseConnected={sseState.connected}
 			{sidebarCollapsed}
 			onToggleSidebar={toggleSidebar}
 			onLogout={handleLogout}
