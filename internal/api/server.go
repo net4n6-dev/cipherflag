@@ -30,6 +30,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/osquery"
+	"github.com/net4n6-dev/cipherflag/internal/sse"
 	"github.com/net4n6-dev/cipherflag/internal/store"
 	"github.com/net4n6-dev/cipherflag/internal/web"
 )
@@ -39,9 +40,9 @@ import (
 // EE-only handler wiring (risk, host blast-radius, host-dependencies, host
 // subgraph, host trust store, AI usage, briefing, container images,
 // network targets, teams, external sources, rank review, PQC migration
-// planner, evidence export, agency OMB, SSE event stream) has been
-// stripped. The Layer 0/1/2/4/5/6.1a-c surface remains, including the
-// PKI cert-graph landscape views (/graph/*).
+// planner, evidence export, agency OMB) has been stripped. The Layer
+// 0/1/2/4/5/6.1a-c surface remains, including the PKI cert-graph
+// landscape views (/graph/*) and the SSE live-update stream (/events/stream).
 //
 // cache and scorer are wired into the UnifiedIngester used by the ingest
 // and osquery webhook handlers. Pass observcache.NewNoop() and
@@ -54,6 +55,7 @@ func NewRouter(
 	jwtSecret []byte,
 	cache observcache.ObservationCache,
 	scorer scoring.Scorer,
+	sseHub *sse.Hub,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -174,6 +176,9 @@ func NewRouter(
 			r.Get("/graph/landscape/aggregated", graphH.AggregatedLandscape)
 			r.Get("/graph/ca/{fingerprint}/children", graphH.CAChildren)
 			r.Get("/graph/ca/{fingerprint}/blast-radius", graphH.BlastRadius)
+
+			// SSE live-update event stream
+			r.Get("/events/stream", sse.NewHandler(sseHub))
 
 			// Endpoints
 			r.Get("/endpoints", certH.Endpoints)

@@ -41,6 +41,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/ingest/tanium"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/cachegc"
 	scanscheduler "github.com/net4n6-dev/cipherflag/internal/scanner/scheduler"
+	"github.com/net4n6-dev/cipherflag/internal/sse"
 	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
@@ -359,7 +360,16 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	}
 
 	jwtSecret := auth.GenerateSecret(cfg.Storage.PostgresURL)
-	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer)
+
+	// SSE hub + PostgreSQL LISTEN goroutine (live-update event stream).
+	sseHub := sse.NewHub()
+	go sseHub.Run()
+	sseCtx, sseCancel := context.WithCancel(ctx)
+	defer sseCancel()
+	go sse.StartListener(sseCtx, cfg.Storage.PostgresURL, sseHub, log.Logger)
+	log.Info().Msg("SSE hub started")
+
+	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer, sseHub)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Listen,
