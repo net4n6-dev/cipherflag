@@ -36,11 +36,12 @@ import (
 
 // NewRouter builds the HTTP router with all CE-flavor API routes.
 //
-// EE-only handler wiring (risk, blast-radius, host-dependencies, host
+// EE-only handler wiring (risk, host blast-radius, host-dependencies, host
 // subgraph, host trust store, AI usage, briefing, container images,
 // network targets, teams, external sources, rank review, PQC migration
 // planner, evidence export, agency OMB, SSE event stream) has been
-// stripped. The Layer 0/1/2/4/5/6.1a-c surface remains.
+// stripped. The Layer 0/1/2/4/5/6.1a-c surface remains, including the
+// PKI cert-graph landscape views (/graph/*).
 //
 // cache and scorer are wired into the UnifiedIngester used by the ingest
 // and osquery webhook handlers. Pass observcache.NewNoop() and
@@ -97,6 +98,7 @@ func NewRouter(
 	appMetaH := handler.NewApplicationMetadataHandler(st)
 	assetOwnH := handler.NewAssetOwnershipHandler(st)
 	venafiH := handler.NewVenafiHandler(st, cfg, cfgPath)
+	graphH := handler.NewGraphHandler(st)
 
 	// Health check
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -165,6 +167,13 @@ func NewRouter(
 
 			// PKI tree
 			r.Get("/pki/tree", statsH.PKITree)
+
+			// Graph / PKI landscape (Cytoscape.js views)
+			r.Get("/graph/landscape", graphH.Landscape)
+			r.Get("/graph/chain/{fingerprint}", graphH.ChainGraph)
+			r.Get("/graph/landscape/aggregated", graphH.AggregatedLandscape)
+			r.Get("/graph/ca/{fingerprint}/children", graphH.CAChildren)
+			r.Get("/graph/ca/{fingerprint}/blast-radius", graphH.BlastRadius)
 
 			// Endpoints
 			r.Get("/endpoints", certH.Endpoints)
