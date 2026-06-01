@@ -355,6 +355,35 @@ export interface SourceLineageResponse {
 	total_certs: number;
 }
 
+export interface LibraryDistItem {
+	library: string;
+	version: string;
+	host_count: number;
+	has_cves: boolean;
+}
+
+export interface AgeBucket {
+	bucket: string;
+	count: number;
+}
+
+export interface ProtectionStats {
+	protected: number;
+	unprotected: number;
+}
+
+export interface SSHKeyAnalytics {
+	key_types: Record<string, number>;
+	age_distribution: AgeBucket[];
+	protection: ProtectionStats;
+	root_authorized_count: number;
+	strength_distribution: Record<string, number>;
+	shared_keys_count: number;
+	shared_keys_instances: number;
+	source_breakdown: Record<string, number>;
+	total_keys: number;
+}
+
 export interface GlobalSearchCert {
 	fingerprint: string;
 	subject_cn: string;
@@ -643,6 +672,8 @@ export const api = {
 	getCryptoPosture: () => fetchJSON<CryptoPostureResponse>('/stats/crypto-posture'),
 	getExpiryForecast: () => fetchJSON<ExpiryForecastResponse>('/stats/expiry-forecast'),
 	getSourceLineage: () => fetchJSON<SourceLineageResponse>('/stats/source-lineage'),
+	getLibraryDistribution: () => fetchJSON<{ items: LibraryDistItem[]; total: number }>('/stats/library-distribution'),
+	getSSHKeyAnalytics: () => fetchJSON<SSHKeyAnalytics>('/stats/ssh-key-analytics'),
 	globalSearch: (q: string, limit = 20) => fetchJSON<GlobalSearchResult>(`/search?q=${encodeURIComponent(q)}&limit=${limit}`),
 	getDomainReport: (domain: string) => fetchJSON<DomainReport>(`/reports/domain?q=${encodeURIComponent(domain)}`),
 	getCAReport: (params: string) => fetchJSON<CAReport>(`/reports/ca?${params}`),
