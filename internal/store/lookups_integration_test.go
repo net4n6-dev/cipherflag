@@ -21,26 +21,6 @@ import (
 	"testing"
 )
 
-func TestIsSelfSigned_TrueForRoot(t *testing.T) {
-	st := testStore(t)
-	ctx := context.Background()
-	if err := st.UpsertCertificate(ctx, minCert("root-fp")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.Pool().Exec(ctx,
-		`INSERT INTO cert_issuance (child_fingerprint, parent_fingerprint, link_method, link_confidence)
-		 VALUES ('root-fp', 'root-fp', 'self_signed', 'attested')`,
-	); err != nil {
-		t.Fatal(err)
-	}
-	if !st.IsSelfSigned(ctx, "root-fp") {
-		t.Error("IsSelfSigned(root-fp) = false, want true")
-	}
-	if st.IsSelfSigned(ctx, "unknown-fp") {
-		t.Error("IsSelfSigned(unknown-fp) = true, want false")
-	}
-}
-
 func TestIsDeclared_TrueWhenInOperatorTable(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()

@@ -28,6 +28,25 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/testdb"
 )
 
+// minCert builds a minimal valid certificate for integration tests that only
+// need a row to exist (lookups, private-key-holding, trust-store fixtures).
+func minCert(fp string) *model.Certificate {
+	return &model.Certificate{
+		FingerprintSHA256:  fp,
+		Subject:            model.DistinguishedName{CommonName: fp},
+		Issuer:             model.DistinguishedName{CommonName: fp},
+		SerialNumber:       "serial-" + fp,
+		NotBefore:          time.Now().Add(-24 * time.Hour),
+		NotAfter:           time.Now().Add(365 * 24 * time.Hour),
+		KeyAlgorithm:       model.KeyRSA,
+		KeySizeBits:        2048,
+		SignatureAlgorithm: model.SigSHA256WithRSA,
+		SourceDiscovery:    model.SourceZeekPassive,
+		FirstSeen:          time.Now(),
+		LastSeen:           time.Now(),
+	}
+}
+
 // testStore creates a PostgresStore connected to the test database, runs
 // migrations, and truncates all tables before each test. The CIPHERFLAG_TEST_DB
 // environment variable must contain a valid PostgreSQL connection string.

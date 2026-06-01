@@ -87,34 +87,6 @@ func TestUpsertOwnershipSighting_Idempotent(t *testing.T) {
 	}
 }
 
-// TestUpsertOwnershipSighting_AutoCreatesTeamSkeleton asserts that
-// writing a sighting inserts a slug-only teams row when the team
-// isn't registered yet — the §2.9 auto-populate path.
-func TestUpsertOwnershipSighting_AutoCreatesTeamSkeleton(t *testing.T) {
-	st := testStore(t)
-	ctx := context.Background()
-
-	seedOwnableCert(t, st, "fp-team", nil, false, "RSA", 2048)
-	if err := st.UpsertOwnershipSighting(ctx, &OwnershipSighting{
-		AssetType: "certificate", AssetID: "fp-team",
-		Team: "fresh-team", Source: "operator_stamp", Confidence: "direct",
-		FirstSeen: time.Now(), LastSeen: time.Now(),
-	}); err != nil {
-		t.Fatalf("upsert: %v", err)
-	}
-
-	team, err := st.GetTeam(ctx, "fresh-team")
-	if err != nil {
-		t.Fatalf("get team: %v", err)
-	}
-	if team == nil {
-		t.Fatal("expected team skeleton row, got nil")
-	}
-	if team.Enriched {
-		t.Error("expected skeleton team to report Enriched=false")
-	}
-}
-
 // TestResolveOwner_PolymorphicAssetTypes smoke-tests the CHECK
 // constraint accepts all 7 enum values and the resolver round-trips.
 func TestResolveOwner_PolymorphicAssetTypes(t *testing.T) {

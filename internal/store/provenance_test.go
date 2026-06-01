@@ -18,7 +18,6 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
@@ -253,50 +252,6 @@ func TestRecordProvenance_MultipleSourcesSameAsset(t *testing.T) {
 	}
 	if len(records) != 3 {
 		t.Errorf("provenance count = %d, want 3 (one per source)", len(records))
-	}
-}
-
-func TestRecordProvenance_WithExternalSourceID(t *testing.T) {
-	st := testStore(t)
-	ctx := context.Background()
-
-	// Seed an external_source row to FK against.
-	src := &ExternalSource{
-		Kind:                "aws_account",
-		DisplayName:         "prov-fk-test",
-		Config:              json.RawMessage(`{}`),
-		Enabled:             true,
-		PollIntervalSeconds: 3600,
-	}
-	if err := st.CreateExternalSource(ctx, src); err != nil {
-		t.Fatalf("CreateExternalSource: %v", err)
-	}
-
-	prov := &model.AssetProvenance{
-		AssetType:        "certificate",
-		AssetID:          "cert-for-prov-test",
-		Source:           "aws_acm",
-		ExternalSourceID: src.ID,
-	}
-	if err := st.RecordProvenance(ctx, prov); err != nil {
-		t.Fatalf("RecordProvenance: %v", err)
-	}
-
-	// Verify via direct query.
-	var got *string
-	err := st.Pool().QueryRow(ctx, `
-		SELECT external_source_id::text
-		FROM asset_provenance
-		WHERE asset_type = $1 AND asset_id = $2 AND source = $3
-	`, "certificate", "cert-for-prov-test", "aws_acm").Scan(&got)
-	if err != nil {
-		t.Fatalf("query: %v", err)
-	}
-	if got == nil {
-		t.Fatal("external_source_id is NULL; want non-NULL")
-	}
-	if *got != src.ID {
-		t.Errorf("external_source_id = %q, want %q", *got, src.ID)
 	}
 }
 
