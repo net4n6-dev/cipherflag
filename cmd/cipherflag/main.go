@@ -207,32 +207,17 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	}
 
 	// Venafi push scheduler (Layer 3 export connector).
-	// Disabled by default; enabled via cfg.Export.Venafi.Enabled.
-	venafiInterval := time.Duration(cfg.Export.Venafi.PushIntervalMinutes) * time.Minute
-	if cfg.Export.Venafi.Enabled {
+	// Always-on, self-gated via LiveConfig.Enabled — enable/disable and
+	// credential changes hot-reload at runtime without a process restart.
+	venafiLive := venafi.NewLiveConfig(cfg.Export.Venafi)
+	{
 		pushCtx, pushCancel := context.WithCancel(ctx)
 		defer pushCancel()
-
-		var venafiClient venafi.VenafiClient
-
-		if cfg.Export.Venafi.Platform == "cloud" {
-			venafiClient = venafi.NewCloudClient(cfg.Export.Venafi.Region, cfg.Export.Venafi.APIKey)
-			log.Info().
-				Str("platform", "cloud").
-				Str("region", cfg.Export.Venafi.Region).
-				Msg("venafi cloud client configured")
-		} else {
-			sdkBase, authBase := venafi.NormalizeTPPBaseURLs(cfg.Export.Venafi.BaseURL)
-			tppClient := venafi.NewClient(sdkBase, authBase, cfg.Export.Venafi.ClientID, cfg.Export.Venafi.RefreshToken)
-			venafiClient = venafi.NewTPPAdapter(tppClient, cfg.Export.Venafi.Folder)
-			log.Info().
-				Str("platform", "tpp").
-				Str("base_url", cfg.Export.Venafi.BaseURL).
-				Msg("venafi tpp client configured")
-		}
-
-		pusher := venafi.NewPusher(venafiClient, st, venafiInterval)
+		pusher := venafi.NewPusher(venafiLive, st)
 		go pusher.Run(pushCtx)
+		log.Info().
+			Bool("enabled", cfg.Export.Venafi.Enabled).
+			Msg("venafi push scheduler started (hot-reload mode)")
 	}
 
 	// CE-flavor: the Zeek log-file ingest poller
@@ -369,7 +354,7 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	go sse.StartListener(sseCtx, cfg.Storage.PostgresURL, sseHub, log.Logger)
 	log.Info().Msg("SSE hub started")
 
-	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer, sseHub)
+	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer, sseHub, venafiLive)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Listen,

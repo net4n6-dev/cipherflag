@@ -19,16 +19,18 @@ type VenafiHandler struct {
 	store        store.CertStore
 	cfg          *config.Config
 	cfgPath      string
+	live         *venafi.LiveConfig
 	mu           sync.RWMutex
 	enabled      bool
 	pushInterval time.Duration
 }
 
-func NewVenafiHandler(s store.CertStore, cfg *config.Config, cfgPath string) *VenafiHandler {
+func NewVenafiHandler(s store.CertStore, cfg *config.Config, cfgPath string, live *venafi.LiveConfig) *VenafiHandler {
 	return &VenafiHandler{
 		store:        s,
 		cfg:          cfg,
 		cfgPath:      cfgPath,
+		live:         live,
 		enabled:      cfg.Export.Venafi.Enabled,
 		pushInterval: time.Duration(cfg.Export.Venafi.PushIntervalMinutes) * time.Minute,
 	}
@@ -180,7 +182,11 @@ func (h *VenafiHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "updated", "note": "restart required for push scheduler changes"})
+	// Hot-reload: push the updated config to the live pusher immediately so
+	// the running Pusher goroutine picks up the change without a restart.
+	h.live.Set(h.cfg.Export.Venafi)
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "updated", "note": "applied"})
 }
 
 // TestConnection validates the current Venafi credentials.
@@ -189,22 +195,10 @@ func (h *VenafiHandler) TestConnection(w http.ResponseWriter, r *http.Request) {
 	v := h.cfg.Export.Venafi
 	h.mu.RUnlock()
 
-	var client venafi.VenafiClient
-
-	if v.Platform == "cloud" {
-		if v.APIKey == "" {
-			writeError(w, http.StatusBadRequest, "API key is not configured")
-			return
-		}
-		client = venafi.NewCloudClient(v.Region, v.APIKey)
-	} else {
-		if v.BaseURL == "" || v.ClientID == "" || v.RefreshToken == "" {
-			writeError(w, http.StatusBadRequest, "TPP credentials are not fully configured")
-			return
-		}
-		sdkBase, authBase := venafi.NormalizeTPPBaseURLs(v.BaseURL)
-		tppClient := venafi.NewClient(sdkBase, authBase, v.ClientID, v.RefreshToken)
-		client = venafi.NewTPPAdapter(tppClient, v.Folder)
+	client, err := venafi.BuildClient(v)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)

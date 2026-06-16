@@ -26,6 +26,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/api/handler"
 	"github.com/net4n6-dev/cipherflag/internal/api/middleware"
 	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
 	cbomimport "github.com/net4n6-dev/cipherflag/internal/import/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
@@ -56,6 +57,10 @@ func NewRouter(
 	cache observcache.ObservationCache,
 	scorer scoring.Scorer,
 	sseHub *sse.Hub,
+	// venafiLive is the hot-reloadable Venafi config shared between the API
+	// handler and the always-on Pusher goroutine. Pass venafi.NewLiveConfig
+	// from main before starting the pusher.
+	venafiLive *venafi.LiveConfig,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -99,7 +104,7 @@ func NewRouter(
 	shadowCAH := handler.NewShadowCAHandler(st)
 	appMetaH := handler.NewApplicationMetadataHandler(st)
 	assetOwnH := handler.NewAssetOwnershipHandler(st)
-	venafiH := handler.NewVenafiHandler(st, cfg, cfgPath)
+	venafiH := handler.NewVenafiHandler(st, cfg, cfgPath, venafiLive)
 	graphH := handler.NewGraphHandler(st)
 
 	// Health check
