@@ -48,7 +48,7 @@ import (
 // Version is the CipherFlag CE release version. Set at build time via
 // -ldflags "-X main.Version=2.0.0"; defaults to the in-source constant
 // for development builds.
-const Version = "2.2.0"
+const Version = "2.2.1"
 
 func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix

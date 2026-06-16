@@ -2,6 +2,71 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [2.2.1] - 2026-06-16
+
+### Changed
+- **Venafi push-scheduler hot-reload.** The always-on, self-gating
+  Venafi pusher now re-reads a thread-safe `LiveConfig` each cycle, so
+  `PUT /api/v1/venafi/config` changes (enable / interval / credentials /
+  platform) take effect without restarting the server — the API
+  response note changes from "restart required" to "applied". Venafi
+  client construction is centralized in `BuildClient`, reusing the
+  existing TPP base-URL normalization.
+
+### Notes
+- Ported from CipherFlag EE v2.6.0.
+
+## [2.2.0] - 2026-06-01
+
+### Operator UI de-moat (Phases 1–3)
+
+CE gains a real operator frontend. The v1 demo UI is superseded by the
+operator shell ported from CipherFlag EE under Apache 2.0, backed by
+newly de-moated graph, analytics, and live-update APIs. (EE retains the
+advanced UX that depends on EE-only backends — host-dependency /
+risk-prioritization blast-radius views, AI enrichment, etc.)
+
+### Added
+
+**Operator shell (Layer 8, de-moated)**
+- AppShell layout (sidebar + topbar + content) with CE-native
+  navigation and a CE badge.
+- Dark / light / system theme store; EE design tokens and fonts; full
+  light-theme color tokenization.
+- TopBar with breadcrumb, theme toggle, global search, and a live SSE
+  status dot.
+
+**PKI Constellation explorer**
+- 3D PKI constellation page (three.js + threlte scene + `d3-force-3d`
+  physics) with an automatic 2D fallback for clients without WebGL.
+- `/pki` now redirects to `/constellation` — the constellation is the
+  primary PKI explorer.
+
+**PKI graph backend (de-moated)**
+- Five `/api/v1/graph/*` routes (`landscape`, `chain/{fingerprint}`,
+  `landscape/aggregated`, `ca/{fingerprint}/children`,
+  `ca/{fingerprint}/blast-radius`) restore the CE PKI Explorer backend.
+- Chain graph builders (`BuildGraphData` / `BuildChainTree`).
+
+**Analytics cutover**
+- Analytics page with a CVE-colored, host-count-sized
+  library-distribution treemap and an SSH key analytics tab, both with
+  graceful empty states.
+- Stats routes registered: `chain-flow`, `ownership`, `deployment`,
+  `source-lineage`.
+
+**SSE live updates**
+- SSE hub + handler + listener fed by Postgres `pg_notify` triggers on
+  asset events; `GET /api/v1/events/stream` event stream.
+- Frontend `EventSource` client connects on auth; the dashboard
+  refreshes (debounced) on `asset.scored` / `asset.discovered` and
+  keeps last-good data on a failed refresh.
+
+### Changed
+- `POST /api/v1/import/cbom` documented as cert-only by default; pass
+  `?host_id=<uuid>` to also import SSH keys, libraries, and crypto
+  configs against that host.
+
 ## [2.1.0] - 2026-05-29
 
 ### Added

@@ -17,7 +17,7 @@ calls home, no telemetry, and no commercial license required.
 
 ## What it does
 
-### Core capabilities (v2.0)
+### Core capabilities
 
 **Layer 0 — unified asset model**
 - Multi-source ingestion API (`POST /api/v1/ingest`) for X.509 certs,
@@ -104,7 +104,25 @@ calls home, no telemetry, and no commercial license required.
 - Push-exports the CBOM inventory to a Venafi Trust Protection
   Platform (TPP) instance or Venafi Cloud tenant via the documented
   Venafi REST API. Configurable endpoint and credentials in
-  `config/cipherflag.toml`.
+  `config/cipherflag.toml`. The push scheduler hot-reloads — changes
+  via `PUT /api/v1/venafi/config` (enable/interval/credentials/platform)
+  take effect without a server restart (v2.2.1).
+
+**Layer 8 — operator UI (v2.2)**
+- Operator shell: sidebar + topbar app layout with CE-native
+  navigation, global search, dark/light/system theming, and a live
+  connection indicator.
+- PKI Constellation explorer: an interactive 3D PKI landscape
+  (three.js/threlte) with an automatic 2D fallback for clients without
+  WebGL; `/pki` opens the constellation.
+- Analytics page: CVE-colored library-distribution treemap and SSH key
+  analytics, backed by the `/api/v1/stats/*` suite.
+- Server-Sent Events live updates: the dashboard and explorer refresh
+  in place as assets are discovered and scored
+  (`GET /api/v1/events/stream`, driven by Postgres `pg_notify`).
+- Five `/api/v1/graph/*` routes power the PKI Explorer backend
+  (landscape, chain, aggregated landscape, CA children, CA
+  blast-radius).
 
 ---
 
@@ -129,10 +147,12 @@ A separate **CipherFlag EE** product (commercial license) adds:
 - **Layer 5.4** — Thales CipherTrust + advanced Venafi TPP
   policy-folder management (deep TPP policy engine and CipherTrust
   adapters; the basic Venafi TPP + Cloud push export ships in CE)
-- **Layer 8** — Operator UX (the production frontend; CE retains
-  the v1 demo frontend as a known limitation)
+- **Layer 8** — advanced operator UX surfaces that depend on EE-only
+  backends (host-dependency / risk-prioritization blast-radius graph
+  views, AI-enrichment surfaces). The CE operator shell, PKI
+  Constellation explorer, and analytics page shipped in CE v2.2.
 - **Certificate Transparency multi-provider arc** (deferred to
-  Phase 2 — will land in CE v2.1 once the EE arc completes)
+  Phase 2 — will land in a future CE release once the EE arc completes)
 
 Contact CipherFlag for EE access.
 
@@ -275,9 +295,13 @@ tree-sitter language bindings, and others).
 | Native scanners (SSH/lib/cert/config/truststore) | shipped v2.0 |
 | Endpoint connectors: Defender/SentinelOne/Tanium/Absolute/Netwrix | shipped v2.1 (CE, off by default) |
 | Venafi TPP + Cloud push export | shipped v2.1 (CE) |
-| Certificate Transparency multi-provider | **deferred to v2.1** (Phase 2) |
-| Production operator UI | **EE-only** (CE retains v1 demo UI) |
-| Risk prioritization + blast-radius | **EE-only** |
+| Venafi push-scheduler hot-reload | shipped v2.2.1 (CE) |
+| Operator shell + global search + theming | shipped v2.2 (CE) |
+| PKI Constellation explorer (3D + 2D fallback) | shipped v2.2 (CE) |
+| Analytics UI (library treemap + SSH analytics) | shipped v2.2 (CE) |
+| SSE live updates (dashboard + explorer) | shipped v2.2 (CE) |
+| Certificate Transparency multi-provider | deferred (Phase 2) |
+| Risk prioritization + blast-radius (host-dependency) | **EE-only** |
 | AI-enriched repo scanning | **EE-only** |
 | Container image scanning | **EE-only** |
 | Active network scanning | **EE-only** |
