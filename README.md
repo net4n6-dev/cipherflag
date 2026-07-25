@@ -130,11 +130,23 @@ calls home, no telemetry, and no commercial license required.
 
 A separate **CipherFlag EE** product (commercial license) adds:
 
-- **Layer 6.1d** — AI-enriched scanning (Anthropic LLM client,
-  license-gated, prompt library, byte-range redactor, exploit /
-  no-leak / strict-JSON guardrails)
+- **Layer 6.1d** — optional LLM-assisted enrichment for repo and
+  container finding triage. **Disabled by default**, license-gated, and
+  narrow in scope: it never produces a grade, a compliance verdict, or
+  CBOM contents — those are deterministic in both editions. The operator
+  chooses and controls the model endpoint: either a **local open-weight
+  model running inside their own network** (Ollama, vLLM, llama.cpp,
+  LM Studio, or any OpenAI-compatible endpoint) or a commercial API
+  under their **own key**. CipherFlag ships no hosted inference service
+  and never proxies scan data. A byte-range redactor is the only code
+  path between detection and prompt assembly (key material is replaced
+  with `[REDACTED-<TYPE>-<hash>]` markers, enforced by test), responses
+  pass exploit / no-leak / strict-JSON guardrails before they can become
+  findings, and spend is capped per scan, per day, and per month with a
+  full token and cost ledger.
 - **Layer 6.2** — Container image scanner (binary crypto detect,
-  OCI registry extraction, AI enrichment tier)
+  OCI registry extraction, plus the same optional enrichment tier
+  described above)
 - **Layer 6.3** — Active network scanner
 - **Layer 3** — Velociraptor endpoint integration (requires vendor
   gRPC SDK — EE-only; Wazuh is handled via webhook and not a
@@ -147,9 +159,23 @@ A separate **CipherFlag EE** product (commercial license) adds:
 - **Layer 5.4** — Thales CipherTrust + advanced Venafi TPP
   policy-folder management (deep TPP policy engine and CipherTrust
   adapters; the basic Venafi TPP + Cloud push export ships in CE)
+- **MCP server** (`cipherflag-mcp`) — a native Model Context Protocol
+  server exposing **45 tools** (36 read-only, 9 write) over the live
+  crypto estate, so an MCP-capable AI agent can query and act on crypto
+  posture directly: inventory and search, blast radius, ownership
+  resolution, compliance status, config drift, coverage, renewal
+  propagation, PQC dispositions/tasks/migration waves, cadence, posture
+  trend, and scoped CBOM export. Auth is Entra device-code OAuth or a
+  scoped agent token. Writes are safety-gated — compliance-affecting
+  writes require a two-step preview + `confirm_token` flow, and tools
+  with external side effects (ServiceNow / Jira ticket creation) also
+  require a provisioned human user.
+- **PQC program management** — per-framework dispositions with expiring
+  waivers, policy scope exclusions, ranked remediation tasks, and
+  ordered migration waves with cross-wave consequence detection.
 - **Layer 8** — advanced operator UX surfaces that depend on EE-only
   backends (host-dependency / risk-prioritization blast-radius graph
-  views, AI-enrichment surfaces). The CE operator shell, PKI
+  views, enrichment surfaces). The CE operator shell, PKI
   Constellation explorer, and analytics page shipped in CE v2.2.
 - **Certificate Transparency multi-provider arc** (deferred to
   Phase 2 — will land in a future CE release once the EE arc completes)
@@ -302,7 +328,7 @@ tree-sitter language bindings, and others).
 | SSE live updates (dashboard + explorer) | shipped v2.2 (CE) |
 | Certificate Transparency multi-provider | deferred (Phase 2) |
 | Risk prioritization + blast-radius (host-dependency) | **EE-only** |
-| AI-enriched repo scanning | **EE-only** |
+| Optional LLM-assisted repo enrichment (off by default; local or BYO-key model) | **EE-only** |
 | Container image scanning | **EE-only** |
 | Active network scanning | **EE-only** |
 | PCI DSS 4.0 compliance | **EE-only** |
