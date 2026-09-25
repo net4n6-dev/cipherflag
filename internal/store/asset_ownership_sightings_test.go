@@ -88,12 +88,14 @@ func TestUpsertOwnershipSighting_Idempotent(t *testing.T) {
 }
 
 // TestResolveOwner_PolymorphicAssetTypes smoke-tests the CHECK
-// constraint accepts all 7 enum values and the resolver round-trips.
+// constraint accepts every CE asset type and the resolver round-trips.
+// protocol_endpoint is EE-only (Layer 4.1c): CE's own asset_type CHECK
+// deliberately omits it, so it is not exercised here.
 func TestResolveOwner_PolymorphicAssetTypes(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
 
-	types := []string{"certificate", "ssh_key", "crypto_library", "crypto_config", "protocol_endpoint", "host", "repository"}
+	types := []string{"certificate", "ssh_key", "crypto_library", "crypto_config", "host", "repository"}
 	for _, at := range types {
 		assetID := "poly-" + at
 		if err := st.UpsertOwnershipSighting(ctx, &OwnershipSighting{

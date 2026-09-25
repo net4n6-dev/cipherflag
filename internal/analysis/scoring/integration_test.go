@@ -236,10 +236,12 @@ func TestIntegration_ScoreSSHKey_PopulatesCompliance(t *testing.T) {
 		t.Fatal("no row persisted")
 	}
 
-	// All 5 frameworks should be populated with non-empty status values
-	// after round-trip through Postgres (JSONB serialisation and back).
+	// Every CE framework should be populated with a non-empty status value
+	// after round-trip through Postgres (JSONB serialisation and back). CE's
+	// compliance evaluators deliberately cover four frameworks; PCI DSS 4 and
+	// FIPS 203/204/205 are EE-only.
 	expectedFrameworks := []string{
-		"nist_800_131a", "pci_dss_4", "fips_140_3", "cnsa_2", "nis2",
+		"nist_800_131a", "fips_140_3", "cnsa_2", "nis2",
 	}
 	for _, fw := range expectedFrameworks {
 		v, ok := r.Compliance[fw]
@@ -278,16 +280,10 @@ func TestIntegration_ScoreSSHKey_PopulatesRisk(t *testing.T) {
 		t.Errorf("RiskScore %d out of 0-100 range after round-trip", r.RiskScore)
 	}
 
-	// RiskFactors must have the three expected keys.
-	for _, k := range []string{"algo_weakness", "quantum_urgency", "compliance_gap"} {
-		if _, ok := r.RiskFactors[k]; !ok {
-			t.Errorf("RiskFactors[%q] missing after JSONB round-trip", k)
-		}
-	}
-
-	// The seeded SSH key is ssh-rsa 1024 bits, which triggers SSH-002 (fail)
-	// so algo_weakness should be substantial (Score degraded by rule stack).
-	if r.RiskFactors["algo_weakness"] <= 0 {
-		t.Errorf("RSA-1024 SSH key should have algo_weakness > 0, got %d", r.RiskFactors["algo_weakness"])
+	// The risk-prioritisation engine (Layer 4.4) is EE-only, so CE's scorer does
+	// not compute RiskFactors. CE only guarantees that the columns round-trip
+	// through Postgres and that the map is never nil for callers.
+	if r.RiskFactors == nil {
+		t.Errorf("RiskFactors is nil after JSONB round-trip; the store must return an empty map")
 	}
 }

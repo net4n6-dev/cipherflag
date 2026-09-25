@@ -49,8 +49,12 @@ func TestGenerate_PopulatesDependenciesArray(t *testing.T) {
 	}
 	require.NotNil(t, leafDep, "leaf cert should appear in Dependencies")
 	require.NotNil(t, leafDep.Dependencies)
-	require.Contains(t, *leafDep.Dependencies, "cert:"+s.CAFP,
-		"leaf cert should depend on its issuing CA via cert_issuance")
+	require.NotEmpty(t, *leafDep.Dependencies, "leaf cert should depend on its algorithm and key")
+	// CE degrades gracefully: the PKI edge engine that derives cert->cert
+	// issuance edges is EE-only, so CE's issuance lookup is a no-op (see
+	// cbom_issuance_adapter.go) and no issuer edge is emitted.
+	require.NotContains(t, *leafDep.Dependencies, "cert:"+s.CAFP,
+		"CE emits no cert->issuer dependency edges")
 }
 
 // TestGenerate_AlgoProperties_ExecutionEnvironmentAndCertificationLevel
