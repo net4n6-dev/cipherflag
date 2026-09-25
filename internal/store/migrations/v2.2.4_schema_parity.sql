@@ -104,7 +104,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS crypto_libraries_host_id_library_name_version_
     ON crypto_libraries (host_id, library_name, version);
 
 -- CHECK constraints from EE (definitions and names copied unchanged), limited to
--- tables and columns CE has. Added NOT VALID so a stray pre-existing row can
+-- tables and columns CE has, and skipping asset_ownership_sightings' asset_type
+-- check: CE already has its own (deliberately without the EE-only
+-- protocol_endpoint value). Added NOT VALID so a stray pre-existing row can
 -- never block startup; new and updated rows are still enforced. Guarded by
 -- name so a re-run is a no-op.
 DO $$
@@ -115,8 +117,6 @@ BEGIN
         SELECT * FROM (VALUES
             ('application_metadata', 'application_metadata_ttl_range',
              'CHECK (data_ttl_years IS NULL OR (data_ttl_years >= 0 AND data_ttl_years <= 100))'),
-            ('asset_ownership_sightings', 'aos_asset_type_check',
-             'CHECK (asset_type = ANY (ARRAY[''certificate'', ''ssh_key'', ''crypto_library'', ''crypto_config'', ''protocol_endpoint'', ''host'', ''repository'']))'),
             ('asset_ownership_sightings', 'aos_confidence_check',
              'CHECK (confidence = ANY (ARRAY[''direct'', ''attested'', ''inferred'', ''observed'']))'),
             ('asset_ownership_sightings', 'aos_source_check',
@@ -140,3 +140,48 @@ BEGIN
     END LOOP;
 END
 $$;
+
+-- host_ip_sightings: make the table match what the store code assumes.
+--   * ip: the code reads it as a string and compares it with text parameters;
+--     the baseline used inet ("cannot scan inet into *string",
+--     "operator does not exist: inet = text"). host() drops the /32 mask.
+--   * host_id: nullable, because sightings for unattributed IPs carry no host.
+--   * attribution: never NULL (the store always writes an object).
+--   * window check: the baseline named it host_ip_sightings_window_valid; EE and
+--     the tests use host_ip_sightings_window_check.
+--   * idx_hip_unique: EE's race guard for the select-then-insert upsert; it
+--     treats a NULL host as one zero-uuid host so null-host sightings dedupe.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_schema = current_schema()
+                 AND table_name = 'host_ip_sightings' AND column_name = 'ip'
+                 AND data_type = 'inet') THEN
+        ALTER TABLE host_ip_sightings ALTER COLUMN ip TYPE text USING host(ip);
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_constraint k
+               JOIN pg_class t ON t.oid = k.conrelid
+               JOIN pg_namespace s ON s.oid = t.relnamespace
+               WHERE s.nspname = current_schema() AND t.relname = 'host_ip_sightings'
+                 AND k.conname = 'host_ip_sightings_window_valid')
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint k
+               JOIN pg_class t ON t.oid = k.conrelid
+               JOIN pg_namespace s ON s.oid = t.relnamespace
+               WHERE s.nspname = current_schema() AND t.relname = 'host_ip_sightings'
+                 AND k.conname = 'host_ip_sightings_window_check') THEN
+        ALTER TABLE host_ip_sightings
+            RENAME CONSTRAINT host_ip_sightings_window_valid TO host_ip_sightings_window_check;
+    END IF;
+END
+$$;
+
+ALTER TABLE host_ip_sightings ALTER COLUMN host_id DROP NOT NULL;
+
+UPDATE host_ip_sightings SET attribution = '{}'::jsonb WHERE attribution IS NULL;
+ALTER TABLE host_ip_sightings
+    ALTER COLUMN attribution SET DEFAULT '{}'::jsonb,
+    ALTER COLUMN attribution SET NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_hip_unique
+    ON host_ip_sightings (source, ip, COALESCE(host_id, '00000000-0000-0000-0000-000000000000'::uuid));

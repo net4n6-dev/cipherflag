@@ -360,8 +360,8 @@ func (s *PostgresStore) ListHNDLAtRiskAssets(ctx context.Context, crqcHorizonYea
 // tagTableForAssetType maps a weak-algorithm occurrence's asset_type
 // string to the (table_name, id_column_name) needed to pull
 // application_tags. Asset-type strings mirror WeakAlgoOccurrence.AssetType
-// values (certificate / ssh_key / crypto_library / protocol_endpoint /
-// crypto_config). Unknown types return an error — the HNDL query
+// values (certificate / ssh_key / crypto_library / crypto_config; CE has no
+// protocol_endpoint asset type). Unknown types return an error — the HNDL query
 // aborts rather than silently skipping, so any future weak-algo asset
 // type addition fails loudly here until added.
 func tagTableForAssetType(t string) (table, idCol string, err error) {
@@ -372,8 +372,6 @@ func tagTableForAssetType(t string) (table, idCol string, err error) {
 		return "ssh_keys", "id", nil
 	case "crypto_library":
 		return "crypto_libraries", "id", nil
-	case "protocol_endpoint":
-		return "protocol_endpoints", "id", nil
 	case "crypto_config":
 		return "crypto_configs", "id", nil
 	default:

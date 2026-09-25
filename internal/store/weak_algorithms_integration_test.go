@@ -33,7 +33,6 @@ import (
 //     one for the plain "rsa" classification, one for the explicit
 //     RSA-1024 key-size flag.
 //   - ssh_key(key_type="ssh-rsa") canonicalises to "rsa" via pqc.Classify.
-//   - protocol_endpoint with weak_kex_seen + has_sshv1 emits one row per flag.
 //   - safe assets (ssh-ed25519, rsa-4096 cert) emit ZERO rows.
 //   - filter.AssetTypes narrows the walk.
 func TestListWeakAlgorithmOccurrences_MixedScope(t *testing.T) {

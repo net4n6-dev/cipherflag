@@ -492,7 +492,8 @@ var applicationTagsTables = []struct {
 	{"ssh_key", "ssh_keys", "id::text"},
 	{"crypto_library", "crypto_libraries", "id::text"},
 	{"crypto_config", "crypto_configs", "id::text"},
-	{"protocol_endpoint", "protocol_endpoints", "id::text"},
+	// CE-flavor: no protocol_endpoint entry (EE-only table, Layer 4.1c). The
+	// backfill walks this whole list, so a missing table would fail every run.
 	{"host", "hosts", "id::text"},
 	{"repository", "repositories", "id::text"},
 }

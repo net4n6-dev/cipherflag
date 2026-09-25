@@ -110,12 +110,12 @@ func TestSchemaParity_CheckConstraintsExist(t *testing.T) {
 
 	for _, c := range []struct{ table, name string }{
 		{"application_metadata", "application_metadata_ttl_range"},
-		{"asset_ownership_sightings", "aos_asset_type_check"},
 		{"asset_ownership_sightings", "aos_confidence_check"},
 		{"asset_ownership_sightings", "aos_source_check"},
 		{"asset_ownership_sightings", "aos_window_check"},
 		{"host_ip_sightings", "host_ip_sightings_confidence_check"},
 		{"host_ip_sightings", "host_ip_sightings_source_check"},
+		{"host_ip_sightings", "host_ip_sightings_window_check"},
 	} {
 		var n int
 		if err := st.pool.QueryRow(ctx, `
@@ -129,6 +129,47 @@ func TestSchemaParity_CheckConstraintsExist(t *testing.T) {
 		if n != 1 {
 			t.Errorf("check constraint %s on %s is missing", c.name, c.table)
 		}
+	}
+}
+
+// The store treats host_ip_sightings.ip as text, allows null-host sightings, and
+// never stores a NULL attribution; the baseline had inet, NOT NULL host_id and a
+// nullable attribution.
+func TestSchemaParity_HostIPSightingsShape(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	var ipType, hostNullable, attrNullable string
+	if err := st.pool.QueryRow(ctx, `
+		SELECT
+		  (SELECT data_type FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'host_ip_sightings' AND column_name = 'ip'),
+		  (SELECT is_nullable FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'host_ip_sightings' AND column_name = 'host_id'),
+		  (SELECT is_nullable FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'host_ip_sightings' AND column_name = 'attribution')
+	`).Scan(&ipType, &hostNullable, &attrNullable); err != nil {
+		t.Fatalf("shape lookup: %v", err)
+	}
+	if ipType != "text" {
+		t.Errorf("host_ip_sightings.ip type = %q, want text", ipType)
+	}
+	if hostNullable != "YES" {
+		t.Errorf("host_ip_sightings.host_id nullable = %q, want YES", hostNullable)
+	}
+	if attrNullable != "NO" {
+		t.Errorf("host_ip_sightings.attribution nullable = %q, want NO", attrNullable)
+	}
+
+	var n int
+	if err := st.pool.QueryRow(ctx, `
+		SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'idx_hip_unique'
+	`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("idx_hip_unique (dedupes null-host sightings) missing: n=%d err=%v", n, err)
+	}
+	if err := st.pool.QueryRow(ctx, `
+		SELECT count(*) FROM pg_constraint k JOIN pg_class t ON t.oid = k.conrelid
+		JOIN pg_namespace s ON s.oid = t.relnamespace
+		WHERE s.nspname = current_schema() AND t.relname = 'host_ip_sightings' AND k.conname = 'host_ip_sightings_window_valid'
+	`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("baseline-named host_ip_sightings_window_valid should have been renamed: n=%d err=%v", n, err)
 	}
 }
 
@@ -179,10 +220,15 @@ func TestSchemaParity_UpgradeKeepsExistingRows(t *testing.T) {
 		DROP INDEX crypto_libraries_host_id_library_name_version_key;
 		ALTER TABLE application_metadata DROP CONSTRAINT application_metadata_ttl_range;
 		ALTER TABLE asset_ownership_sightings
-			DROP CONSTRAINT aos_asset_type_check, DROP CONSTRAINT aos_confidence_check,
+			DROP CONSTRAINT aos_confidence_check,
 			DROP CONSTRAINT aos_source_check, DROP CONSTRAINT aos_window_check;
 		ALTER TABLE host_ip_sightings
 			DROP CONSTRAINT host_ip_sightings_confidence_check, DROP CONSTRAINT host_ip_sightings_source_check;
+		DROP INDEX idx_hip_unique;
+		ALTER TABLE host_ip_sightings ALTER COLUMN host_id SET NOT NULL;
+		ALTER TABLE host_ip_sightings ALTER COLUMN ip TYPE inet USING ip::inet;
+		ALTER TABLE host_ip_sightings ALTER COLUMN attribution DROP NOT NULL;
+		ALTER TABLE host_ip_sightings RENAME CONSTRAINT host_ip_sightings_window_check TO host_ip_sightings_window_valid;
 	`
 	if _, err := st.pool.Exec(ctx, rewind); err != nil {
 		t.Fatalf("rewind to the 2.2.3 shape: %v", err)
@@ -195,6 +241,8 @@ func TestSchemaParity_UpgradeKeepsExistingRows(t *testing.T) {
 			SELECT id, 'ssh-rsa', 'SHA256:legacy', '/root/.ssh/id_rsa' FROM hosts WHERE canonical_hostname = 'legacy-host';
 		INSERT INTO crypto_libraries (host_id, library_name, version, install_path)
 			SELECT id, 'openssl', '1.1.1', '/usr/lib' FROM hosts WHERE canonical_hostname = 'legacy-host';
+		INSERT INTO host_ip_sightings (host_id, ip, first_seen, last_seen, source, confidence)
+			SELECT id, '10.0.0.1'::inet, now(), now(), 'dhcp', 'direct' FROM hosts WHERE canonical_hostname = 'legacy-host';
 	`); err != nil {
 		t.Fatalf("seed legacy rows: %v", err)
 	}
@@ -249,5 +297,15 @@ func TestSchemaParity_UpgradeKeepsExistingRows(t *testing.T) {
 	}
 	if pm != "" {
 		t.Errorf("legacy library package_manager = %q, want ''", pm)
+	}
+
+	// An inet address must convert to bare text, not "10.0.0.1/32".
+	var ip string
+	if err := st.pool.QueryRow(ctx,
+		`SELECT ip FROM host_ip_sightings WHERE source = 'dhcp'`).Scan(&ip); err != nil {
+		t.Fatalf("legacy host_ip_sighting lost: %v", err)
+	}
+	if ip != "10.0.0.1" {
+		t.Errorf("legacy sighting ip = %q, want 10.0.0.1 (no mask)", ip)
 	}
 }

@@ -270,7 +270,7 @@ func (s *PostgresStore) MergeHosts(ctx context.Context, targetID, sourceID strin
 		`UPDATE ssh_keys SET host_id = $1 WHERE host_id = $2`,
 		`UPDATE crypto_libraries SET host_id = $1 WHERE host_id = $2`,
 		`UPDATE crypto_configs SET host_id = $1 WHERE host_id = $2`,
-		`UPDATE protocol_observations SET host_id = $1 WHERE host_id = $2`,
+		// CE-flavor: no protocol_observations update (EE-only table, Layer 4.1c).
 		`UPDATE asset_provenance SET host_id = $1 WHERE host_id = $2`,
 		`UPDATE host_identifiers SET host_id = $1 WHERE host_id = $2`,
 		`UPDATE certificates SET discovered_on_host = $1 WHERE discovered_on_host = $2`,
