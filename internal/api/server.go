@@ -208,8 +208,12 @@ func NewRouter(
 			// CBOM export (Layer 5.1)
 			r.Get("/export/cbom", cbomH.Download)
 
-			// CBOM import (Layer 5.2)
-			r.Post("/import/cbom", cbomH.Import)
+			// CBOM import (Layer 5.2) — writes foreign-BOM contents into the
+			// shared inventory, so admin-only like the other inventory mutations.
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireAdmin)
+				r.Post("/import/cbom", cbomH.Import)
+			})
 
 			// Reports
 			r.Get("/reports/domain", reportsH.DomainReport)
