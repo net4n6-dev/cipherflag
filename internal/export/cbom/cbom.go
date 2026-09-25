@@ -48,7 +48,7 @@ func NewGenerator() *Generator {
 // Spec ref: docs/superpowers/plans/2026-05-16-l4-d-cbom-depth-pass.md §Task 13 Step 5.
 func NewGeneratorWithSigning(signingCfg config.CBOMSigningConfig) (*Generator, error) {
 	if !signingCfg.Enabled {
-		return &Generator{}, nil
+		return NewGenerator(), nil
 	}
 	var signer Signer
 	switch signingCfg.Signer {
