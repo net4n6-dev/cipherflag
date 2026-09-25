@@ -20,6 +20,7 @@ import (
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/dedup"
+	"github.com/net4n6-dev/cipherflag/internal/normalize"
 )
 
 // ComponentKind is the classified category of a CBOM component.
@@ -146,7 +147,7 @@ func classifySSHKey(c cdx.Component, fingerprint string, out ClassifiedComponent
 	}
 	if c.CryptoProperties != nil && c.CryptoProperties.RelatedCryptoMaterialProperties != nil {
 		rp := c.CryptoProperties.RelatedCryptoMaterialProperties
-		k.KeyType = sshKeyTypeFromAlgoRef(string(rp.AlgorithmRef))
+		k.KeyType = normalize.KeyType(sshKeyTypeFromAlgoRef(string(rp.AlgorithmRef)))
 		if rp.Size != nil {
 			k.KeySizeBits = *rp.Size
 		}
@@ -169,7 +170,7 @@ func classifyLibrary(c cdx.Component, out ClassifiedComponent) ClassifiedCompone
 	}
 	out.Kind = KindLibrary
 	out.Lib = &dedup.LibraryDiscovery{
-		LibraryName: strings.ToLower(c.Name),
+		LibraryName: normalize.LibraryName(strings.ToLower(c.Name)),
 		Version:     c.Version,
 	}
 	return out
@@ -219,11 +220,16 @@ func fingerprintFromHashes(hashes *[]cdx.Hash) string {
 	return ""
 }
 
-// sshKeyTypeFromAlgoRef reverses the mapping used in export:
+// sshKeyTypeFromAlgoRef maps a CycloneDX algorithmRef from any producer to the
+// OpenSSH wire name; callers pass the result through normalize.KeyType to get
+// the canonical short form the rest of the inventory uses:
 //
 //	"algo:ed25519"    → "ssh-ed25519"
 //	"algo:rsa"        → "ssh-rsa"
 //	"algo:ecdsa-p256" → "ecdsa-sha2-nistp256"
+//
+// Our own exporter already emits canonical refs ("algo:ecdsa", "algo:dsa"),
+// which pass through unchanged and normalize to themselves.
 func sshKeyTypeFromAlgoRef(ref string) string {
 	ref = strings.TrimPrefix(ref, "algo:")
 	switch ref {

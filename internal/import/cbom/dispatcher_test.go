@@ -70,8 +70,8 @@ func TestClassifyComponent_SSHKeyByBOMRef(t *testing.T) {
 	if got.SSHKey.FingerprintSHA256 != "xyz789" {
 		t.Errorf("Fingerprint = %q, want xyz789", got.SSHKey.FingerprintSHA256)
 	}
-	if got.SSHKey.KeyType != "ssh-ed25519" {
-		t.Errorf("KeyType = %q, want ssh-ed25519", got.SSHKey.KeyType)
+	if got.SSHKey.KeyType != "ed25519" {
+		t.Errorf("KeyType = %q, want ed25519 (canonical form)", got.SSHKey.KeyType)
 	}
 }
 
