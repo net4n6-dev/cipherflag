@@ -2,6 +2,20 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [2.2.2] - 2026-09-25
+
+### Fixed
+- **CBOM export panic when signing is disabled (the default).**
+  `NewGeneratorWithSigning` returned a generator with no FIPS library
+  lookup when `[cbom.signing]` was off, so any export whose scope held
+  both a crypto library and an algorithm component (a certificate or
+  SSH key) hit a nil-pointer dereference. The download endpoints
+  returned a 500; the scheduled push runs in a background goroutine
+  without a `recover`, so it could terminate the process. The disabled
+  path now builds the same generator as the signing path, minus the
+  signer. Application-scoped CBOM generation shared the same defect and
+  is fixed by the same change.
+
 ## [2.2.1] - 2026-06-16
 
 ### Changed
