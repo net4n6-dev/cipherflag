@@ -2,6 +2,49 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [2.2.3] - 2026-09-25
+
+### Security
+- **`verify-cbom` accepted signature blocks that were not Ed25519.** The
+  command parsed but never checked the signature `algorithm`, `kty` or
+  `crv`, so a BOM whose signature block claimed `RS256`, `RSA` or `P-256`
+  was verified as Ed25519 and reported valid (exit 0) whenever the
+  Ed25519 signature bytes checked out. It now exits 2 on anything other
+  than `Ed25519` / `OKP` / `Ed25519`, and also checks the signature and
+  public-key lengths. Re-verify any BOM you previously relied on
+  `verify-cbom` to accept.
+- **`POST /api/v1/import/cbom` is now admin-only.** It writes
+  certificates, SSH keys, libraries and configs from a foreign BOM into
+  the shared inventory, but was open to any authenticated caller,
+  including the read-only `viewer` role and agent tokens.
+
+### Fixed
+- **`verify-cbom` panic on a non-32-byte public key.** A signature block
+  with an embedded key of any other length crashed the command
+  (`ed25519: bad public key length`); it now exits 2 with a message.
+- **CBOM push scheduler no longer dies on a panic.** The scheduled-push,
+  event-drain and notify goroutines had no `recover`, so a panic in
+  generation, in a sink, or while handling a notify event terminated the
+  server. Panics are now contained and logged with a stack: a panicking
+  sink no longer starves later sinks in the scope, a panicking scope is
+  skipped for that tick while other scopes keep pushing, and the notify
+  worker drops the bad event and keeps running.
+- **CBOM import now normalizes SSH key types and library names.** Imported
+  keys were stored as `ssh-ed25519` and libraries as their raw package
+  name (`libssl3`), unlike scanner-discovered assets (`ed25519`,
+  `openssl`). Imports now use the same canonical names, so they match
+  discovered assets and the FIPS library lookup.
+
+### Notes
+- **Behaviour change:** agent tokens, and installs with no users yet, now
+  receive `403` on `POST /api/v1/import/cbom`, consistent with the other
+  admin-only routes. Use an admin session to import.
+- Records created by earlier imports keep their old (non-canonical)
+  names. Re-importing a BOM does not update an existing SSH key's type,
+  and a library re-imported under its canonical name (for example
+  `openssl` instead of `libssl3`) is stored as a new record alongside
+  the earlier one, because the library name is part of its identity.
+
 ## [2.2.2] - 2026-09-25
 
 ### Fixed
