@@ -54,17 +54,31 @@ func (rt *Runtime) notifyWorker(ctx context.Context) {
 			if !ok {
 				return
 			}
-			hostIDs, err := rt.store.GetProvenanceHostIDs(ctx, ev.AssetType, ev.AssetID)
-			if err != nil {
-				log.Error().Err(err).Str("asset_type", ev.AssetType).Str("asset_id", ev.AssetID).
-					Msg("cbom: GetProvenanceHostIDs failed")
-				continue
-			}
-			for i := range rt.scopes {
-				if rt.scopes[i].MatchAssetByHostIDs(hostIDs, ev.AssetType) {
-					rt.dirty.Mark(rt.scopes[i].Name)
-				}
-			}
+			rt.handleNotify(ctx, ev)
+		}
+	}
+}
+
+// handleNotify processes one notify event. A panic is contained to the event:
+// notifyWorker is long-lived and has no recover above it, so an uncontained
+// panic would terminate the process (or, if caught higher up, silently end
+// event-driven pushes until restart).
+func (rt *Runtime) handleNotify(ctx context.Context, ev notifyEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			panicEvent(r).Str("asset_type", ev.AssetType).Str("asset_id", ev.AssetID).
+				Msg("cbom: notify event panicked; event dropped")
+		}
+	}()
+	hostIDs, err := rt.store.GetProvenanceHostIDs(ctx, ev.AssetType, ev.AssetID)
+	if err != nil {
+		log.Error().Err(err).Str("asset_type", ev.AssetType).Str("asset_id", ev.AssetID).
+			Msg("cbom: GetProvenanceHostIDs failed")
+		return
+	}
+	for i := range rt.scopes {
+		if rt.scopes[i].MatchAssetByHostIDs(hostIDs, ev.AssetType) {
+			rt.dirty.Mark(rt.scopes[i].Name)
 		}
 	}
 }

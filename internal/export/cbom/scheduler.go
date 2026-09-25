@@ -16,7 +16,9 @@ package cbom
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
@@ -27,6 +29,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom/sinks/splunk"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom/sinks/syslog"
 	"github.com/net4n6-dev/cipherflag/internal/store"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
 
@@ -106,7 +109,17 @@ func (rt *Runtime) drainLoop(ctx context.Context) {
 // Payloads are lazily generated once per emit call and shared across sinks
 // with the same granularity. Generate failure logs and skips affected sinks.
 // Sink failure logs and continues to the next sink.
+//
+// A panic anywhere in the scope's emit (Generate, GenerateEvents, or a sink) is
+// contained here: the callers are background goroutines with no recover above
+// them, so it would otherwise terminate the process. The scope is skipped for
+// this tick and the caller moves on to the next scope.
 func (rt *Runtime) emitScope(ctx context.Context, scope *Scope) {
+	defer func() {
+		if r := recover(); r != nil {
+			panicEvent(r).Str("scope", scope.Name).Msg("cbom: emit panicked; scope skipped this cycle")
+		}
+	}()
 	if len(scope.Sinks) == 0 {
 		return
 	}
@@ -160,10 +173,31 @@ func (rt *Runtime) emitScope(ctx context.Context, scope *Scope) {
 			continue
 		}
 
-		if err := sink.Send(ctx, payload); err != nil {
+		if err := sendToSink(ctx, sink, payload); err != nil {
 			log.Error().Err(err).Str("scope", scope.Name).Str("sink_type", sc.Type).Msg("cbom: sink send failed")
 		}
 	}
+}
+
+// sendToSink calls sink.Send and converts a panic inside the sink into an
+// error. emitScope runs on background goroutines with no recover above them,
+// so an uncontained sink panic would terminate the whole process; containing
+// it here also lets the remaining sinks in the scope still receive the payload.
+func sendToSink(ctx context.Context, sink Sink, payload *SinkPayload) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			panicEvent(r).Msg("cbom: sink panicked")
+			err = fmt.Errorf("cbom: sink panicked: %v", r)
+		}
+	}()
+	return sink.Send(ctx, payload)
+}
+
+// panicEvent starts an error log event carrying a recovered panic value and
+// the stack. Call it from inside the deferred recover so the stack still
+// includes the panic site.
+func panicEvent(r any) *zerolog.Event {
+	return log.Error().Interface("panic", r).Bytes("stack", debug.Stack())
 }
 
 // resolveSink returns the Sink to use. In tests, sinkOverride is returned for
