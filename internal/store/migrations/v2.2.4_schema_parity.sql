@@ -73,3 +73,70 @@ CREATE INDEX IF NOT EXISTS idx_ad_cs_events_event_timestamp ON ad_cs_events (eve
 CREATE INDEX IF NOT EXISTS idx_ad_cs_events_ca_name ON ad_cs_events (ca_name);
 CREATE INDEX IF NOT EXISTS idx_ad_cs_events_event_type ON ad_cs_events (event_type);
 CREATE INDEX IF NOT EXISTS idx_ad_cs_events_serial_issuer ON ad_cs_events (serial_number, issuer_dn);
+
+-- ssh_keys / crypto_libraries: columns written by UpsertSSHKey and
+-- UpsertCryptoLibrary (baseline omitted them).
+ALTER TABLE ssh_keys
+    ADD COLUMN IF NOT EXISTS owner_user    TEXT    NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS is_authorized BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS is_protected  BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS grants_root   BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE crypto_libraries
+    ADD COLUMN IF NOT EXISTS package_manager TEXT NOT NULL DEFAULT '';
+
+-- Sighting tables: the stores read and return created_at.
+ALTER TABLE host_ip_sightings
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE asset_ownership_sightings
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
+-- Upsert conflict targets. UpsertSSHKey / UpsertCryptoLibrary use
+-- ON CONFLICT (host_id, fingerprint_sha256) and (host_id, library_name, version),
+-- which Postgres only accepts with a unique index on exactly those columns; the
+-- baseline's wider keys (with file_path / install_path) do not qualify. Their
+-- only writers are those two upserts, which could never succeed against the old
+-- schema, so these tables hold no rows on any 2.x database and the indexes
+-- cannot hit duplicates. The wider keys stay (a narrower unique implies them).
+CREATE UNIQUE INDEX IF NOT EXISTS ssh_keys_host_id_fingerprint_sha256_key
+    ON ssh_keys (host_id, fingerprint_sha256);
+CREATE UNIQUE INDEX IF NOT EXISTS crypto_libraries_host_id_library_name_version_key
+    ON crypto_libraries (host_id, library_name, version);
+
+-- CHECK constraints from EE (definitions and names copied unchanged), limited to
+-- tables and columns CE has. Added NOT VALID so a stray pre-existing row can
+-- never block startup; new and updated rows are still enforced. Guarded by
+-- name so a re-run is a no-op.
+DO $$
+DECLARE
+    r record;
+BEGIN
+    FOR r IN
+        SELECT * FROM (VALUES
+            ('application_metadata', 'application_metadata_ttl_range',
+             'CHECK (data_ttl_years IS NULL OR (data_ttl_years >= 0 AND data_ttl_years <= 100))'),
+            ('asset_ownership_sightings', 'aos_asset_type_check',
+             'CHECK (asset_type = ANY (ARRAY[''certificate'', ''ssh_key'', ''crypto_library'', ''crypto_config'', ''protocol_endpoint'', ''host'', ''repository'']))'),
+            ('asset_ownership_sightings', 'aos_confidence_check',
+             'CHECK (confidence = ANY (ARRAY[''direct'', ''attested'', ''inferred'', ''observed'']))'),
+            ('asset_ownership_sightings', 'aos_source_check',
+             'CHECK (source = ANY (ARRAY[''operator_stamp'', ''application_metadata'', ''declared_ca'', ''sighting_agent'', ''git_author'', ''cert_subject'', ''ssh_comment'', ''host_owner'', ''user_identity'', ''entra'', ''csv_import'', ''host_import_cascade'', ''prisma'']))'),
+            ('asset_ownership_sightings', 'aos_window_check',
+             'CHECK (first_seen <= last_seen)'),
+            ('host_ip_sightings', 'host_ip_sightings_confidence_check',
+             'CHECK (confidence = ANY (ARRAY[''direct'', ''attested'', ''inferred'', ''observed'']))'),
+            ('host_ip_sightings', 'host_ip_sightings_source_check',
+             'CHECK (source = ANY (ARRAY[''endpoint'', ''dhcp'', ''zeek_known_hosts'', ''dns_ptr'', ''ddi'', ''ad'']))')
+        ) AS v(tbl, cname, def)
+    LOOP
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint k
+            JOIN pg_class t ON t.oid = k.conrelid
+            JOIN pg_namespace s ON s.oid = t.relnamespace
+            WHERE s.nspname = current_schema() AND t.relname = r.tbl AND k.conname = r.cname
+        ) THEN
+            EXECUTE format('ALTER TABLE %I ADD CONSTRAINT %I %s NOT VALID', r.tbl, r.cname, r.def);
+        END IF;
+    END LOOP;
+END
+$$;
