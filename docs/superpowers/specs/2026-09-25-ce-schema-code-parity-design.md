@@ -1,6 +1,6 @@
 # CE schema/code parity (2.2.4)
 
-Status: design decisions approved in conversation 2026-09-25; awaiting written-spec review.
+Status: implemented; see docs/superpowers/plans/2026-09-25-ce-schema-code-parity.md.
 Target release: **2.2.4** (patch). Blocks: `docs/superpowers/plans/2026-09-25-cbom-export-completion.md`
 (v2.3 Spec 1), which resumes at its Task 0 once this ships.
 
@@ -135,3 +135,51 @@ documented as "reinitialize").
 Ship 2.2.4 (branch `fix/ce-schema-parity` off `main`), tag and push on the
 owner's go, then resume the CBOM export completion plan at Task 0 on a branch
 cut from the updated `main`.
+
+## Outcome (added after implementation)
+
+The design held, but the drift was wider than the eight gap types found up
+front. Driving the integration suite to green needed a systematic method rather
+than one error per run: diffing an EE-built schema against the CE-built one
+(columns, data types and nullability, CHECKs, unique indexes) and checking every
+`ON CONFLICT` target in CE code against the unique indexes that exist.
+
+What that added beyond the original design:
+
+- `ssh_keys.{owner_user,is_authorized,is_protected,grants_root}`,
+  `crypto_libraries.package_manager`, and `created_at` on
+  `host_ip_sightings` / `asset_ownership_sightings`.
+- Unique indexes `ssh_keys(host_id, fingerprint_sha256)` and
+  `crypto_libraries(host_id, library_name, version)`: CE's baseline keys were
+  wider (with `file_path` / `install_path`), so the `ON CONFLICT` upserts failed
+  even with the columns present.
+- `host_ip_sightings`: `ip` inet to text (via `host()`), `host_id` nullable,
+  `attribution` NOT NULL, `idx_hip_unique`, and the window CHECK renamed to
+  `host_ip_sightings_window_check`.
+- Seven CHECK constraints added `NOT VALID`. `asset_ownership_sightings`'
+  asset_type check was not added: CE already has its own, deliberately without
+  the EE-only `protocol_endpoint` value.
+- More EE-only references removed: the ownership-backfill and HNDL tag lookups,
+  and the `protocol_observations` update in `MergeHosts`.
+
+Corrections to claims made in this spec:
+
+- "No callers outside their own integration test" was wrong for the posture
+  snapshot code: `GetApplication` called `ListApplicationSnapshots`, ignoring
+  its error. On CE that query always failed, so the call block was removed and
+  `ScoreDelta7d` / `ReferenceSnapshotAt` stay zero (JSON shape unchanged).
+- The first constraint diff compared only tables that already had a CE
+  constraint and so missed `application_metadata_ttl_range`; the query was
+  fixed and re-run.
+
+Tests and goldens that asserted EE-only behaviour were changed to assert CE's
+(no PCI DSS 4 / FIPS 203-205 frameworks, no risk-engine factors, no
+certificate-to-issuer dependency edges: CE's issuance lookup is a deliberate
+no-op). The two CBOM goldens were regenerated only after verifying
+programmatically that the sole change was removal of 9 `cert:` issuer edges.
+
+Not done, by design: dead `pcap_jobs` store methods remain (no callers);
+EE-only columns and CHECKs with no CE reference were left out; and the
+`operator_declared_cas` / `application_metadata` foreign keys lack EE's
+`ON DELETE SET NULL` (deleting a user who declared a CA or application
+metadata may fail with a foreign-key error).
