@@ -192,6 +192,13 @@ func runVerifyCBOM(_ context.Context, bomPath, trustedKeyPath string) (int, erro
 		fmt.Fprintf(os.Stderr, "verify-cbom: parse signature block: %v\n", err)
 		return 2, nil
 	}
+	// Only Ed25519 (JWK OKP / Ed25519) is supported. The signature block is
+	// untrusted input, so reject anything else rather than treating it as
+	// Ed25519 by default.
+	if sig.Algorithm != "Ed25519" {
+		fmt.Fprintf(os.Stderr, "verify-cbom: unsupported signature algorithm: %q\n", sig.Algorithm)
+		return 2, nil
+	}
 	if sig.Value == "" {
 		// Signature block present but value field empty or absent — tampered/stripped.
 		fmt.Fprintln(os.Stderr, "verify-cbom: signature block is missing value field")
@@ -204,9 +211,22 @@ func runVerifyCBOM(_ context.Context, bomPath, trustedKeyPath string) (int, erro
 		fmt.Fprintf(os.Stderr, "verify-cbom: decode signature value: %v\n", err)
 		return 2, nil
 	}
+	if len(sigBytes) != ed25519.SignatureSize {
+		fmt.Fprintf(os.Stderr, "verify-cbom: signature value is %d bytes, want %d\n", len(sigBytes), ed25519.SignatureSize)
+		return 2, nil
+	}
 	pubBytes, err := base64.RawURLEncoding.DecodeString(sig.PublicKey.X)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "verify-cbom: decode embedded public key: %v\n", err)
+		return 2, nil
+	}
+	// ed25519.Verify panics on a public key that is not exactly 32 bytes.
+	if len(pubBytes) != ed25519.PublicKeySize {
+		fmt.Fprintf(os.Stderr, "verify-cbom: embedded public key is %d bytes, want %d\n", len(pubBytes), ed25519.PublicKeySize)
+		return 2, nil
+	}
+	if sig.PublicKey.KTY != "OKP" || sig.PublicKey.CRV != "Ed25519" {
+		fmt.Fprintf(os.Stderr, "verify-cbom: unsupported publicKey kty/crv: %q/%q (want OKP/Ed25519)\n", sig.PublicKey.KTY, sig.PublicKey.CRV)
 		return 2, nil
 	}
 
