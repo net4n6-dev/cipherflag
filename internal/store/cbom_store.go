@@ -265,8 +265,7 @@ func (s *PostgresStore) ListApplicationScopeAssets(ctx context.Context, tag stri
 			SELECT id::text, 'crypto_library'    FROM crypto_libraries   WHERE $1 = ANY(application_tags)
 			UNION ALL
 			SELECT id::text, 'crypto_config'     FROM crypto_configs     WHERE $1 = ANY(application_tags)
-			UNION ALL
-			SELECT id::text, 'protocol_endpoint' FROM protocol_endpoints WHERE $1 = ANY(application_tags)
+			-- CE-flavor: no protocol_endpoint leg (EE-only, Layer 4.1c).
 			UNION ALL
 			SELECT id::text, 'host'              FROM hosts              WHERE $1 = ANY(application_tags)
 			UNION ALL

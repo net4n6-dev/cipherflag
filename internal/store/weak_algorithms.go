@@ -59,7 +59,7 @@ type WeakAlgoFilter struct {
 
 // ListWeakAlgorithmOccurrences walks the asset tables that directly
 // carry algorithm spellings (certificates, ssh_keys, crypto_libraries,
-// protocol_endpoints, crypto_configs) and emits one row per flagged
+// crypto_configs) and emits one row per flagged
 // (asset, algorithm) pair. Assets without a weak algorithm contribute
 // zero rows.
 //
@@ -132,13 +132,7 @@ func (s *PostgresStore) ListWeakAlgorithmOccurrences(ctx context.Context, filter
 			return out, nil
 		}
 	}
-	if include("protocol_endpoint") {
-		if ok, err := s.scanProtocolEndpointsForWeakAlgo(ctx, append1); err != nil {
-			return nil, fmt.Errorf("weak-algo protocol_endpoints: %w", err)
-		} else if !ok {
-			return out, nil
-		}
-	}
+	// CE-flavor: no protocol_endpoint scan (EE-only, Layer 4.1c).
 	if include("crypto_config") {
 		if ok, err := s.scanCryptoConfigsForWeakAlgo(ctx, append1); err != nil {
 			return nil, fmt.Errorf("weak-algo crypto_configs: %w", err)
@@ -329,126 +323,6 @@ func (s *PostgresStore) scanLibrariesForWeakAlgo(ctx context.Context, emit func(
 		}
 	}
 	return true, rows.Err()
-}
-
-func (s *PostgresStore) scanProtocolEndpointsForWeakAlgo(ctx context.Context, emit func(WeakAlgoOccurrence) bool) (bool, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id::text, COALESCE(host_id::text, '') AS host_id,
-		       server_ip, server_port, protocol,
-		       min_tls_version_seen,
-		       has_sshv1, has_null_export_cipher,
-		       weak_kex_seen, weak_cipher_seen, weak_mac_seen
-		FROM protocol_endpoints
-	`)
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id, hostID, serverIP, protocol string
-		var port int
-		var minTLS *string
-		var hasSSHv1, hasNullExport bool
-		var weakKex, weakCipher, weakMAC []string
-		if err := rows.Scan(&id, &hostID, &serverIP, &port, &protocol, &minTLS, &hasSSHv1, &hasNullExport, &weakKex, &weakCipher, &weakMAC); err != nil {
-			return false, err
-		}
-		label := fmt.Sprintf("%s:%d (%s)", serverIP, port, protocol)
-
-		// SSHv1 — explicit Vulnerable flag.
-		if hasSSHv1 {
-			if !emit(WeakAlgoOccurrence{
-				AssetType:          "protocol_endpoint",
-				AssetID:            id,
-				Label:              label,
-				AlgorithmRaw:       "sshv1",
-				AlgorithmCanonical: "sshv1",
-				Classification:     pqc.QuantumVulnerable,
-				HostID:             hostID,
-				Detail:             "endpoint negotiates SSH protocol v1 (deprecated, cryptographically broken)",
-			}) {
-				return false, nil
-			}
-		}
-		// NULL / EXPORT cipher observed.
-		if hasNullExport {
-			if !emit(WeakAlgoOccurrence{
-				AssetType:          "protocol_endpoint",
-				AssetID:            id,
-				Label:              label,
-				AlgorithmRaw:       "null-or-export-cipher",
-				AlgorithmCanonical: "null-or-export-cipher",
-				Classification:     pqc.QuantumVulnerable,
-				HostID:             hostID,
-				Detail:             "endpoint negotiates NULL or EXPORT cipher suite",
-			}) {
-				return false, nil
-			}
-		}
-		// TLS version below 1.2 seen.
-		if minTLS != nil && (*minTLS == "TLSv1" || *minTLS == "TLSv1.1" || *minTLS == "SSLv3" || *minTLS == "SSLv2") {
-			if !emit(WeakAlgoOccurrence{
-				AssetType:          "protocol_endpoint",
-				AssetID:            id,
-				Label:              label,
-				AlgorithmRaw:       *minTLS,
-				AlgorithmCanonical: strings.ToLower(*minTLS),
-				Classification:     pqc.QuantumVulnerable,
-				HostID:             hostID,
-				Detail:             "endpoint negotiates TLS below 1.2 — deprecated per PCI DSS 4.0 and NIST SP 800-52",
-			}) {
-				return false, nil
-			}
-		}
-		// Per-algorithm weak rows (one per observed weak value).
-		for _, raw := range weakKex {
-			if !emitEndpointWeakAlgo(id, label, hostID, raw, "weak KEX observed", emit) {
-				return false, nil
-			}
-		}
-		for _, raw := range weakCipher {
-			if !emitEndpointWeakAlgo(id, label, hostID, raw, "weak cipher observed", emit) {
-				return false, nil
-			}
-		}
-		for _, raw := range weakMAC {
-			if !emitEndpointWeakAlgo(id, label, hostID, raw, "weak MAC observed", emit) {
-				return false, nil
-			}
-		}
-	}
-	return true, rows.Err()
-}
-
-// emitEndpointWeakAlgo classifies raw through pqc. Unknown-but-
-// named-as-weak values are emitted as Vulnerable since the server
-// listed them in a `weak_*` array — that listing IS the evidence.
-func emitEndpointWeakAlgo(id, label, hostID, raw, detail string, emit func(WeakAlgoOccurrence) bool) bool {
-	if raw == "" {
-		return true
-	}
-	cls := pqc.Classify(raw)
-	status := cls.Status
-	canonical := cls.Canonical
-	if status != pqc.QuantumVulnerable && status != pqc.QuantumWeakened {
-		// The DB flagged this as weak — respect that even when the
-		// taxonomy hasn't caught up yet. Operators see the value
-		// verbatim with a "taxonomy-pending" remediation hint.
-		status = pqc.QuantumVulnerable
-		if canonical == "" {
-			canonical = strings.ToLower(raw)
-		}
-	}
-	return emit(WeakAlgoOccurrence{
-		AssetType:          "protocol_endpoint",
-		AssetID:            id,
-		Label:              label,
-		AlgorithmRaw:       raw,
-		AlgorithmCanonical: canonical,
-		Classification:     status,
-		HostID:             hostID,
-		Detail:             detail,
-	})
 }
 
 // scanCryptoConfigsForWeakAlgo walks crypto_configs.settings JSONB

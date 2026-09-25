@@ -98,31 +98,10 @@ func TestListWeakAlgorithmOccurrences_MixedScope(t *testing.T) {
 		t.Fatalf("seed ssh-ed25519: %v", err)
 	}
 
-	// --- Protocol endpoint: SSHv1 + weak KEX + weak cipher.
-	var epID string
-	if err := st.pool.QueryRow(ctx, `
-		INSERT INTO protocol_endpoints
-			(id, server_ip, server_port, protocol, host_id,
-			 has_sshv1, has_null_export_cipher, min_tls_version_seen,
-			 weak_kex_seen, weak_cipher_seen, weak_mac_seen,
-			 first_seen, last_seen)
-		VALUES
-			(gen_random_uuid(), $1, 22, 'ssh', $2,
-			 true, false, NULL,
-			 ARRAY['diffie-hellman-group1-sha1']::text[],
-			 ARRAY['arcfour']::text[],
-			 ARRAY[]::text[],
-			 now(), now())
-		RETURNING id::text
-	`, "10.0.0."+suffix[:2], hostID).Scan(&epID); err != nil {
-		t.Fatalf("seed protocol_endpoint: %v", err)
-	}
-
 	// --- Cleanup
 	t.Cleanup(func() {
 		_, _ = st.pool.Exec(ctx, `DELETE FROM certificates WHERE fingerprint_sha256 IN ($1, $2)`, certFP, certFP2)
 		_, _ = st.pool.Exec(ctx, `DELETE FROM ssh_keys WHERE id::text IN ($1, $2)`, sshID1, sshID2)
-		_, _ = st.pool.Exec(ctx, `DELETE FROM protocol_endpoints WHERE id::text = $1`, epID)
 		_, _ = st.pool.Exec(ctx, `DELETE FROM hosts WHERE id::text = $1`, hostID)
 	})
 
@@ -138,7 +117,7 @@ func TestListWeakAlgorithmOccurrences_MixedScope(t *testing.T) {
 	mine := make([]WeakAlgoOccurrence, 0)
 	for _, o := range occs {
 		switch o.AssetID {
-		case certFP, certFP2, sshID1, sshID2, epID:
+		case certFP, certFP2, sshID1, sshID2:
 			mine = append(mine, o)
 		}
 	}
@@ -176,18 +155,6 @@ func TestListWeakAlgorithmOccurrences_MixedScope(t *testing.T) {
 	rsaSSHRows := filterBy(mine, "ssh_key", sshID1)
 	if len(rsaSSHRows) < 2 {
 		t.Errorf("ssh-rsa 1024: expected ≥2 rows, got %d: %+v", len(rsaSSHRows), rsaSSHRows)
-	}
-
-	// Protocol endpoint: sshv1 + weak kex + weak cipher = 3 rows minimum.
-	epRows := filterBy(mine, "protocol_endpoint", epID)
-	if len(epRows) < 3 {
-		t.Errorf("protocol_endpoint: expected ≥3 rows (sshv1 + weak kex + weak cipher), got %d: %+v", len(epRows), epRows)
-	}
-	if !containsRaw(epRows, "sshv1") {
-		t.Errorf("protocol_endpoint missing SSHv1 row")
-	}
-	if !containsRaw(epRows, "diffie-hellman-group1-sha1") {
-		t.Errorf("protocol_endpoint missing weak KEX row")
 	}
 
 	// --- Exercise: filter to certificate only.

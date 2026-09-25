@@ -161,9 +161,7 @@ func (s *PostgresStore) ListApplications(ctx context.Context, before *time.Time)
 			UNION ALL
 			SELECT unnest(cfg.application_tags), 'crypto_config', cfg.id::text
 			FROM crypto_configs cfg WHERE array_length(cfg.application_tags, 1) > 0
-			UNION ALL
-			SELECT unnest(p.application_tags), 'protocol_endpoint', p.id::text
-			FROM protocol_endpoints p WHERE array_length(p.application_tags, 1) > 0
+			-- CE-flavor: no protocol_endpoint leg (EE-only, Layer 4.1c).
 			UNION ALL
 			SELECT unnest(h.application_tags), 'host', h.id::text
 			FROM hosts h WHERE array_length(h.application_tags, 1) > 0
@@ -292,9 +290,7 @@ func (s *PostgresStore) tagsWithDeadlineBefore(ctx context.Context, cutoff time.
 			UNION ALL
 			SELECT unnest(cfg.application_tags), 'crypto_config', cfg.id::text
 			FROM crypto_configs cfg WHERE array_length(cfg.application_tags, 1) > 0
-			UNION ALL
-			SELECT unnest(p.application_tags), 'protocol_endpoint', p.id::text
-			FROM protocol_endpoints p WHERE array_length(p.application_tags, 1) > 0
+			-- CE-flavor: no protocol_endpoint leg (EE-only, Layer 4.1c).
 			UNION ALL
 			SELECT unnest(h.application_tags), 'host', h.id::text
 			FROM hosts h WHERE array_length(h.application_tags, 1) > 0
@@ -341,7 +337,6 @@ func (s *PostgresStore) tagsWithDeadlineBefore(ctx context.Context, cutoff time.
 //	ssh_key           → file_path
 //	crypto_library    → library_name + ' ' + version
 //	crypto_config     → file_path
-//	protocol_endpoint → server_ip:server_port
 //	host              → canonical_hostname
 //	repository        → url
 func (s *PostgresStore) GetApplication(ctx context.Context, tag string) (*ApplicationDetail, error) {
@@ -361,8 +356,7 @@ func (s *PostgresStore) GetApplication(ctx context.Context, tag string) (*Applic
 			SELECT 'crypto_library', id::text, library_name || ' ' || version FROM crypto_libraries    WHERE $1 = ANY(application_tags)
 			UNION ALL
 			SELECT 'crypto_config', id::text, COALESCE(NULLIF(file_path, ''), id::text) FROM crypto_configs WHERE $1 = ANY(application_tags)
-			UNION ALL
-			SELECT 'protocol_endpoint', id::text, server_ip || ':' || server_port::text FROM protocol_endpoints WHERE $1 = ANY(application_tags)
+			-- CE-flavor: no protocol_endpoint leg (EE-only, Layer 4.1c).
 			UNION ALL
 			SELECT 'host', id::text, COALESCE(NULLIF(canonical_hostname, ''), id::text) FROM hosts     WHERE $1 = ANY(application_tags)
 			UNION ALL
