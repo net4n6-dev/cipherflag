@@ -28,11 +28,10 @@ import (
 
 // BenchmarkGetApplication_ByScope measures end-to-end wall-clock of
 // PostgresStore.GetApplication at increasing scope sizes. The call
-// path issues three sequential queries:
+// path issues two sequential queries:
 //
-//	1. UNION-ALL across 7 tag-carrying tables joined to asset_health_reports
-//	2. ListApplicationSnapshots (for the 7-day score-delta reference)
-//	3. ListApplicationScopeAssets (for top-contributing-rules aggregation)
+//	1. UNION-ALL across the tag-carrying tables joined to asset_health_reports
+//	2. ListApplicationScopeAssets (for top-contributing-rules aggregation)
 //
 // Benchmark informs the v1.3.8 decision on whether to consolidate.
 // Per the Dev Philosophy: profile-first. If total wall-clock is

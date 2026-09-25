@@ -77,12 +77,11 @@ type ApplicationDetail struct {
 	FindingsDue30d  int                   `json:"findings_due_30d"`
 	Assets          []ApplicationAssetRef `json:"assets"`
 
-	// Score delta decomposition (AQ-CE-03). ScoreDelta7d is the current
-	// AverageScore minus the AverageScore from the oldest snapshot in
-	// the last 7 days — negative values mean posture degraded, positive
-	// mean it improved. ReferenceSnapshotAt is the captured_at of that
-	// oldest snapshot (zero-valued if no snapshots exist yet; the
-	// snapshot runner populates one row per day).
+	// Score delta decomposition (AQ-CE-03), kept for API shape. Populated only
+	// where the EE-only application posture snapshot runner exists; in CE both
+	// stay zero-valued. ScoreDelta7d would be the current AverageScore minus
+	// the oldest snapshot's in the last 7 days; ReferenceSnapshotAt that
+	// snapshot's captured_at.
 	ScoreDelta7d         int                 `json:"score_delta_7d"`
 	ReferenceSnapshotAt  time.Time           `json:"reference_snapshot_at"`
 	TopContributingRules []RuleContribution  `json:"top_contributing_rules"`
@@ -433,15 +432,9 @@ func (s *PostgresStore) GetApplication(ctx context.Context, tag string) (*Applic
 	// the bottom in label order.
 	sortAssetsByWorstFirst(detail.Assets)
 
-	// ── AQ-CE-03: score delta decomposition ─────────────────────────────
-	// Reference point = oldest snapshot within the last 7 days. If the
-	// application was tagged less than 7d ago, the runner may not have
-	// 7d of history yet — use whatever's oldest in the window.
-	if snaps, err := s.ListApplicationSnapshots(ctx, tag, time.Now().Add(-7*24*time.Hour)); err == nil && len(snaps) > 0 {
-		oldest := snaps[0] // ASC-ordered by captured_at
-		detail.ScoreDelta7d = detail.AverageScore - oldest.AverageScore
-		detail.ReferenceSnapshotAt = oldest.CapturedAt
-	}
+	// CE-flavor: no score-delta decomposition. It needs application posture
+	// snapshots (EE-only, AQ-CE-03); CE has no snapshot table or writer, so
+	// ScoreDelta7d and ReferenceSnapshotAt stay at their zero values.
 
 	// Top-contributing rules: aggregate current findings on tagged assets
 	// by rule_id. Reuses ListApplicationScopeAssets (tolerant of the
@@ -601,124 +594,6 @@ func (s *PostgresStore) SeedApplicationTagsFromPatterns(ctx context.Context) err
 	}
 
 	return nil
-}
-
-// ApplicationPostureSnapshot is one row in the application_posture_snapshots
-// table — a point-in-time capture of an application's composite posture
-// suitable for time-series rendering. Powers AQ-AP-04.
-type ApplicationPostureSnapshot struct {
-	ID              string    `json:"id"`
-	Tag             string    `json:"tag"`
-	CapturedAt      time.Time `json:"captured_at"`
-	CompositeGrade  string    `json:"composite_grade"`
-	AverageScore    int       `json:"average_score"`
-	TotalAssets     int       `json:"total_assets"`
-	ScoredAssets    int       `json:"scored_assets"`
-	FindingCount    int       `json:"finding_count"`
-	FindingsOverdue int       `json:"findings_overdue"`
-	FindingsDue30d  int       `json:"findings_due_30d"`
-}
-
-// SaveApplicationPostureSnapshot inserts a snapshot row for one tag.
-// No dedup on (tag, captured_at) — the snapshot runner is responsible
-// for rate-limiting; callers that want idempotency can check ListLatestSnapshot.
-func (s *PostgresStore) SaveApplicationPostureSnapshot(ctx context.Context, snap *ApplicationPostureSnapshot) error {
-	at := snap.CapturedAt
-	if at.IsZero() {
-		at = time.Now()
-	}
-	return s.pool.QueryRow(ctx, `
-		INSERT INTO application_posture_snapshots
-		    (tag, captured_at, composite_grade, average_score, total_assets,
-		     scored_assets, finding_count, findings_overdue, findings_due_30d)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id
-	`, snap.Tag, at, snap.CompositeGrade, snap.AverageScore, snap.TotalAssets,
-		snap.ScoredAssets, snap.FindingCount, snap.FindingsOverdue, snap.FindingsDue30d,
-	).Scan(&snap.ID)
-}
-
-// PruneApplicationPostureSnapshotsOlderThan deletes every snapshot
-// row whose captured_at is strictly before `cutoff` and returns the
-// number of rows removed. Callers pass `time.Now().Add(-retention)`;
-// the Runner computes this from its configurable RetainDays field.
-//
-// Idempotent — no snapshots older than `cutoff` leaves the table
-// unchanged and returns 0, nil. Uses the `(tag, captured_at DESC)`
-// index on application_posture_snapshots (migration 022) for the
-// predicate; at typical volumes (hundreds of apps × daily tick)
-// this is a cheap scan over the trailing edge of the index.
-func (s *PostgresStore) PruneApplicationPostureSnapshotsOlderThan(ctx context.Context, cutoff time.Time) (int, error) {
-	tag, err := s.pool.Exec(ctx, `
-		DELETE FROM application_posture_snapshots
-		WHERE captured_at < $1
-	`, cutoff)
-	if err != nil {
-		return 0, fmt.Errorf("prune application posture snapshots: %w", err)
-	}
-	return int(tag.RowsAffected()), nil
-}
-
-// LatestPostureSnapshotAt returns the most-recent captured_at across
-// all tags, or zero-time if no snapshots exist yet. Used by the
-// snapshot runner to decide whether to perform a startup catchup — if
-// this value is stale by ≥ the runner's interval, the process was
-// likely down across one or more ticks and a catchup capture is due.
-func (s *PostgresStore) LatestPostureSnapshotAt(ctx context.Context) (time.Time, error) {
-	var latest *time.Time
-	err := s.pool.QueryRow(ctx, `
-		SELECT MAX(captured_at) FROM application_posture_snapshots
-	`).Scan(&latest)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("latest posture snapshot at: %w", err)
-	}
-	if latest == nil {
-		return time.Time{}, nil
-	}
-	return *latest, nil
-}
-
-// ListApplicationSnapshots returns snapshots for one tag, sorted by
-// captured_at ASC (oldest → newest for a left-to-right chart). When
-// `since` is zero-value, returns the last 30 days.
-func (s *PostgresStore) ListApplicationSnapshots(ctx context.Context, tag string, since time.Time) ([]ApplicationPostureSnapshot, error) {
-	if tag == "" {
-		return nil, fmt.Errorf("list application snapshots: empty tag")
-	}
-	if since.IsZero() {
-		since = time.Now().Add(-30 * 24 * time.Hour)
-	}
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, tag, captured_at, composite_grade, average_score,
-		       total_assets, scored_assets, finding_count,
-		       findings_overdue, findings_due_30d
-		FROM application_posture_snapshots
-		WHERE tag = $1 AND captured_at >= $2
-		ORDER BY captured_at ASC
-	`, tag, since)
-	if err != nil {
-		return nil, fmt.Errorf("list application snapshots: %w", err)
-	}
-	defer rows.Close()
-	var out []ApplicationPostureSnapshot
-	for rows.Next() {
-		var sn ApplicationPostureSnapshot
-		if err := rows.Scan(
-			&sn.ID, &sn.Tag, &sn.CapturedAt, &sn.CompositeGrade, &sn.AverageScore,
-			&sn.TotalAssets, &sn.ScoredAssets, &sn.FindingCount,
-			&sn.FindingsOverdue, &sn.FindingsDue30d,
-		); err != nil {
-			return nil, err
-		}
-		out = append(out, sn)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if out == nil {
-		out = []ApplicationPostureSnapshot{}
-	}
-	return out, nil
 }
 
 // sortApplicationsByTotalDesc sorts in place: total_assets DESC, tag ASC.
