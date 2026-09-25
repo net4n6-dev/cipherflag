@@ -2,6 +2,57 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [2.2.4] - 2026-09-25
+
+### Fixed
+- **A database built from CE's migrations lacked columns, keys and tables that
+  CE's own code uses.** The v2.0 baseline was cut from EE's migrations, but the
+  ported Go code was not trimmed to match and several CE-bound columns and
+  keys were dropped. On a fresh database this broke:
+  - host ingestion and merging (`hosts.aliases`, `hosts.discovery_sources`;
+    host merge also updated an EE-only table);
+  - SSH key and crypto library ingestion from every agent and endpoint
+    connector (`ssh_keys.owner_user`/`is_authorized`/`is_protected`/`grants_root`,
+    `crypto_libraries.package_manager`, and unique keys that did not match the
+    `ON CONFLICT` targets the upserts use);
+  - asset scoring and every CBOM export query (`asset_health_reports.risk_score`,
+    `risk_factors`);
+  - shadow-CA and application-metadata storage (`added_by`/`added_at` were
+    named `declared_by`/`declared_at`);
+  - ownership and host-IP sightings (`created_at`; `host_ip_sightings.ip` was
+    `inet` while the code treats it as text; `host_id` was NOT NULL although
+    unattributed-IP sightings carry no host);
+  - the Netwrix connector (`ad_cs_events` table).
+  A new migration, `v2.2.4_schema_parity.sql`, adds the missing columns,
+  renames the mis-named ones, converts `host_ip_sightings.ip` to text (existing
+  rows keep their address, without the `/32` mask), adds the unique keys and
+  the EE CHECK constraints CE code relies on, and creates `ad_cs_events`. It
+  applies automatically at startup and is idempotent. Existing rows are
+  preserved (covered by an upgrade test). The CHECK constraints are added
+  `NOT VALID`, so they enforce new and updated rows without scanning old ones.
+- Removed CE code that queried EE-only objects CE never creates: the
+  `protocol_endpoints` legs of the application summary, application detail,
+  deadline, weak-algorithm, application-CBOM, ownership-backfill and HNDL tag
+  queries, the `protocol_observations` update in host merge, and the unused
+  application-posture-snapshot store functions. Those queries failed on every
+  CE database. `GetApplication` no longer runs a snapshot query that always
+  failed; `score_delta_7d` and `reference_snapshot_at` stay zero in CE, as
+  before.
+
+### Changed
+- CI now runs the integration-tagged test suite against a Postgres service, so
+  schema drift fails the build. The integration suite (previously not run in
+  CI, with 11 failing packages) is green.
+- Integration tests and CBOM goldens that asserted EE-only behaviour now assert
+  CE's: no PCI DSS 4 / FIPS 203-205 compliance frameworks, no risk-engine
+  factors, no certificate-to-issuer dependency edges in CBOMs.
+
+### Notes
+- `asset_health_reports.risk_score` and `risk_factors` stay at their defaults in
+  CE; the risk engine is EE-only.
+- Because the affected write paths never succeeded against the old schema, the
+  tables that gain new unique keys were empty on every 2.x database.
+
 ## [2.2.3] - 2026-09-25
 
 ### Security
