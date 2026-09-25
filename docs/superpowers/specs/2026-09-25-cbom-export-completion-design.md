@@ -45,11 +45,16 @@ stripped, not carried over.
    - `internal/api/handler/repo_cbom.go:77` (`json.NewEncoder`)
    - `internal/export/cbom/sinks/s3/s3.go:118` (`cdx.NewBOMEncoder`)
 
-   Established from the struct tag and call sites; **not yet reproduced at
-   runtime**. Reproducing it is the first implementation step. The handler
-   tests have no signing case. With signing enabled the server logs "CBOM
-   signing enabled" at startup, so operators would believe these outputs are
-   signed.
+   In CE this is established from the struct tag and call sites; **not yet
+   reproduced at runtime in CE**. Reproducing it is the first implementation
+   step. **EE confirmed the identical defect at runtime** (2026-09-25, stock
+   cyclonedx-go v0.10.0, same encoder calls): every one of its equivalent
+   writers emitted `"signature":{}`, an empty object and not an absent key, so
+   a consumer sees a signature key with nothing in it. The generators do sign;
+   the signature is lost at serialisation. The handler tests have no signing
+   case. With signing enabled the server logs "CBOM signing enabled" at
+   startup, so operators would believe these outputs are signed. The tests in
+   this spec must therefore treat a bare `"signature":{}` as a failure.
 2. **The pipelines are not identical.** `Generate` (`generator.go`) and
    `GenerateForApplication` (`application.go`) differ in:
    dependency scope (`func(string) bool { return true }` vs `inBom[ref]`),
@@ -77,14 +82,14 @@ stripped, not carried over.
 
 ### Units
 
-**`bomcodec`** (new package `internal/export/cbom/bomcodec`)
+**`bomjson`** (new package `internal/export/cbom/bomjson`)
 - Holds `MarshalSignedBOM` (moved from `signing.go`, with `jsfSignatureJSON` /
   `jsfPublicKeyJSON`) and `Write(w io.Writer, bom *cdx.BOM) error`.
 - Depends only on `cyclonedx-go`. This lets `sinks/s3` import it; `s3` cannot
   import `cbom` (import cycle).
 - `cbom.MarshalSignedBOM` remains as a one-line wrapper so
   `cmd/cipherflag/cbom_sign.go` and `encodeBOM` compile unchanged.
-- `cbom.encodeBOM` delegates to `bomcodec`; the S3 sink calls `bomcodec`
+- `cbom.encodeBOM` delegates to `bomjson`; the S3 sink calls `bomjson`
   directly.
 
 **`buildBOMFromRows`** (`cbom/generator.go`)
@@ -100,7 +105,7 @@ stripped, not carried over.
 - Mapping errors fail the export for all three (see Decisions).
 
 **`writeBOM`** (handler package, one helper for all four export handlers)
-- Encodes through `bomcodec` into a buffer first, so a serialisation failure
+- Encodes through `bomjson` into a buffer first, so a serialisation failure
   becomes a real `500` (today headers are sent before encoding and the error is
   dropped).
 - Sets `Content-Type`; sets `Content-Disposition: attachment` when given a
@@ -170,7 +175,7 @@ Order of work (each step a separate, revertable commit; at most 5 files per
 phase per `docs/CLAUDE.md`; apply the Step-0 dead-code rule to any touched file
 over 300 LOC):
 
-1. **Signed-output fix.** Failing tests first for each writer; then `bomcodec`
+1. **Signed-output fix.** Failing tests first for each writer; then `bomjson`
    and the writer changes.
 2. **Pure refactor** to `buildBOMFromRows`. Existing golden tests
    (`golden_test.go`, `golden_properties_test.go`,
@@ -220,5 +225,8 @@ provenance, `pqc_disposition` and `identity_kind` properties.
 - Fixed: `asset_count` now reflects emitted components, with omission
   disclosure; syslog TLS no longer requires a client certificate; export
   handlers no longer time out at 30s or drop serialisation errors.
-- Follow-up outside this repo: the EE context should check whether EE's
-  `DownloadEstate` and related handlers have the same unsigned-output problem.
+- Follow-up outside this repo: resolved. The EE session confirmed the same
+  defect on its download, estate, filtered, application, repo and S3 writers
+  (and on the MCP `cbom_export_filtered` tool, which fetches the filtered
+  download over HTTP), with no test coverage of signed output on any of them.
+  The EE session is reporting it to the owner; no EE change was made from CE.
