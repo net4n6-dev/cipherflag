@@ -160,7 +160,7 @@ git push origin main
 
 ## Workflow 4: Running Integration Tests
 
-The EE codebase has integration tests that require PostgreSQL.
+CipherFlag has integration tests (build tag `integration`) that require PostgreSQL. CI runs them on every push and pull request.
 
 ### Start the test database
 

@@ -76,6 +76,11 @@ calls home, no telemetry, and no commercial license required.
   `?host_id=<uuid>` to also import SSH keys, libraries, and crypto
   configs against that host (without a host they are counted as
   skipped)
+- Admin-only (since v2.2.3): viewer sessions and agent tokens receive
+  `403`
+- Imported SSH key types and library names are normalized to the same
+  canonical names the scanners use (`ed25519`, `openssl`), so imports
+  match discovered assets
 
 **Layer 5.3 — export sinks**
 - S3 (AWS or S3-compatible: MinIO, Wasabi, Backblaze)
@@ -238,7 +243,7 @@ cp config/cipherflag.toml.example config/cipherflag.toml
 
 ```
 cipherflag serve                   Start the HTTP API server
-cipherflag migrate                 Apply the v2.0 baseline schema
+cipherflag migrate                 Apply pending schema migrations
 cipherflag seed                    No-op in CE (no built-in seed dataset)
 cipherflag setup                   Print configuration-driven setup banner
 cipherflag declared-cas <verb>     Manage the operator-declared CA registry
@@ -305,6 +310,9 @@ tree-sitter language bindings, and others).
 - `discovery-packs/` — osquery queries + bash/PowerShell scripts
   for endpoint discovery
 - `docs/` — operator-facing reference material
+- Development: the integration tests run against a real Postgres
+  (`go test -tags integration ./...` with `CIPHERFLAG_TEST_DB` set) and
+  run in CI; see [`docs/developer-workflow.md`](docs/developer-workflow.md)
 
 ---
 
@@ -326,6 +334,8 @@ tree-sitter language bindings, and others).
 | PKI Constellation explorer (3D + 2D fallback) | shipped v2.2 (CE) |
 | Analytics UI (library treemap + SSH analytics) | shipped v2.2 (CE) |
 | SSE live updates (dashboard + explorer) | shipped v2.2 (CE) |
+| CBOM hardening: `verify-cbom` validation, admin-only import, push-scheduler panic containment | shipped v2.2.2–v2.2.3 (CE) |
+| Fresh-install schema fixes (migration `v2.2.4_schema_parity.sql`) + integration tests in CI | shipped v2.2.4 (CE) |
 | Certificate Transparency multi-provider | deferred (Phase 2) |
 | Risk prioritization + blast-radius (host-dependency) | **EE-only** |
 | Optional LLM-assisted repo enrichment (off by default; local or BYO-key model) | **EE-only** |
