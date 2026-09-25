@@ -48,6 +48,34 @@ BEGIN
 END
 $$;
 
+-- The added_by foreign keys: EE (and the stores' own comments) treat a deleted
+-- user as "added_by becomes NULL" (ON DELETE SET NULL). The baseline's had no
+-- ON DELETE clause, so once these tables became writable, deleting any user who
+-- had declared a CA or application metadata failed with a foreign-key
+-- violation. Replace them, guarded by the old constraint name so a re-run is a
+-- no-op.
+DO $$
+DECLARE
+    t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['operator_declared_cas', 'application_metadata']
+    LOOP
+        IF EXISTS (
+            SELECT 1 FROM pg_constraint k
+            JOIN pg_class c ON c.oid = k.conrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = current_schema() AND c.relname = t
+              AND k.conname = t || '_declared_by_fkey'
+        ) THEN
+            EXECUTE format('ALTER TABLE %I DROP CONSTRAINT %I', t, t || '_declared_by_fkey');
+            EXECUTE format(
+                'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (added_by) REFERENCES users(id) ON DELETE SET NULL',
+                t, t || '_added_by_fkey');
+        END IF;
+    END LOOP;
+END
+$$;
+
 -- ad_cs_events: written by the Netwrix connector, which ships in CE.
 -- Definition copied unchanged from EE migration 007_ad_cs_events.sql.
 CREATE TABLE IF NOT EXISTS ad_cs_events (

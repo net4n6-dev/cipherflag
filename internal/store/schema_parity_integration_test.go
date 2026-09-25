@@ -173,6 +173,49 @@ func TestSchemaParity_HostIPSightingsShape(t *testing.T) {
 	}
 }
 
+// EE's added_by foreign keys are ON DELETE SET NULL, and the stores document
+// that ("empty if added_by was deleted"). The baseline's had no ON DELETE, so
+// once these tables became writable, deleting any user who had declared a CA or
+// application metadata failed with a foreign-key violation.
+func TestSchemaParity_DeletingDeclaringUserKeepsRowsAndNullsAddedBy(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+
+	var userID string
+	if err := st.pool.QueryRow(ctx, `
+		INSERT INTO users (email, password_hash) VALUES ('declarer@example.com', 'x') RETURNING id::text
+	`).Scan(&userID); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	if _, err := st.pool.Exec(ctx,
+		`INSERT INTO operator_declared_cas (fingerprint_sha256, subject_cn, added_by) VALUES ('fp-del', 'CN=Del', $1)`,
+		userID); err != nil {
+		t.Fatalf("seed declared CA: %v", err)
+	}
+	if _, err := st.pool.Exec(ctx,
+		`INSERT INTO application_metadata (tag, note, added_by) VALUES ('del-app', 'kept', $1)`,
+		userID); err != nil {
+		t.Fatalf("seed application metadata: %v", err)
+	}
+
+	if err := st.DeleteUser(ctx, userID); err != nil {
+		t.Fatalf("DeleteUser must succeed for a user who declared a CA / application metadata: %v", err)
+	}
+
+	for _, q := range []string{
+		`SELECT added_by IS NULL FROM operator_declared_cas WHERE fingerprint_sha256 = 'fp-del'`,
+		`SELECT added_by IS NULL FROM application_metadata WHERE tag = 'del-app'`,
+	} {
+		var isNull bool
+		if err := st.pool.QueryRow(ctx, q).Scan(&isNull); err != nil {
+			t.Fatalf("row lost after deleting its declaring user (%s): %v", q, err)
+		}
+		if !isNull {
+			t.Errorf("added_by should be NULL after the user was deleted (%s)", q)
+		}
+	}
+}
+
 // The runner can re-run a file if recording it fails, so the whole migration
 // must be idempotent, and Migrate itself must be a no-op the second time.
 func TestSchemaParity_MigrationIsIdempotent(t *testing.T) {
@@ -211,6 +254,12 @@ func TestSchemaParity_UpgradeKeepsExistingRows(t *testing.T) {
 		ALTER TABLE operator_declared_cas RENAME COLUMN added_by TO declared_by;
 		ALTER TABLE application_metadata RENAME COLUMN added_at TO declared_at;
 		ALTER TABLE application_metadata RENAME COLUMN added_by TO declared_by;
+		ALTER TABLE operator_declared_cas
+			DROP CONSTRAINT operator_declared_cas_added_by_fkey,
+			ADD CONSTRAINT operator_declared_cas_declared_by_fkey FOREIGN KEY (declared_by) REFERENCES users(id);
+		ALTER TABLE application_metadata
+			DROP CONSTRAINT application_metadata_added_by_fkey,
+			ADD CONSTRAINT application_metadata_declared_by_fkey FOREIGN KEY (declared_by) REFERENCES users(id);
 		DROP TABLE ad_cs_events;
 		ALTER TABLE ssh_keys DROP COLUMN owner_user, DROP COLUMN is_authorized, DROP COLUMN is_protected, DROP COLUMN grants_root;
 		ALTER TABLE crypto_libraries DROP COLUMN package_manager;

@@ -26,10 +26,18 @@ All notable changes to CipherFlag are documented in this file.
   A new migration, `v2.2.4_schema_parity.sql`, adds the missing columns,
   renames the mis-named ones, converts `host_ip_sightings.ip` to text (existing
   rows keep their address, without the `/32` mask), adds the unique keys and
-  the EE CHECK constraints CE code relies on, and creates `ad_cs_events`. It
+  the EE CHECK constraints CE code relies on, gives the `added_by` foreign keys
+  `ON DELETE SET NULL` (see below), and creates `ad_cs_events`. It
   applies automatically at startup and is idempotent. Existing rows are
   preserved (covered by an upgrade test). The CHECK constraints are added
   `NOT VALID`, so they enforce new and updated rows without scanning old ones.
+- **Deleting a user who had declared a CA or application metadata now works.**
+  The baseline's `declared_by` foreign keys had no `ON DELETE` clause. Those
+  tables could not be written before this release, so it went unnoticed; once
+  writable, `DELETE /api/v1/auth/users/{id}` would have failed with a
+  foreign-key error for any such user. The migration replaces them with
+  `added_by ... ON DELETE SET NULL`, matching EE and the stores' own
+  documentation: the rows are kept and `added_by` becomes empty.
 - Removed CE code that queried EE-only objects CE never creates: the
   `protocol_endpoints` legs of the application summary, application detail,
   deadline, weak-algorithm, application-CBOM, ownership-backfill and HNDL tag

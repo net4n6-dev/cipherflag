@@ -178,8 +178,13 @@ certificate-to-issuer dependency edges: CE's issuance lookup is a deliberate
 no-op). The two CBOM goldens were regenerated only after verifying
 programmatically that the sole change was removal of 9 `cert:` issuer edges.
 
+Added after the final review: the `operator_declared_cas` and
+`application_metadata` foreign keys had no `ON DELETE` clause, which made user
+deletion fail once those tables became writable. The migration now replaces
+them with `added_by ... ON DELETE SET NULL` (EE's behaviour), covered by a test
+that deletes a declaring user and by the upgrade test's rewind. I had first
+deferred this as out of scope; the reviewer correctly pointed out that this
+release is what makes it reachable.
+
 Not done, by design: dead `pcap_jobs` store methods remain (no callers);
-EE-only columns and CHECKs with no CE reference were left out; and the
-`operator_declared_cas` / `application_metadata` foreign keys lack EE's
-`ON DELETE SET NULL` (deleting a user who declared a CA or application
-metadata may fail with a foreign-key error).
+EE-only columns and CHECKs with no CE reference were left out.
