@@ -2,6 +2,26 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [2.2.5] - 2026-09-25
+
+### Fixed
+- **Release pipeline could never publish CE container images.** The Release
+  workflow pushed to `ghcr.io/net4n6-dev/cipherflag` and `cipherflag-zeek`,
+  names already owned by the Enterprise Edition's packages, so every push was
+  denied and no CE image or GitHub Release was published for v2.2.1 through
+  v2.2.4. CE images are now published as `ghcr.io/net4n6-dev/cipherflag-ce` and
+  `ghcr.io/net4n6-dev/cipherflag-ce-zeek`, tagged with the version and `latest`.
+  `docker-compose.yml` uses the new name (it also builds from source, so
+  `docker compose up --build` needs no pre-built image).
+
+### Changed
+- GitHub Releases no longer attach CLI binaries; build from source. The release
+  page is created with generated notes only.
+
+### Notes
+- The previous `ghcr.io/cyberflag-ai/cipherflag` images are a v1.0 build from
+  March 2026 and are not maintained.
+
 ## [2.2.4] - 2026-09-25
 
 ### Fixed
