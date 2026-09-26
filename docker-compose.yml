@@ -43,7 +43,7 @@ services:
   cipherflag:
     build:
       context: .
-    image: ghcr.io/net4n6-dev/cipherflag:latest
+    image: ghcr.io/net4n6-dev/cipherflag-ce:latest
     environment:
       CIPHERFLAG_CONFIG: /app/config/cipherflag.toml
     ports:
