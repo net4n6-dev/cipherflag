@@ -21,8 +21,10 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/testdb"
 )
 
-// TestMigration013_TablesExist asserts that migration 013 creates the five
-// scanner operational tables with the expected columns.
+// TestMigration013_TablesExist asserts that CE's migrations create the three
+// scanner operational tables with the expected columns. EE's migration 013 also
+// creates ai_usage_ledger and ai_guardrail_violations (the AI tier); CE's
+// baseline deliberately omits them, so they are not asserted here.
 func TestMigration013_TablesExist(t *testing.T) {
 	dsn := testdb.Require(t)
 	ctx := context.Background()
@@ -67,33 +69,14 @@ func TestMigration013_TablesExist(t *testing.T) {
 		{"repo_scan_cache", "findings_json"},
 		{"repo_scan_cache", "scanned_at"},
 		{"repo_scan_cache", "token_cost"},
-		// ai_usage_ledger
-		{"ai_usage_ledger", "id"},
-		{"ai_usage_ledger", "scan_id"},
-		{"ai_usage_ledger", "provider"},
-		{"ai_usage_ledger", "model"},
-		{"ai_usage_ledger", "prompt_id"},
-		{"ai_usage_ledger", "prompt_version"},
-		{"ai_usage_ledger", "prompt_content_hash"},
-		{"ai_usage_ledger", "tokens_in"},
-		{"ai_usage_ledger", "tokens_out"},
-		{"ai_usage_ledger", "cost_usd"},
-		{"ai_usage_ledger", "at"},
-		// ai_guardrail_violations
-		{"ai_guardrail_violations", "id"},
-		{"ai_guardrail_violations", "scan_id"},
-		{"ai_guardrail_violations", "guardrail"},
-		{"ai_guardrail_violations", "prompt_id"},
-		{"ai_guardrail_violations", "prompt_version"},
-		{"ai_guardrail_violations", "raw_response_excerpt"},
-		{"ai_guardrail_violations", "at"},
 	}
 	for _, c := range columns {
 		var exists bool
 		err := s.pool.QueryRow(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM information_schema.columns
-				WHERE table_name = $1 AND column_name = $2
+				WHERE table_schema = current_schema()
+				  AND table_name = $1 AND column_name = $2
 			)
 		`, c.table, c.column).Scan(&exists)
 		if err != nil {
