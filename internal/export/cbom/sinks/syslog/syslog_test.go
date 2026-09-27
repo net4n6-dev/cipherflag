@@ -16,7 +16,17 @@ package syslog
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -152,5 +162,117 @@ func TestSyslogSink_UDPOversizedTruncation(t *testing.T) {
 	}
 	if err := sink.Send(context.Background(), &types.SinkPayload{Events: events}); err != nil {
 		t.Errorf("Send: %v", err)
+	}
+}
+
+func selfSignedServerCert(t *testing.T) (tls.Certificate, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "127.0.0.1"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses:           []net.IP{net.ParseIP("127.0.0.1")},
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caPath := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, caPath
+}
+
+// startTLSSyslogServer accepts one TLS connection that does NOT require a
+// client certificate and reports the first bytes it reads.
+func startTLSSyslogServer(t *testing.T, cert tls.Certificate) (string, <-chan string) {
+	t.Helper()
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	got := make(chan string, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		buf := make([]byte, 4096)
+		n, _ := conn.Read(buf)
+		got <- string(buf[:n])
+	}()
+	return ln.Addr().String(), got
+}
+
+func tlsSink(t *testing.T, cfg config.SyslogSinkConfig) *Sink {
+	t.Helper()
+	cfg.Protocol, cfg.Format = "tls", "rfc5424"
+	sink, err := New(cfg, config.SinkConfig{Timeout: 2 * time.Second}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { sink.Close() })
+	return sink
+}
+
+var tlsTestEvents = &types.SinkPayload{Events: []types.SinkEvent{{Payload: map[string]interface{}{"x": 1}}}}
+
+func TestSyslogSink_TLSServerAuthOnly_NoClientCert(t *testing.T) {
+	cert, caPath := selfSignedServerCert(t)
+	addr, got := startTLSSyslogServer(t, cert)
+
+	sink := tlsSink(t, config.SyslogSinkConfig{Address: addr, CAFile: caPath})
+	if err := sink.Send(context.Background(), tlsTestEvents); err != nil {
+		t.Fatalf("Send without a client cert failed: %v", err)
+	}
+	select {
+	case line := <-got:
+		if line == "" {
+			t.Errorf("server received nothing")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("server did not receive a line")
+	}
+}
+
+func TestSyslogSink_TLSUntrustedServerIsRejectedByDefault(t *testing.T) {
+	cert, _ := selfSignedServerCert(t)
+	addr, _ := startTLSSyslogServer(t, cert)
+
+	sink := tlsSink(t, config.SyslogSinkConfig{Address: addr}) // no ca_file, no tls_insecure
+	err := sink.Send(context.Background(), tlsTestEvents)
+	if err == nil {
+		t.Fatal("expected certificate verification to fail")
+	}
+	if !strings.Contains(err.Error(), "certificate") {
+		t.Errorf("error should be a certificate verification failure, got: %v", err)
+	}
+}
+
+func TestSyslogSink_TLSInsecureSkipsVerification(t *testing.T) {
+	cert, _ := selfSignedServerCert(t)
+	addr, got := startTLSSyslogServer(t, cert)
+
+	sink := tlsSink(t, config.SyslogSinkConfig{Address: addr, TLSInsecure: true})
+	if err := sink.Send(context.Background(), tlsTestEvents); err != nil {
+		t.Fatalf("Send with tls_insecure failed: %v", err)
+	}
+	select {
+	case <-got:
+	case <-time.After(3 * time.Second):
+		t.Fatal("server did not receive a line")
 	}
 }

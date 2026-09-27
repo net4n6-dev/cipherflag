@@ -59,6 +59,10 @@ func New(cfg config.SyslogSinkConfig, common config.SinkConfig, scopeName string
 	default:
 		return nil, configError("format must be rfc5424 or cef")
 	}
+	if cfg.Protocol == "tls" && cfg.TLSInsecure {
+		log.Warn().Str("scope", scopeName).Str("address", cfg.Address).
+			Msg("cbom: syslog sink has tls_insecure enabled; the receiver's certificate is NOT verified")
+	}
 	return &Sink{cfg: cfg, common: common, scopeName: scopeName, formatter: formatter}, nil
 }
 
@@ -142,14 +146,19 @@ func (s *Sink) dial(ctx context.Context) error {
 		}
 		s.conn = conn
 	case "tls":
-		cert, err := tls.LoadX509KeyPair(s.cfg.CertFile, s.cfg.KeyFile)
-		if err != nil {
-			return fmt.Errorf("load cert: %w", err)
-		}
 		serverName, _, _ := net.SplitHostPort(s.cfg.Address)
 		tlsCfg := &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			ServerName:   serverName,
+			ServerName:         serverName,
+			InsecureSkipVerify: s.cfg.TLSInsecure, //nolint:gosec // operator opt-in, mirrors the Splunk sink
+		}
+		// A client certificate is optional; Validate guarantees key_file is set
+		// whenever cert_file is.
+		if s.cfg.CertFile != "" {
+			cert, err := tls.LoadX509KeyPair(s.cfg.CertFile, s.cfg.KeyFile)
+			if err != nil {
+				return fmt.Errorf("load cert: %w", err)
+			}
+			tlsCfg.Certificates = []tls.Certificate{cert}
 		}
 		if s.cfg.CAFile != "" {
 			caBytes, err := os.ReadFile(s.cfg.CAFile)

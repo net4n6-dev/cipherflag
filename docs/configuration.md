@@ -95,6 +95,32 @@ Controls automated certificate push to Venafi (Cloud or TPP).
 | `folder` | `\VED\Policy\Discovered\CipherFlag` | Policy folder in Venafi TPP where certificates are imported. TPP only. |
 | `push_interval_minutes` | `60` | How often to push new/updated certificates (minutes). |
 
+### CBOM syslog sink (`[cbom.scopes.sinks.syslog]`)
+
+A CBOM scope can forward per-asset or per-finding events to a syslog receiver:
+
+```toml
+[[cbom.scopes]]
+name = "prod"
+
+[[cbom.scopes.sinks]]
+type = "syslog"
+
+[cbom.scopes.sinks.syslog]
+protocol = "tls"                # "udp" | "tcp" | "tls"
+address  = "siem.example.com:6514"
+format   = "rfc5424"            # "rfc5424" | "cef"
+ca_file  = "/etc/cipherflag/siem-ca.pem"   # optional; system roots if unset
+# cert_file = "/etc/cipherflag/client.pem" # optional client certificate (mutual TLS)
+# key_file  = "/etc/cipherflag/client.key" # required if, and only if, cert_file is set
+# tls_insecure = false          # true skips server certificate verification
+```
+
+For `protocol = "tls"`:
+
+- Without `cert_file`/`key_file` the sink does server-authenticated TLS only. Set both for mutual TLS; setting only one is a configuration error.
+- The receiver's certificate is verified against `ca_file` (or the system roots). `tls_insecure = true` disables that check, which exposes the feed to interception; use it only for lab receivers. A warning is logged when it is on.
+
 ### `[pcap]`
 
 Controls PCAP upload and processing.
