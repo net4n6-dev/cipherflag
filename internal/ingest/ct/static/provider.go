@@ -225,7 +225,7 @@ func (p *Provider) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry
 				IssuerName:  cert.Issuer.CommonName,
 				NotBefore:   cert.NotBefore,
 				NotAfter:    cert.NotAfter,
-				Source:      "static",
+				Source:      "ct_static",
 			})
 		}
 	}

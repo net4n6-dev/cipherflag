@@ -39,7 +39,7 @@ import (
 // End-to-end provider test against a httptest-served fake Sunlight log
 // containing two leaves: one cert with example.com in SAN, one without.
 // QueryDomain("example.com") returns exactly the matching cert as a
-// CTEntry with Source="static".
+// CTEntry with Source="ct_static".
 func TestProvider_QueryDomain_FiltersBySAN(t *testing.T) {
 	// 1. Generate the test log's signing key + two leaf certs.
 	logPub, logPriv, _ := ed25519.GenerateKey(rand.Reader)
@@ -96,8 +96,8 @@ func TestProvider_QueryDomain_FiltersBySAN(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("entries = %d, want 1 (only the matching cert)", len(got))
 	}
-	if got[0].Source != "static" {
-		t.Errorf("Source = %q, want static", got[0].Source)
+	if got[0].Source != "ct_static" {
+		t.Errorf("Source = %q, want ct_static", got[0].Source)
 	}
 	if got[0].Fingerprint == "" || len(got[0].PEM) == 0 {
 		t.Errorf("missing Fingerprint or PEM: %+v", got[0])
