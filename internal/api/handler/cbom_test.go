@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/go-chi/chi/v5"
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom/cbomtest"
@@ -44,6 +45,10 @@ func (f *fakeCBOMGen) Generate(_ context.Context, _ store.CryptoStore, _ *cbom.S
 }
 
 func (f *fakeCBOMGen) GenerateWholeEstate(_ context.Context, _ store.CryptoStore) (*cdx.BOM, error) {
+	return f.bom, f.err
+}
+
+func (f *fakeCBOMGen) GenerateForApplication(_ context.Context, _ store.CryptoStore, _ string) (*cdx.BOM, error) {
 	return f.bom, f.err
 }
 
@@ -191,6 +196,87 @@ func TestCBOMHandler_DownloadEstate_SignedBOMKeepsSignature(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	h.DownloadEstate(rr, httptest.NewRequest(http.MethodGet, "/api/v1/export/cbom/estate", nil))
+
+	cbomtest.AssertValidSignature(t, rr.Body.Bytes())
+}
+
+// appRequest builds a request whose chi route context carries the given raw
+// (already decoded) tag, as the router would supply it.
+func appRequest(tag string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/applications/x/cbom", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("tag", tag)
+	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+}
+
+func TestCBOMHandler_DownloadApplication_200(t *testing.T) {
+	h := newTestCBOMHandler(&fakeCBOMGen{bom: minimalTestBOM()}, &config.CBOMConfig{})
+
+	rr := httptest.NewRecorder()
+	h.DownloadApplication(rr, appRequest("payments-api"))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", rr.Code, rr.Body.String())
+	}
+	cd := rr.Header().Get("Content-Disposition")
+	if !regexp.MustCompile(`^attachment; filename="cipherflag-cbom-app-payments-api-\d{4}-\d{2}-\d{2}\.cdx\.json"$`).MatchString(cd) {
+		t.Errorf("Content-Disposition = %q", cd)
+	}
+}
+
+func TestCBOMHandler_DownloadApplication_UnknownTagIs404(t *testing.T) {
+	err := fmt.Errorf("%w: %q", cbom.ErrNoApplicationAssets, "typo")
+	h := newTestCBOMHandler(&fakeCBOMGen{err: err}, &config.CBOMConfig{})
+
+	rr := httptest.NewRecorder()
+	h.DownloadApplication(rr, appRequest("typo"))
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body = %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestCBOMHandler_DownloadApplication_BlankTagIs400(t *testing.T) {
+	h := newTestCBOMHandler(&fakeCBOMGen{bom: minimalTestBOM()}, &config.CBOMConfig{})
+
+	rr := httptest.NewRecorder()
+	h.DownloadApplication(rr, appRequest("   "))
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rr.Code)
+	}
+}
+
+func TestCBOMHandler_DownloadApplication_GenerationErrorIs500(t *testing.T) {
+	h := newTestCBOMHandler(&fakeCBOMGen{err: fmt.Errorf("db down")}, &config.CBOMConfig{})
+
+	rr := httptest.NewRecorder()
+	h.DownloadApplication(rr, appRequest("payments-api"))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rr.Code)
+	}
+}
+
+// The tag is caller-controlled and lands in a header: quotes, CR/LF and path
+// separators must not survive into the filename.
+func TestCBOMHandler_DownloadApplication_TagCannotInjectHeaderSyntax(t *testing.T) {
+	h := newTestCBOMHandler(&fakeCBOMGen{bom: minimalTestBOM()}, &config.CBOMConfig{})
+
+	rr := httptest.NewRecorder()
+	h.DownloadApplication(rr, appRequest("a\"b\r\nX-Evil: y/../z"))
+
+	cd := rr.Header().Get("Content-Disposition")
+	if !regexp.MustCompile(`^attachment; filename="cipherflag-cbom-app-[A-Za-z0-9._-]+-\d{4}-\d{2}-\d{2}\.cdx\.json"$`).MatchString(cd) {
+		t.Errorf("unsafe characters reached Content-Disposition: %q", cd)
+	}
+}
+
+func TestCBOMHandler_DownloadApplication_SignedBOMKeepsSignature(t *testing.T) {
+	h := newTestCBOMHandler(&fakeCBOMGen{bom: cbomtest.SignedBOM(t)}, &config.CBOMConfig{})
+
+	rr := httptest.NewRecorder()
+	h.DownloadApplication(rr, appRequest("payments-api"))
 
 	cbomtest.AssertValidSignature(t, rr.Body.Bytes())
 }

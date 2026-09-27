@@ -16,12 +16,18 @@ package cbom
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/net4n6-dev/cipherflag/internal/store"
 )
+
+// ErrNoApplicationAssets is returned by GenerateForApplication when no scored
+// asset carries the tag, so callers can tell a typo'd or unused tag from a real
+// (possibly all-omitted) application.
+var ErrNoApplicationAssets = errors.New("cbom: no scored assets for application")
 
 // GenerateForApplication produces a CycloneDX 1.6 BOM scoped to a single
 // application-tag. Reuses Generator.mapRow so crypto-asset component
@@ -34,6 +40,9 @@ func (g *Generator) GenerateForApplication(ctx context.Context, st store.CryptoS
 	rows, err := st.ListApplicationScopeAssets(ctx, tag)
 	if err != nil {
 		return nil, fmt.Errorf("cbom: list assets for application %q: %w", tag, err)
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("%w: %q", ErrNoApplicationAssets, tag)
 	}
 
 	// The root application component identifies the application tag. Treat the

@@ -301,6 +301,7 @@ func NewRouter(
 			// v1.7.0 — per-application TTL metadata backing the HNDL flag.
 			// GET is viewer+; mutations are admin-only.
 			r.Get("/applications/{tag}/metadata", appMetaH.Get)
+			r.Get("/applications/{tag}/cbom", cbomH.DownloadApplication)
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequireAdmin)
 				r.Put("/applications/{tag}/metadata", appMetaH.Put)
