@@ -191,3 +191,50 @@ func TestRunCycle_EmptyResult_NotAnError(t *testing.T) {
 		t.Fatalf("expected no Ingest calls for an already-up-to-date domain, got %d", len(ing.calls))
 	}
 }
+
+// TestPollDomain_MalformedCursor_ResetsRatherThanPanics proves a corrupted
+// persisted ingestion_state.Cursor (Review Focus, shared with Task 2's
+// ct/crtsh — e.g. hand-edited, or written by a different kind by mistake)
+// logs a warning and resets lastTreeSize to 0 instead of panicking the
+// poller goroutine. Mirrors crtsh's own
+// TestPollDomain_MalformedCursor_ResetsRatherThanPanics
+// (internal/ingest/ct/crtsh/poller_test.go). Hermetic — a fake Sunlight
+// log backs the domain so this never touches the live network.
+func TestPollDomain_MalformedCursor_ResetsRatherThanPanics(t *testing.T) {
+	const domain = "example.com"
+	srv, pubPEM := newFakeSunlightServer(t, domain)
+
+	ing := &fakeIngester{}
+	st := newFakeStore()
+	st.states["ct_static:"+domain] = &model.IngestionState{
+		SourceName: "ct_static:" + domain,
+		Cursor:     "not-a-uint64",
+	}
+	cfg := config.CtStaticSourceConfig{
+		Domains: []config.CtStaticDomainConfig{
+			{Enabled: true, Domain: domain, LogURL: srv.URL + "/2024h2/", PublicKeyPEM: pubPEM},
+		},
+	}
+	p := NewPoller(ing, st, srv.Client(), cfg)
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("pollDomain panicked on malformed cursor: %v", r)
+		}
+	}()
+	if err := p.pollDomain(context.Background(), cfg.Domains[0]); err != nil {
+		t.Fatalf("pollDomain: %v", err)
+	}
+
+	// A malformed cursor must reset lastTreeSize to 0 rather than aborting
+	// the poll — proven by the cycle completing as if starting fresh: the
+	// fake log's single leaf (tree size 1) is ingested, and the malformed
+	// cursor is overwritten with a well-formed one afterward.
+	if len(ing.calls) != 1 {
+		t.Fatalf("expected 1 Ingest call (poll proceeded as if starting fresh from tree size 0), got %d", len(ing.calls))
+	}
+	state := st.states["ct_static:"+domain]
+	if state == nil || state.Cursor != "1" {
+		t.Fatalf("expected the malformed cursor to be overwritten with a well-formed one after a successful poll, got %+v", state)
+	}
+}
