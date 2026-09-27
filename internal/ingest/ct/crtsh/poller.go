@@ -271,13 +271,13 @@ func (p *Poller) waitForDomainGate() {
 	}
 }
 
-// Name implements ct.Provider — the stable provider identifier used by
-// ct_multi for asset_provenance.source attribution. Deliberately
-// distinct from SourceName ("ct_crtsh"), which stamps
-// DiscoveryResult.Source and the ingestion_state checkpoint keys used
-// by pollDomain elsewhere in this file: Name/ct.CTEntry.Source is
-// provider identity, SourceName is provenance/checkpoint attribution.
-// EE's original crtsh/poller.go keeps the same two strings distinct.
+// Name implements ct.Provider — a short identifier used for logging and
+// ct_multi's per-child ChildStatus. Deliberately distinct from the
+// provenance string "ct_crtsh" (SourceName), which is what stamps
+// DiscoveryResult.Source / asset_provenance.source — via pollDomain here
+// and via CTEntry.Source (see buildCTEntry) under ct_multi — and keys the
+// ingestion_state checkpoint. EE's original crtsh/poller.go keeps the
+// same two strings distinct.
 func (p *Poller) Name() string { return "crtsh" }
 
 // QueryDomain implements ct.Provider. Lists every crt.sh entry for the

@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // Package ct hosts the multi-provider Certificate Transparency ingest
-// machinery. Each per-provider implementation lives in a subpackage
-// (crtsh/, static/, certspotter/, multi/) and registers its own
-// externalsource kind. The top-level package exposes the shared
-// Provider interface + normalised CTEntry shape both per-provider
-// adapters and ct_multi consume.
+// machinery. Each connector lives in a subpackage (crtsh/, static/,
+// certspotter/, multi/) and exposes its own Poller, which
+// cmd/cipherflag/main.go constructs directly from the TOML config
+// (config.Sources.Ct*) and runs on its own goroutine — there is no
+// source registry in CE. The top-level package holds what those
+// connectors share: the Provider interface + normalised CTEntry shape
+// (ct_multi fans out over Providers), BuildCertDiscovery (CTEntry →
+// dedup.CertDiscovery), and the crt.sh request throttle.
 //
 // Spec: docs/superpowers/specs/2026-09-27-ct-multi-provider-port-design.md §Provider interface
 package ct
@@ -26,25 +29,32 @@ import (
 	"time"
 )
 
-// Provider abstracts a single CT data source. Each per-kind subpkg's
-// poller is a thin externalsource.Poller wrapper around a Provider
-// implementation; ct_multi (Plan B) runs Provider.QueryDomain
-// concurrently across N children and merges by Fingerprint.
+// Provider abstracts a single CT data source for a one-shot domain
+// query. ct_multi's Composer runs Provider.QueryDomain concurrently
+// across its configured children and unions the results. The
+// standalone pollers do not go through this interface for their own
+// cycles (they have per-domain cursors and ingest directly); the
+// interface exists so ct_multi can compose them.
 //
 // Implementations:
-//   - internal/ingest/ct/crtsh.Provider     (crt.sh JSON API)
+//   - internal/ingest/ct/crtsh.Poller       (crt.sh JSON API)
 //   - internal/ingest/ct/static.Provider    (Static CT API / Sunlight)
-//   - internal/ingest/ct/certspotter.Provider (Plan B)
+//   - internal/ingest/ct/certspotter.Poller (SSLMate CertSpotter API)
+//   - internal/ingest/ct/multi.Composer     (the ct_multi fan-out itself)
 type Provider interface {
 	// QueryDomain returns the certs visible to this provider for the
 	// given domain at this moment. Implementations handle their own
 	// pagination, rate-limit handling, and per-call retries — the
-	// returned slice is the complete result set for this domain.
+	// returned slice is the complete result set for this call (for
+	// static.Provider that means new leaves since its last position;
+	// see its forward-watching note).
 	QueryDomain(ctx context.Context, domain string) ([]CTEntry, error)
 
-	// Name returns the stable provider identifier ("crtsh",
-	// "certspotter", "static") used for asset_provenance.source
-	// attribution after ingest. Must be stable across releases.
+	// Name returns a short identifier ("crtsh", "static",
+	// "certspotter", "ct_multi") used for logging and for ct_multi's
+	// per-child ChildStatus. It is NOT the provenance string: ingest
+	// attribution comes from CTEntry.Source, which uses the prefixed
+	// connector name (e.g. "ct_crtsh").
 	Name() string
 }
 
@@ -77,8 +87,13 @@ type CTEntry struct {
 	// NotAfter is the certificate's validity period end (expiry).
 	NotAfter time.Time
 
-	// Source MUST equal the Provider.Name() of the producing adapter.
-	// Used by ct_multi to stamp asset_provenance.source per ingested
-	// cert so the v1.14 Insights tab can drill down by provider.
+	// Source is the canonical provenance string of the producing
+	// connector — "ct_crtsh", "ct_static" or "ct_certspotter" — and is
+	// deliberately NOT equal to Provider.Name() (the bare "crtsh" etc.).
+	// ct_multi groups its union by Source and stamps it as
+	// DiscoveryResult.Source (and so asset_provenance.source) on the
+	// per-child Ingest call. It must equal the DiscoveryResult.Source the
+	// corresponding standalone poller uses, so a cert found by ct_crtsh
+	// alone and by ct_multi's crtsh child is attributed identically.
 	Source string
 }
