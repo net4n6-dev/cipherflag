@@ -327,6 +327,14 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 
 	// Certificate Transparency: crt.sh (off by default).
 	if cfg.Sources.CtCrtsh.Enabled() {
+		for _, d := range cfg.Sources.CtCrtsh.Domains {
+			if !d.Enabled {
+				continue
+			}
+			if err := crtsh.ValidateDomain(d.Domain); err != nil {
+				log.Fatal().Err(err).Str("domain", d.Domain).Msg("invalid ct_crtsh domain config")
+			}
+		}
 		ctCrtshCtx, ctCrtshCancel := context.WithCancel(ctx)
 		defer ctCrtshCancel()
 		ctCrtshIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
@@ -355,6 +363,14 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 
 	// Certificate Transparency: SSLMate CertSpotter (off by default).
 	if cfg.Sources.CtCertspotter.Enabled() {
+		for _, d := range cfg.Sources.CtCertspotter.Domains {
+			if !d.Enabled {
+				continue
+			}
+			if err := certspotter.ValidateDomain(d.Domain, d.RequestsPerHour); err != nil {
+				log.Fatal().Err(err).Str("domain", d.Domain).Msg("invalid ct_certspotter domain config")
+			}
+		}
 		ctCertspotterCtx, ctCertspotterCancel := context.WithCancel(ctx)
 		defer ctCertspotterCancel()
 		ctCertspotterIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
