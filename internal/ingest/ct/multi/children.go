@@ -28,9 +28,17 @@ import (
 // buildChildren constructs ct.Provider instances from a parsed group's
 // children. Mirrors EE's buildChildren (multi/children.go) — child
 // Pollers/Providers only need QueryDomain to be called (never Poll/Run),
-// so they're constructed without a Store: QueryDomain is stateless w.r.t.
-// any per-domain cursor on all three provider kinds (verified in Tasks
-// 2-4: the cursor read/write happens in pollDomain, never in QueryDomain).
+// so they're constructed without a Store: no child ever reads or writes
+// a persisted ingestion_state cursor (that happens only in each
+// standalone poller's pollDomain).
+//
+// The static child is the one stateful exception, in memory only: with
+// Cfg.Cache nil it bootstraps to the log's current head on its first
+// call and thereafter walks forward from its own LastSeenTreeSize (see
+// static.Provider.QueryDomain). That relies on the Poller caching the
+// Composer — and so these child instances — per group for the process
+// lifetime; rebuilding children every cycle would re-bootstrap and the
+// static child would never see a new leaf.
 func buildChildren(group config.CtMultiGroupConfig, httpClient *http.Client) ([]ct.Provider, error) {
 	out := make([]ct.Provider, 0, len(group.Children))
 	for i, child := range group.Children {

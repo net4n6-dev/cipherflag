@@ -15,6 +15,7 @@
 package multi
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -23,11 +24,17 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
@@ -131,6 +138,138 @@ func TestPoll_GroupsByChildSource(t *testing.T) {
 	}
 	if !sources["ct_crtsh"] || !sources["ct_static"] {
 		t.Fatalf("expected Ingest calls stamped ct_crtsh and ct_static, got %v", sources)
+	}
+}
+
+// captureLogLines swaps the global zerolog logger for a buffer and
+// returns a func that decodes the captured JSON lines.
+func captureLogLines(t *testing.T) func() []map[string]any {
+	t.Helper()
+	var buf bytes.Buffer
+	orig := log.Logger
+	log.Logger = zerolog.New(&buf)
+	t.Cleanup(func() { log.Logger = orig })
+	return func() []map[string]any {
+		var out []map[string]any
+		for _, line := range bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n")) {
+			if len(line) == 0 {
+				continue
+			}
+			var m map[string]any
+			if err := json.Unmarshal(line, &m); err != nil {
+				t.Fatalf("unparseable log line %q: %v", line, err)
+			}
+			out = append(out, m)
+		}
+		return out
+	}
+}
+
+func linesAt(lines []map[string]any, level string) []map[string]any {
+	var out []map[string]any
+	for _, l := range lines {
+		if l["level"] == level {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// Final-review Fix 3: a failing child must be visible — one Warn per
+// failed child carrying its name and error — while the healthy child is
+// still ingested and nothing is escalated to Error.
+func TestRunCycle_ChildFailure_LogsWarnWithNameAndError(t *testing.T) {
+	logs := captureLogLines(t)
+	composer := &Composer{
+		Domain: "example.com",
+		Children: []ct.Provider{
+			&fakeChild{name: "crtsh", entries: []ct.CTEntry{testEntry(t, "a.example.com", "ct_crtsh")}},
+			&fakeChild{name: "certspotter", err: errors.New("certspotter: 401 Unauthorized: bad token")},
+			&panicChild{name: "static"},
+		},
+	}
+	ing := &fakeIngester{}
+	p := &Poller{Composer: map[string]*Composer{"example.com": composer}, Ingester: ing}
+
+	if err := p.runCycle(context.Background(), "example.com"); err != nil {
+		t.Fatalf("runCycle with one healthy child should not fail: %v", err)
+	}
+	if len(ing.calls) != 1 || ing.calls[0].Source != "ct_crtsh" {
+		t.Fatalf("healthy child not ingested: %+v", ing.calls)
+	}
+
+	lines := logs()
+	warns := map[string]string{}
+	for _, l := range linesAt(lines, "warn") {
+		if l["message"] == "ct_multi: child query failed" {
+			warns[l["child"].(string)], _ = l["error"].(string)
+		}
+	}
+	if !strings.Contains(warns["certspotter"], "bad token") {
+		t.Errorf("missing/incorrect Warn for certspotter child; warns = %v", warns)
+	}
+	if !strings.Contains(warns["static"], "panicked") {
+		t.Errorf("missing Warn for the panicking static child; warns = %v", warns)
+	}
+	if _, ok := warns["crtsh"]; ok {
+		t.Errorf("healthy crtsh child should not be warned about")
+	}
+	for _, l := range linesAt(lines, "info") {
+		if l["message"] == "ct_multi: group cycle complete" && (l["children"] != float64(3) || l["children_failed"] != float64(2)) {
+			t.Errorf("summary line = %v, want children=3 children_failed=2", l)
+		}
+	}
+}
+
+// Final-review Fix 3: when EVERY child fails, the cycle escalates to
+// Error level (via runOneCycleSafely) instead of an Info-level
+// "group cycle complete" with nothing in it.
+func TestRunOneCycleSafely_AllChildrenFail_EscalatesToError(t *testing.T) {
+	logs := captureLogLines(t)
+	composer := &Composer{
+		Domain: "example.com",
+		Children: []ct.Provider{
+			&fakeChild{name: "crtsh", err: errors.New("crt.sh exhausted 5 retries")},
+			&fakeChild{name: "static", err: errors.New("checkpoint signature verification failed")},
+		},
+	}
+	ing := &fakeIngester{}
+	p := &Poller{
+		Composer: map[string]*Composer{"example.com": composer},
+		Ingester: ing,
+		cfg: config.CtMultiSourceConfig{Groups: []config.CtMultiGroupConfig{
+			{Enabled: true, Domain: "example.com"},
+		}},
+	}
+
+	p.runOneCycleSafely(context.Background())
+
+	if len(ing.calls) != 0 {
+		t.Errorf("nothing should be ingested when all children fail, got %d calls", len(ing.calls))
+	}
+	lines := logs()
+	var warned int
+	for _, l := range linesAt(lines, "warn") {
+		if l["message"] == "ct_multi: child query failed" {
+			warned++
+		}
+	}
+	if warned != 2 {
+		t.Errorf("want 2 per-child Warns, got %d; logs: %v", warned, lines)
+	}
+	var escalated bool
+	for _, l := range linesAt(lines, "error") {
+		if l["domain"] == "example.com" && strings.Contains(fmt.Sprint(l["error"]), "all 2 children failed") {
+			escalated = true
+		}
+	}
+	if !escalated {
+		t.Errorf("no Error-level escalation for an all-children-failed cycle; logs: %v", lines)
+	}
+	for _, l := range lines {
+		if l["message"] == "ct_multi: group cycle complete" {
+			t.Errorf("an all-failed cycle must not report 'group cycle complete': %v", l)
+		}
 	}
 }
 

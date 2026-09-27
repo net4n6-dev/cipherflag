@@ -17,6 +17,7 @@ package multi
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,6 +121,60 @@ func TestComposer_FanOut_AllFail_ReturnsEmptyNoError(t *testing.T) {
 		if s.OK {
 			t.Errorf("child %s should not be OK", s.Name)
 		}
+	}
+}
+
+// panicChild's QueryDomain panics, like a nil-pointer bug in a provider.
+type panicChild struct{ name string }
+
+func (p *panicChild) Name() string { return p.name }
+func (p *panicChild) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry, error) {
+	var m map[string]int
+	m["boom"]++ // assignment to entry in nil map
+	return nil, nil
+}
+
+// Final-review Fix 5: a panic in one child's goroutine must not escape
+// Composer.QueryDomain (an unrecovered goroutine panic kills the whole
+// process — runOneCycleSafely's recover cannot see it). The call returns
+// normally with the other children's results, and the panicking child is
+// marked failed with the panic in its Err.
+func TestComposer_ChildPanic_RecoveredAndMarkedFailed(t *testing.T) {
+	c := &Composer{
+		Domain: "x.com",
+		Children: []ct.Provider{
+			&fakeChild{name: "crtsh", entries: []ct.CTEntry{entry("AA", "ct_crtsh")}},
+			&panicChild{name: "static"},
+			&fakeChild{name: "certspotter", entries: []ct.CTEntry{entry("BB", "ct_certspotter")}},
+		},
+	}
+	var (
+		out []ct.CTEntry
+		err error
+	)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("panic escaped Composer.QueryDomain: %v", r)
+			}
+		}()
+		out, err = c.QueryDomain(context.Background(), "x.com")
+	}()
+	if err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+	if len(out) != 2 {
+		t.Errorf("entries = %d, want 2 (the two healthy children)", len(out))
+	}
+	if len(c.LastChildStatus) != 3 {
+		t.Fatalf("LastChildStatus len = %d, want 3", len(c.LastChildStatus))
+	}
+	st := c.LastChildStatus[1]
+	if st.Name != "static" || st.OK || !strings.Contains(st.Err, "panicked") || !strings.Contains(st.Err, "nil map") {
+		t.Errorf("panicking child status = %+v, want Name=static OK=false Err mentioning the panic", st)
+	}
+	if !c.LastChildStatus[0].OK || !c.LastChildStatus[2].OK {
+		t.Errorf("healthy children should be OK: %+v", c.LastChildStatus)
 	}
 }
 

@@ -16,8 +16,12 @@ package multi
 
 import (
 	"context"
+	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/net4n6-dev/cipherflag/internal/ingest/ct"
 )
@@ -29,8 +33,11 @@ type Composer struct {
 	Domain   string
 	Children []ct.Provider
 
-	// LastChildStatus is set by every QueryDomain call. The Poller reads
-	// it to populate per-child summary fields on PollResult.
+	// LastChildStatus is set by every QueryDomain call (one entry per
+	// child, in Children order). Poller.runCycle reads it after each call
+	// to log a Warn per failed child and an Error when every child in the
+	// group failed. Not safe for concurrent QueryDomain calls on the same
+	// Composer; the Poller calls it sequentially.
 	LastChildStatus []ChildStatus
 }
 
@@ -59,6 +66,13 @@ func (c *Composer) Name() string { return "ct_multi" }
 // fingerprint dedup is intentionally NOT done — overlapping certs get
 // one CTEntry per source so the downstream Ingester writes one
 // asset_provenance row per (cert, child) pair.
+//
+// A panic inside a child's QueryDomain is recovered in that child's own
+// goroutine and recorded as that child's failure (ChildStatus.Err). This
+// is load-bearing: the Poller's runOneCycleSafely recover() cannot catch
+// a panic on these fan-out goroutines (they are not on its call stack),
+// and an unrecovered goroutine panic terminates the whole cipherflag
+// process, not just the CT poller.
 func (c *Composer) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry, error) {
 	type childResult struct {
 		entries []ct.CTEntry
@@ -75,6 +89,19 @@ func (c *Composer) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry
 		go func(i int, p ct.Provider) {
 			defer wg.Done()
 			start := time.Now()
+			// Runs before wg.Done (LIFO), so results[i] is written before
+			// the parent's wg.Wait returns.
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error().
+						Interface("panic", r).
+						Str("domain", domain).
+						Int("child_index", i).
+						Str("stack", string(debug.Stack())).
+						Msg("ct_multi: child provider panicked; recovered and marked failed")
+					results[i] = childResult{err: fmt.Errorf("child panicked: %v", r), latency: time.Since(start)}
+				}
+			}()
 			entries, err := p.QueryDomain(ctx, domain)
 			results[i] = childResult{entries: entries, err: err, latency: time.Since(start)}
 		}(i, child)

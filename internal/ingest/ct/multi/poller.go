@@ -102,7 +102,35 @@ func (p *Poller) runCycle(ctx context.Context, domain string) error {
 		p.Composer[domain] = composer
 	}
 
-	entries, _ := composer.QueryDomain(ctx, composer.Domain) // never returns error
+	entries, err := composer.QueryDomain(ctx, composer.Domain)
+	if err != nil {
+		// Composer.QueryDomain is documented never to error (per-child
+		// failures live in LastChildStatus); surface it if that changes.
+		return fmt.Errorf("ct_multi: composer query: %w", err)
+	}
+
+	// Per-child failures are otherwise invisible (the composer unions
+	// only the successful children), so surface each one, and escalate
+	// when the whole group came back empty-handed because every child
+	// failed (bad token, bad static key, provider outage, ...).
+	failed := 0
+	for _, st := range composer.LastChildStatus {
+		if st.OK {
+			continue
+		}
+		failed++
+		log.Warn().
+			Str("domain", domain).
+			Str("child", st.Name).
+			Str("error", st.Err).
+			Dur("latency", st.Latency).
+			Msg("ct_multi: child query failed")
+	}
+	if n := len(composer.LastChildStatus); n > 0 && failed == n {
+		// Returned (not just logged) so runOneCycleSafely reports it at
+		// Error level; there is nothing to ingest in this case anyway.
+		return fmt.Errorf("ct_multi: all %d children failed for this cycle (see per-child warnings)", n)
+	}
 
 	byChild := make(map[string][]ct.CTEntry)
 	for _, e := range entries {
@@ -136,7 +164,12 @@ func (p *Poller) runCycle(ctx context.Context, domain string) error {
 			log.Warn().Err(err).Str("domain", domain).Str("child_source", childSource).Msg("ct_multi: per-child ingest failed")
 		}
 	}
-	log.Info().Str("domain", domain).Int("children", len(byChild)).Int("entries", len(entries)).Msg("ct_multi: group cycle complete")
+	log.Info().Str("domain", domain).
+		Int("children", len(composer.LastChildStatus)).
+		Int("children_failed", failed).
+		Int("sources_ingested", len(byChild)).
+		Int("entries", len(entries)).
+		Msg("ct_multi: group cycle complete")
 	return nil
 }
 
