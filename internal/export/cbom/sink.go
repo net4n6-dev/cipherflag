@@ -28,6 +28,7 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
 	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/export/cbom/bomjson"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom/sinks/types"
 	"github.com/rs/zerolog/log"
 )
@@ -40,25 +41,11 @@ type SinkPayload = types.SinkPayload
 type Sink = types.Sink
 type RetryableError = types.RetryableError
 
-// encodeBOM encodes a *cdx.BOM to JSON bytes.
-//
-// When bom.Signature is non-nil we use MarshalSignedBOM instead of the
-// CycloneDX encoder so that the JSF signature block (Algorithm/Value/PublicKey)
-// is preserved in the output. The CycloneDX library's BOMEncoder routes through
-// json.Marshal, which silently drops the embedded *JSFSigner fields because they
-// carry json:"-" in cdx.JSFSignature — see the note in cbom_sign.go and
-// signing.go for the full explanation.
+// encodeBOM encodes a *cdx.BOM to compact JSON bytes, keeping the JSF
+// signature block when present. See the bomjson package for why the stock
+// encoder cannot be used for signed BOMs.
 func encodeBOM(bom *cdx.BOM) ([]byte, error) {
-	if bom.Signature != nil && bom.Signature.JSFSigner != nil {
-		return MarshalSignedBOM(bom)
-	}
-	var buf bytes.Buffer
-	enc := cdx.NewBOMEncoder(&buf, cdx.BOMFileFormatJSON)
-	enc.SetPretty(false)
-	if err := enc.Encode(bom); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return bomjson.Encode(bom)
 }
 
 // encodeEventsNDJSON encodes a slice of SinkEvents as newline-delimited JSON,

@@ -49,7 +49,7 @@ import (
 
 // verifySignatureBlock is the wire shape decoded from the raw "signature" key
 // when running verify-cbom. Kept local to this file; the production serialization
-// path uses cbom.jsfSignatureJSON (package-private) via cbom.MarshalSignedBOM.
+// path uses bomjson.MarshalSigned via cbom.MarshalSignedBOM.
 type verifySignatureBlock struct {
 	Algorithm string `json:"algorithm"`
 	Value     string `json:"value"`
