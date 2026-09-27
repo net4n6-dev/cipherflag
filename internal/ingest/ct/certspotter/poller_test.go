@@ -317,6 +317,19 @@ func TestRunCycle_ValidIssuance_IngestsAndPersistsCursor(t *testing.T) {
 	if cert.RawPEM == "" {
 		t.Error("RawPEM unexpectedly empty")
 	}
+	// Final-review Fix 7: the fields the risk scorer grades must be
+	// populated from a full parse (generateTestCertDER: self-signed
+	// ECDSA P-256, serial 1), not left at zero values.
+	if cert.KeyAlgorithm != "ECDSA" || cert.KeySizeBits != 256 || cert.SignatureAlgorithm != "ECDSAWithSHA256" {
+		t.Errorf("KeyAlgorithm=%q KeySizeBits=%d SignatureAlgorithm=%q, want ECDSA/256/ECDSAWithSHA256",
+			cert.KeyAlgorithm, cert.KeySizeBits, cert.SignatureAlgorithm)
+	}
+	if cert.SerialNumber != "1" || cert.IsCA {
+		t.Errorf("SerialNumber=%q IsCA=%v, want 1/false", cert.SerialNumber, cert.IsCA)
+	}
+	if cert.Source != "ct_certspotter" || cert.StoreType != "ct_log" || cert.FilePath != "ct_certspotter:"+cert.FingerprintSHA256 {
+		t.Errorf("Source=%q StoreType=%q FilePath=%q", cert.Source, cert.StoreType, cert.FilePath)
+	}
 
 	state, err := st.GetIngestionState(context.Background(), "ct_certspotter:example.com")
 	if err != nil {

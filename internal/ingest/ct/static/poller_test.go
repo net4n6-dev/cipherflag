@@ -233,6 +233,16 @@ func TestPollDomain_NoCursor_BootstrapsToHeadThenWatchesForward(t *testing.T) {
 	if len(ing.calls) != 1 || len(ing.calls[0].Certificates) != 1 || ing.calls[0].Certificates[0].SubjectCN != "brand-new" {
 		t.Fatalf("cycle 2 should ingest exactly the brand-new cert; got %+v", ing.calls)
 	}
+	// Final-review Fix 7: full parse populates the scoring fields
+	// (mustGenerateLeafCert: self-signed Ed25519).
+	disc := ing.calls[0].Certificates[0]
+	if disc.KeyAlgorithm != "Ed25519" || disc.KeySizeBits != 256 || disc.SignatureAlgorithm != "Ed25519" || disc.SerialNumber == "" {
+		t.Errorf("scoring fields not populated: KeyAlgorithm=%q KeySizeBits=%d SignatureAlgorithm=%q SerialNumber=%q",
+			disc.KeyAlgorithm, disc.KeySizeBits, disc.SignatureAlgorithm, disc.SerialNumber)
+	}
+	if disc.Source != "ct_static" || disc.StoreType != "ct_log" || disc.FilePath != "ct_static:"+disc.FingerprintSHA256 {
+		t.Errorf("Source=%q StoreType=%q FilePath=%q", disc.Source, disc.StoreType, disc.FilePath)
+	}
 	for _, r := range tileRequests(fl.requestLog()) {
 		if strings.HasPrefix(r, "/2024h2/tile/data/000") || strings.HasPrefix(r, "/2024h2/tile/data/001") {
 			t.Errorf("cycle 2 fetched historical data tile %s", r)

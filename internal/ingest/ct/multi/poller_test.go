@@ -16,8 +16,18 @@ package multi
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/hex"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"testing"
+	"time"
 
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
@@ -50,6 +60,33 @@ func (f *fakeChildProvider) QueryDomain(ctx context.Context, domain string) ([]c
 	return f.entries, nil
 }
 
+// testEntry returns a CTEntry carrying a real, parseable ECDSA P-256 cert
+// (ct.BuildCertDiscovery rejects entries whose PEM doesn't parse).
+func testEntry(t *testing.T, cn, source string) ct.CTEntry {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	der, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
+		SerialNumber: big.NewInt(42),
+		Subject:      pkix.Name{CommonName: cn},
+		DNSNames:     []string{cn},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+	}, &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Test CA"}}, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("CreateCertificate: %v", err)
+	}
+	fp := sha256.Sum256(der)
+	return ct.CTEntry{
+		Fingerprint: hex.EncodeToString(fp[:]),
+		PEM:         pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		CommonName:  cn,
+		Source:      source,
+	}
+}
+
 // TestPoll_GroupsByChildSource proves the LOAD-BEARING per-child grouping:
 // entries from two different children must produce two separate Ingest
 // calls, each with DiscoveryResult.Source matching the entry's originating
@@ -58,8 +95,8 @@ func TestPoll_GroupsByChildSource(t *testing.T) {
 	composer := &Composer{
 		Domain: "example.com",
 		Children: []ct.Provider{
-			&fakeChildProvider{name: "crtsh", entries: []ct.CTEntry{{Fingerprint: "aaa", Source: "ct_crtsh"}}},
-			&fakeChildProvider{name: "static", entries: []ct.CTEntry{{Fingerprint: "bbb", Source: "ct_static"}}},
+			&fakeChildProvider{name: "crtsh", entries: []ct.CTEntry{testEntry(t, "a.example.com", "ct_crtsh")}},
+			&fakeChildProvider{name: "static", entries: []ct.CTEntry{testEntry(t, "b.example.com", "ct_static")}},
 		},
 	}
 	ing := &fakeIngester{}
@@ -76,10 +113,46 @@ func TestPoll_GroupsByChildSource(t *testing.T) {
 		sources[c.Source] = true
 		if len(c.Certificates) != 1 {
 			t.Errorf("expected 1 cert per per-child batch, got %d for source %q", len(c.Certificates), c.Source)
+			continue
+		}
+		// Final-review Fix 7: the full parse must populate the fields the
+		// risk scorer grades, not just CN/dates/SANs.
+		d := c.Certificates[0]
+		if d.Source != c.Source || d.StoreType != "ct_log" {
+			t.Errorf("Source/StoreType = %q/%q, want %q/ct_log", d.Source, d.StoreType, c.Source)
+		}
+		if d.KeyAlgorithm != "ECDSA" || d.KeySizeBits != 256 || d.SignatureAlgorithm != "ECDSAWithSHA256" || d.SerialNumber != "2a" {
+			t.Errorf("scoring fields not populated for %s: KeyAlgorithm=%q KeySizeBits=%d SignatureAlgorithm=%q SerialNumber=%q",
+				c.Source, d.KeyAlgorithm, d.KeySizeBits, d.SignatureAlgorithm, d.SerialNumber)
+		}
+		if d.IssuerCN != "Test CA" || d.FilePath != c.Source+":"+d.FingerprintSHA256 {
+			t.Errorf("IssuerCN=%q FilePath=%q", d.IssuerCN, d.FilePath)
 		}
 	}
 	if !sources["ct_crtsh"] || !sources["ct_static"] {
 		t.Fatalf("expected Ingest calls stamped ct_crtsh and ct_static, got %v", sources)
+	}
+}
+
+// An entry whose PEM doesn't parse is skipped (logged) without dropping
+// the same child's parseable entries.
+func TestPoll_UnparseableEntry_SkippedOthersIngested(t *testing.T) {
+	composer := &Composer{
+		Domain: "example.com",
+		Children: []ct.Provider{
+			&fakeChildProvider{name: "certspotter", entries: []ct.CTEntry{
+				{Fingerprint: "bad", PEM: []byte("not a pem"), Source: "ct_certspotter"},
+				testEntry(t, "ok.example.com", "ct_certspotter"),
+			}},
+		},
+	}
+	ing := &fakeIngester{}
+	p := &Poller{Composer: map[string]*Composer{"example.com": composer}, Ingester: ing}
+	if err := p.runCycle(context.Background(), "example.com"); err != nil {
+		t.Fatalf("runCycle: %v", err)
+	}
+	if len(ing.calls) != 1 || len(ing.calls[0].Certificates) != 1 || ing.calls[0].Certificates[0].SubjectCN != "ok.example.com" {
+		t.Fatalf("want exactly the parseable cert ingested, got %+v", ing.calls)
 	}
 }
 
@@ -92,8 +165,8 @@ func TestPoll_OneChildIngestFailure_DoesNotBlockOtherChild(t *testing.T) {
 	composer := &Composer{
 		Domain: "example.com",
 		Children: []ct.Provider{
-			&fakeChildProvider{name: "crtsh", entries: []ct.CTEntry{{Fingerprint: "aaa", Source: "ct_crtsh"}}},
-			&fakeChildProvider{name: "static", entries: []ct.CTEntry{{Fingerprint: "bbb", Source: "ct_static"}}},
+			&fakeChildProvider{name: "crtsh", entries: []ct.CTEntry{testEntry(t, "a.example.com", "ct_crtsh")}},
+			&fakeChildProvider{name: "static", entries: []ct.CTEntry{testEntry(t, "b.example.com", "ct_static")}},
 		},
 	}
 	ing := &fakeIngester{failFor: "ct_crtsh"}
@@ -127,8 +200,8 @@ func TestRunOneCycleSafely_OneGroupFailure_DoesNotBlockOtherGroup(t *testing.T) 
 	okComposer := &Composer{
 		Domain: "good.com",
 		Children: []ct.Provider{
-			&fakeChildProvider{name: "crtsh", entries: []ct.CTEntry{{Fingerprint: "aaa", Source: "ct_crtsh"}}},
-			&fakeChildProvider{name: "static", entries: []ct.CTEntry{{Fingerprint: "bbb", Source: "ct_static"}}},
+			&fakeChildProvider{name: "crtsh", entries: []ct.CTEntry{testEntry(t, "a.good.com", "ct_crtsh")}},
+			&fakeChildProvider{name: "static", entries: []ct.CTEntry{testEntry(t, "b.good.com", "ct_static")}},
 		},
 	}
 	ing := &fakeIngester{}

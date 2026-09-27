@@ -112,18 +112,18 @@ func (p *Poller) runCycle(ctx context.Context, domain string) error {
 	for childSource, childEntries := range byChild {
 		certs := make([]dedup.CertDiscovery, 0, len(childEntries))
 		for _, e := range childEntries {
-			certs = append(certs, dedup.CertDiscovery{
-				Source:            childSource,
-				StoreType:         "ct_log",
-				FingerprintSHA256: e.Fingerprint,
-				SubjectCN:         e.CommonName,
-				IssuerCN:          e.IssuerName,
-				NotBefore:         e.NotBefore,
-				NotAfter:          e.NotAfter,
-				SubjectAltNames:   splitSANs(e.NameValue),
-				RawPEM:            string(e.PEM),
-				FilePath:          fmt.Sprintf("%s:%s", childSource, e.Fingerprint),
-			})
+			// Full parse via the shared helper so KeyAlgorithm/KeySizeBits/
+			// SignatureAlgorithm/SerialNumber/IsCA reach the risk scorer.
+			disc, derr := ct.BuildCertDiscovery(e, childSource, "ct_log")
+			if derr != nil {
+				log.Warn().Err(derr).Str("domain", domain).Str("child_source", childSource).Msg("ct_multi: cert parse failed; skipping")
+				continue
+			}
+			disc.FilePath = fmt.Sprintf("%s:%s", childSource, disc.FingerprintSHA256)
+			certs = append(certs, disc)
+		}
+		if len(certs) == 0 {
+			continue
 		}
 		dr := &ingest.DiscoveryResult{
 			Source:             childSource,
@@ -147,21 +147,4 @@ func (p *Poller) groupFor(domain string) (config.CtMultiGroupConfig, error) {
 		}
 	}
 	return config.CtMultiGroupConfig{}, fmt.Errorf("ct_multi: no configured group for domain %q", domain)
-}
-
-func splitSANs(nameValue string) []string {
-	if nameValue == "" {
-		return nil
-	}
-	var out []string
-	start := 0
-	for i := 0; i <= len(nameValue); i++ {
-		if i == len(nameValue) || nameValue[i] == '\n' {
-			if s := nameValue[start:i]; s != "" {
-				out = append(out, s)
-			}
-			start = i + 1
-		}
-	}
-	return out
 }

@@ -134,22 +134,16 @@ func (p *Poller) pollDomain(ctx context.Context, d config.CtStaticDomainConfig) 
 	certs := make([]dedup.CertDiscovery, 0, len(entries))
 	var parseFailures int
 	for _, e := range entries {
-		if len(e.PEM) == 0 {
+		// Full parse via the shared helper so KeyAlgorithm/KeySizeBits/
+		// SignatureAlgorithm/SerialNumber/IsCA reach the risk scorer.
+		disc, derr := ct.BuildCertDiscovery(e, "ct_static", "ct_log")
+		if derr != nil {
+			log.Warn().Err(derr).Str("domain", d.Domain).Msg("ct_static: cert parse failed; skipping")
 			parseFailures++
 			continue
 		}
-		certs = append(certs, dedup.CertDiscovery{
-			Source:            "ct_static",
-			StoreType:         "ct_log",
-			FingerprintSHA256: e.Fingerprint,
-			SubjectCN:         e.CommonName,
-			IssuerCN:          e.IssuerName,
-			NotBefore:         e.NotBefore,
-			NotAfter:          e.NotAfter,
-			SubjectAltNames:   splitSANs(e.NameValue),
-			RawPEM:            string(e.PEM),
-			FilePath:          fmt.Sprintf("ct_static:%s", e.Fingerprint),
-		})
+		disc.FilePath = fmt.Sprintf("ct_static:%s", disc.FingerprintSHA256)
+		certs = append(certs, disc)
 	}
 
 	// Empty result is a normal ok cycle, not an error (Review Focus).
@@ -178,25 +172,10 @@ func (p *Poller) pollDomain(ctx context.Context, d config.CtStaticDomainConfig) 
 		}
 	}
 	log.Info().Str("domain", d.Domain).Int("certs", len(certs)).Int("parse_failures", parseFailures).
+		Uint64("leaves_verified", prov.LastVerifiedCount).
+		Uint64("proof_fetch_failures", prov.LastProofFetchFailures).
 		Uint64("tree_size", prov.LastSeenTreeSize).Msg("ct_static: domain cycle complete")
 	return nil
-}
-
-func splitSANs(nameValue string) []string {
-	if nameValue == "" {
-		return nil
-	}
-	var out []string
-	start := 0
-	for i := 0; i <= len(nameValue); i++ {
-		if i == len(nameValue) || nameValue[i] == '\n' {
-			if s := nameValue[start:i]; s != "" {
-				out = append(out, s)
-			}
-			start = i + 1
-		}
-	}
-	return out
 }
 
 var _ ct.Provider = (*Provider)(nil) // sanity: Provider (ported in Step 3) still satisfies ct.Provider

@@ -191,18 +191,15 @@ func (p *Poller) pollDomain(ctx context.Context, d config.CtCertspotterDomainCon
 		if cerr != nil {
 			continue
 		}
-		certs = append(certs, dedup.CertDiscovery{
-			Source:            "ct_certspotter",
-			StoreType:         "ct_log",
-			FingerprintSHA256: e.Fingerprint,
-			SubjectCN:         e.CommonName,
-			IssuerCN:          e.IssuerName,
-			NotBefore:         e.NotBefore,
-			NotAfter:          e.NotAfter,
-			SubjectAltNames:   splitSANs(e.NameValue),
-			RawPEM:            string(e.PEM),
-			FilePath:          fmt.Sprintf("ct_certspotter:%s", e.Fingerprint),
-		})
+		// Full parse via the shared helper so KeyAlgorithm/KeySizeBits/
+		// SignatureAlgorithm/SerialNumber/IsCA reach the risk scorer.
+		disc, derr := ct.BuildCertDiscovery(e, "ct_certspotter", "ct_log")
+		if derr != nil {
+			log.Warn().Err(derr).Str("certspotter_id", iss.ID).Str("domain", d.Domain).Msg("ct_certspotter: cert parse failed; skipping")
+			continue
+		}
+		disc.FilePath = fmt.Sprintf("ct_certspotter:%s", disc.FingerprintSHA256)
+		certs = append(certs, disc)
 	}
 	if len(certs) > 0 {
 		dr := &ingest.DiscoveryResult{
@@ -223,20 +220,6 @@ func (p *Poller) pollDomain(ctx context.Context, d config.CtCertspotterDomainCon
 	}
 	log.Info().Str("domain", d.Domain).Int("certs", len(certs)).Msg("ct_certspotter: domain cycle complete")
 	return nil
-}
-
-func splitSANs(nameValue string) []string {
-	if nameValue == "" {
-		return nil
-	}
-	parts := strings.Split(nameValue, "\n")
-	out := parts[:0]
-	for _, p := range parts {
-		if s := strings.TrimSpace(p); s != "" {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 func issuanceToCTEntry(iss Issuance) (ct.CTEntry, error) {

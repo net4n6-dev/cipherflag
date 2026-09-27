@@ -92,14 +92,17 @@ type Provider struct {
 
 	// LastVerifiedCount is the number of SAN-matched leaves whose
 	// inclusion proof verified successfully on the most recent
-	// QueryDomain call. Read by the poller to populate the
-	// leaves_verified summary field.
+	// QueryDomain call. Read by poller.go's pollDomain and emitted as the
+	// leaves_verified field of its "domain cycle complete" log line.
 	LastVerifiedCount uint64
 
 	// LastProofFetchFailures is the number of SAN-matched leaves that
 	// were skipped on the most recent QueryDomain call because their
-	// path-tile fetch failed (per the split failure policy). Read by
-	// the poller to populate the proof_fetch_failures summary field.
+	// hash-tile fetch failed (per the split failure policy). Read by
+	// poller.go's pollDomain and emitted as the proof_fetch_failures
+	// field of its "domain cycle complete" log line. (ct_multi does not
+	// surface these per-leaf counters; its static child's per-call
+	// failures surface through ChildStatus.)
 	LastProofFetchFailures uint64
 }
 
