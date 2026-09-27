@@ -19,6 +19,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
@@ -67,7 +68,8 @@ func (h *RepoCBOMHandler) Download(w http.ResponseWriter, r *http.Request) {
 
 	bom, err := h.gen.GenerateForRepo(r.Context(), h.store, repoID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Error().Err(err).Str("repo_id", repoID).Msg("cbom: repo generation failed")
+		writeError(w, http.StatusInternalServerError, "CBOM generation failed")
 		return
 	}
 
