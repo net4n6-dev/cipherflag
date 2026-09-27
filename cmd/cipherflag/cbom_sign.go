@@ -257,16 +257,12 @@ func runVerifyCBOM(_ context.Context, bomPath, trustedKeyPath string) (int, erro
 	}
 
 	// Trust check: compare the embedded public key bytes against the operator's
-	// trusted public key from trustedKeyPath.
-	trustedPEM, err := os.ReadFile(trustedKeyPath)
+	// trusted public key from trustedKeyPath (SPKI or raw 32-byte).
+	trusted, err := cbom.LoadTrustedKeys([]string{trustedKeyPath})
 	if err != nil {
-		return 1, fmt.Errorf("read trusted key: %w", err)
+		return 1, err
 	}
-	block, _ := pem.Decode(trustedPEM)
-	if block == nil {
-		return 1, fmt.Errorf("trusted-key PEM parse failed")
-	}
-	trustedPub := ed25519.PublicKey(block.Bytes)
+	trustedPub := trusted[0]
 
 	if !ed25519KeyEqual(trustedPub, embeddedPub) {
 		trustedSum := sha256.Sum256(trustedPub)

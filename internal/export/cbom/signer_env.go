@@ -27,7 +27,8 @@ import (
 //
 //   - PEM: the env var value starts with "-----BEGIN"; delegated to newFileSignerFromPEM.
 //   - Base64 (StdEncoding): any other non-empty value is decoded as standard
-//     base64 and must decode to exactly ed25519.PrivateKeySize (64) bytes.
+//     base64 and must decode to a PKCS#8 or raw 64-byte Ed25519 key
+//     (parseEd25519PrivateKey).
 type EnvSigner struct {
 	priv ed25519.PrivateKey
 }
@@ -53,11 +54,11 @@ func NewEnvSigner(envVar string) (*EnvSigner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("env signer: invalid base64: %w", err)
 	}
-	if len(privBytes) != ed25519.PrivateKeySize {
-		return nil, fmt.Errorf("env signer: expected %d bytes, got %d",
-			ed25519.PrivateKeySize, len(privBytes))
+	priv, err := parseEd25519PrivateKey(privBytes)
+	if err != nil {
+		return nil, fmt.Errorf("env signer: %w", err)
 	}
-	return &EnvSigner{priv: ed25519.PrivateKey(privBytes)}, nil
+	return &EnvSigner{priv: priv}, nil
 }
 
 // Algorithm implements Signer.

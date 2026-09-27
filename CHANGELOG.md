@@ -34,6 +34,17 @@ All notable changes to CipherFlag are documented in this file.
 - CBOM export handlers no longer time out at the server's 30-second write
   limit, no longer discard generation errors silently, and return a real
   `500` if serialisation fails instead of a truncated `200`.
+- **`verify-cbom` reported a trust mismatch for a genuine BOM when
+  `--trusted-key` was a standard SPKI public key** (from OpenSSL, or from
+  CipherFlag EE 4.11's `generate-signing-key`). It read the PEM body as a
+  raw key, which never matched, and exited `1`. Every signing-key reader
+  (the file and env signers and `--trusted-key`) now accepts standard
+  PKCS#8/SPKI keys as well as the raw keys CE has always written. A
+  trusted key that is not an Ed25519 public key is now reported as an
+  error naming the file instead of as a trust mismatch. A raw private key
+  whose public half does not match its seed, which signed BOMs no verifier
+  accepts, is now rejected when loaded. See "Key formats" in
+  `docs/configuration.md`.
 
 ### Notes
 - The estate export is assembled in memory with one lookup per asset; very

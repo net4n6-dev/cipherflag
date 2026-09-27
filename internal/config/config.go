@@ -461,10 +461,11 @@ type IntakeDedupConfig struct {
 // entirely and bom.Signature is never populated.
 //
 // Signer must be "file" or "env":
-//   - "file": private key is read from Path at startup (PEM, PRIVATE KEY block,
-//     Ed25519 raw seed+public, 64 bytes).
+//   - "file": private key is read from Path at startup (PEM PRIVATE KEY block
+//     holding a PKCS#8 or raw 64-byte Ed25519 key).
 //   - "env":  private key is read from the environment variable named by EnvVar;
-//     accepts PEM ("-----BEGIN …") or raw base64-standard-encoded bytes.
+//     accepts PEM ("-----BEGIN …") or base64-standard-encoded key bytes
+//     (PKCS#8 DER or raw 64 bytes).
 //
 // TOML section: [cbom.signing]
 // Spec ref: docs/superpowers/plans/2026-05-16-l4-d-cbom-depth-pass.md §Task 13.

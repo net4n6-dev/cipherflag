@@ -121,6 +121,43 @@ For `protocol = "tls"`:
 - Without `cert_file`/`key_file` the sink does server-authenticated TLS only. Set both for mutual TLS; setting only one is a configuration error.
 - The receiver's certificate is verified against `ca_file` (or the system roots). `tls_insecure = true` disables that check, which exposes the feed to interception; use it only for lab receivers. A warning is logged when it is on.
 
+### CBOM signing (`[cbom.signing]`)
+
+Signing emitted CBOMs with Ed25519 is opt-in:
+
+```toml
+[cbom.signing]
+enabled = true
+signer  = "file"                          # "file" | "env"
+path    = "/etc/cipherflag/signing.key"   # for signer = "file"
+env_var = "CIPHERFLAG_SIGNING_KEY"        # for signer = "env"
+```
+
+Generate a keypair with:
+
+    cipherflag generate-signing-key --out /etc/cipherflag/signing
+
+This writes `signing.key` (private, mode 0600) and `signing.pub` (public) and prints the public key's SHA-256 fingerprint. Record the fingerprint out of band so verifiers can check it. With signing enabled, `cipherflag serve` logs the same fingerprint at startup.
+
+#### Key formats
+
+The signer (`signer = "file"`, and `signer = "env"` with a PEM value) reads a `PRIVATE KEY` (or `ED25519 PRIVATE KEY`) PEM block; `verify-cbom --trusted-key` reads a `PUBLIC KEY` PEM block. Each accepts two encodings of an Ed25519 key:
+
+- **Standard**: a PKCS#8 private key and an SPKI public key, as written by OpenSSL, an HSM or a cloud KMS export, and by CipherFlag EE 4.11 and later. To make the pair with OpenSSL:
+
+      (umask 077; openssl genpkey -algorithm ed25519 -out /etc/cipherflag/signing.key)
+      openssl pkey -in /etc/cipherflag/signing.key -pubout -out /etc/cipherflag/signing.pub
+
+  The subshell's `umask 077` keeps the private key at mode 0600. OpenSSL prints no fingerprint; the one CipherFlag logs and prints is the SHA-256 of the raw 32-byte public key, which this computes:
+
+      openssl pkey -pubin -in /etc/cipherflag/signing.pub -outform DER | tail -c 32 | sha256sum
+
+- **Raw**: Go's 64-byte private key and 32-byte public key, as written by `cipherflag generate-signing-key`. These files carry the same PEM labels as the standard encoding but are not PKCS#8 or SPKI, so other tools (OpenSSL included) cannot read them.
+
+With `signer = "env"`, a value that does not start with `-----BEGIN` is read as standard base64 of either encoding's key bytes (PKCS#8 DER or the raw 64 bytes). Other key types (RSA, ECDSA) and a raw private key whose public half does not match its seed are rejected.
+
+CipherFlag CE before 2.3.0 reads only the raw encoding. Its `verify-cbom` misreads a standard `.pub` (including one from EE 4.11) and reports a trust mismatch for a genuine BOM; verify with 2.3.0 or later.
+
 ### `[pcap]`
 
 Controls PCAP upload and processing.

@@ -23,7 +23,7 @@ import (
 
 // FileSigner implements Signer by reading an Ed25519 private key from a PEM
 // file. The PEM block type must be "PRIVATE KEY" or "ED25519 PRIVATE KEY" and
-// the block body must be exactly ed25519.PrivateKeySize (64) bytes.
+// the body a PKCS#8 or raw 64-byte Ed25519 key (parseEd25519PrivateKey).
 type FileSigner struct {
 	priv ed25519.PrivateKey
 }
@@ -46,11 +46,11 @@ func newFileSignerFromPEM(pemBytes []byte) (*FileSigner, error) {
 	if block.Type != "PRIVATE KEY" && block.Type != "ED25519 PRIVATE KEY" {
 		return nil, fmt.Errorf("file signer: expected Ed25519 PRIVATE KEY PEM, got %q", block.Type)
 	}
-	if len(block.Bytes) != ed25519.PrivateKeySize {
-		return nil, fmt.Errorf("file signer: Ed25519 key must be %d bytes, got %d",
-			ed25519.PrivateKeySize, len(block.Bytes))
+	priv, err := parseEd25519PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("file signer: %w", err)
 	}
-	return &FileSigner{priv: ed25519.PrivateKey(block.Bytes)}, nil
+	return &FileSigner{priv: priv}, nil
 }
 
 // Algorithm implements Signer.
