@@ -124,15 +124,18 @@ type ProtocolPolicy struct {
 }
 
 type SourcesConfig struct {
-	ZeekFile        ZeekFileSourceConfig        `toml:"zeek_file"`
-	Corelight       CorelightSourceConfig       `toml:"corelight"`
-	Velociraptor    VelociraptorSourceConfig    `toml:"velociraptor"`
-	Netwrix         NetwrixSourceConfig         `toml:"netwrix"`
-	Defender        DefenderSourceConfig        `toml:"defender"`
-	SentinelOne     SentinelOneSourceConfig     `toml:"sentinelone"`
-	Tanium          TaniumSourceConfig          `toml:"tanium"`
-	Absolute        AbsoluteSourceConfig        `toml:"absolute"`
-	ExternalSources ExternalSourcesSourceConfig `toml:"external_sources"`
+	ZeekFile      ZeekFileSourceConfig      `toml:"zeek_file"`
+	Corelight     CorelightSourceConfig     `toml:"corelight"`
+	Velociraptor  VelociraptorSourceConfig  `toml:"velociraptor"`
+	Netwrix       NetwrixSourceConfig       `toml:"netwrix"`
+	Defender      DefenderSourceConfig      `toml:"defender"`
+	SentinelOne   SentinelOneSourceConfig   `toml:"sentinelone"`
+	Tanium        TaniumSourceConfig        `toml:"tanium"`
+	Absolute      AbsoluteSourceConfig      `toml:"absolute"`
+	CtCrtsh       CtCrtshSourceConfig       `toml:"ct_crtsh"`
+	CtStatic      CtStaticSourceConfig      `toml:"ct_static"`
+	CtCertspotter CtCertspotterSourceConfig `toml:"ct_certspotter"`
+	CtMulti       CtMultiSourceConfig       `toml:"ct_multi"`
 }
 
 type ZeekFileSourceConfig struct {
@@ -268,36 +271,123 @@ type AbsoluteReachConfig struct {
 	ConfigsScriptID   string `toml:"configs_script_id"`
 }
 
-// ExternalSourcesCTKindConfig is the shared shape for per-CT-kind
-// enable gating in [sources.external_sources.ct_<kind>] blocks. Each
-// kind is registered conditionally on Enabled at startup — operators
-// can fully hide a kind (no UI surface, no scheduler dispatch) by
-// flipping the flag and restarting cipherflag serve.
-//
-// Plan A registers ct_crtsh + ct_static. Plan B adds ct_certspotter +
-// ct_multi (their fields land here too in that plan).
-type ExternalSourcesCTKindConfig struct {
-	Enabled bool `toml:"enabled"`
+// CtDomainConfig is one monitored domain for the ct_crtsh adapter.
+type CtDomainConfig struct {
+	Enabled           bool   `toml:"enabled"`
+	Domain            string `toml:"domain"`
+	IncludeSubdomains bool   `toml:"include_subdomains"`
 }
 
-// ExternalSourcesSourceConfig controls the external_sources scheduler
-// that polls registered kinds (aws_account in v1.10; ct_crtsh in
-// v1.11, renamed from ct_domain by migration 049 in v1.25). When
-// Enabled = false, the scheduler goroutine doesn't start; rows in the
-// external_sources table are inert.
-//
-// TickIntervalSeconds defaults to 30 (matching the Phase A scheduler's
-// internal default). ShutdownGraceSeconds defaults to 60 (matching
-// the Phase A follow-up's ShutdownGrace default). Zero or negative
-// values fall back to the defaults at Run() entry.
-type ExternalSourcesSourceConfig struct {
-	Enabled              bool                        `toml:"enabled"`
-	TickIntervalSeconds  int                         `toml:"tick_interval_seconds"`
-	ShutdownGraceSeconds int                         `toml:"shutdown_grace_seconds"`
-	CtCrtsh              ExternalSourcesCTKindConfig `toml:"ct_crtsh"`
-	// CtStatic gates the ct_static kind — Sunlight-format CT log consumer;
-	// see internal/ingest/ct/static/. Shipped in Plan A (v1.25.0).
-	CtStatic ExternalSourcesCTKindConfig `toml:"ct_static"`
+// CtCrtshSourceConfig configures the crt.sh CT adapter across N domains.
+type CtCrtshSourceConfig struct {
+	Domains []CtDomainConfig `toml:"domains"`
+}
+
+// Enabled reports whether at least one configured domain is enabled.
+// main.go gates the whole poller's construction on this, matching the
+// Enabled-gated pattern every other CE connector uses.
+func (c CtCrtshSourceConfig) Enabled() bool {
+	for _, d := range c.Domains {
+		if d.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+// CtStaticDomainConfig is one monitored domain for the ct_static
+// (Sunlight/RFC 6962) adapter.
+type CtStaticDomainConfig struct {
+	Enabled      bool   `toml:"enabled"`
+	Domain       string `toml:"domain"`
+	LogURL       string `toml:"log_url"`
+	PublicKeyPEM string `toml:"public_key_pem"`
+}
+
+// CtStaticSourceConfig configures the Static CT API adapter across N domains.
+type CtStaticSourceConfig struct {
+	Domains []CtStaticDomainConfig `toml:"domains"`
+}
+
+func (c CtStaticSourceConfig) Enabled() bool {
+	for _, d := range c.Domains {
+		if d.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+// CtCertspotterDomainConfig is one monitored domain for the SSLMate
+// CertSpotter adapter.
+type CtCertspotterDomainConfig struct {
+	Enabled           bool   `toml:"enabled"`
+	Domain            string `toml:"domain"`
+	IncludeSubdomains bool   `toml:"include_subdomains"`
+	APIToken          string `toml:"api_token"`
+	RequestsPerHour   int    `toml:"requests_per_hour"`
+}
+
+// CtCertspotterSourceConfig configures the CertSpotter adapter across N domains.
+type CtCertspotterSourceConfig struct {
+	Domains []CtCertspotterDomainConfig `toml:"domains"`
+}
+
+func (c CtCertspotterSourceConfig) Enabled() bool {
+	for _, d := range c.Domains {
+		if d.Enabled {
+			return true
+		}
+	}
+	return false
+}
+
+// CtMultiChildCrtshConfig marks a ct_multi child as crt.sh-backed. No
+// per-child fields — crtsh uses the group's shared domain with default
+// subdomain inclusion.
+type CtMultiChildCrtshConfig struct{}
+
+// CtMultiChildStaticConfig is a ct_multi child backed by a Static CT log.
+type CtMultiChildStaticConfig struct {
+	Domain       string `toml:"domain"`
+	LogURL       string `toml:"log_url"`
+	PublicKeyPEM string `toml:"public_key_pem"`
+}
+
+// CtMultiChildCertspotterConfig is a ct_multi child backed by CertSpotter.
+type CtMultiChildCertspotterConfig struct {
+	Domain          string `toml:"domain"`
+	APIToken        string `toml:"api_token"`
+	RequestsPerHour int    `toml:"requests_per_hour"`
+}
+
+// CtMultiChildConfig is a tagged union — exactly one field is non-nil.
+type CtMultiChildConfig struct {
+	Crtsh       *CtMultiChildCrtshConfig       `toml:"crtsh"`
+	Static      *CtMultiChildStaticConfig      `toml:"static"`
+	Certspotter *CtMultiChildCertspotterConfig `toml:"certspotter"`
+}
+
+// CtMultiGroupConfig is one ct_multi coverage-union group: N children
+// sharing one domain.
+type CtMultiGroupConfig struct {
+	Enabled  bool                 `toml:"enabled"`
+	Domain   string               `toml:"domain"`
+	Children []CtMultiChildConfig `toml:"children"`
+}
+
+// CtMultiSourceConfig configures the ct_multi composer across N groups.
+type CtMultiSourceConfig struct {
+	Groups []CtMultiGroupConfig `toml:"groups"`
+}
+
+func (c CtMultiSourceConfig) Enabled() bool {
+	for _, g := range c.Groups {
+		if g.Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 type ExportConfig struct {
@@ -557,21 +647,11 @@ func validateSinkConfig(s SinkConfig, location string) error {
 // overwrite these fields when the operator explicitly sets them; fields
 // absent from the TOML retain the defaults below.
 //
-// This pattern is required for inverted-default booleans (e.g. CT-kind
-// enable flags default to true, but Go's bool zero-value is false).
+// This pattern is required for inverted-default booleans (a bool field
+// that should default to true, since Go's bool zero-value is false).
+// No fields currently need it; kept as the hook for the next one that does.
 func newDefaultConfig() Config {
-	return Config{
-		Sources: SourcesConfig{
-			ExternalSources: ExternalSourcesSourceConfig{
-				// CT-kind enable flags: every registered kind is active by
-				// default; operators opt out by setting enabled = false in the
-				// [sources.external_sources.ct_<kind>] block and restarting
-				// cipherflag serve.
-				CtCrtsh:  ExternalSourcesCTKindConfig{Enabled: true},
-				CtStatic: ExternalSourcesCTKindConfig{Enabled: true},
-			},
-		},
-	}
+	return Config{}
 }
 
 func Load(path string) (*Config, error) {

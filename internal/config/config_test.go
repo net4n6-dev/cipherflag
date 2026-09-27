@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -378,34 +380,40 @@ func TestLoad_RankFormulaIsDefaultTracksTomlPresence(t *testing.T) {
 	}
 }
 
-func TestConfig_CTKindEnableFlags_DefaultsAndOverride(t *testing.T) {
-	// Default (no TOML ct_crtsh sub-block): every CT kind enabled.
-	defaults, err := loadFromTOML(t, `
-[sources.external_sources]
-`)
-	if err != nil {
-		t.Fatalf("loadFromTOML: %v", err)
-	}
-	if !defaults.Sources.ExternalSources.CtCrtsh.Enabled {
-		t.Error("default: ct_crtsh.enabled should be true")
-	}
-	if !defaults.Sources.ExternalSources.CtStatic.Enabled {
-		t.Error("default: ct_static.enabled should be true")
-	}
+func TestSourcesConfig_CTFields_TOMLRoundTrip(t *testing.T) {
+	tomlSrc := `
+[sources.ct_crtsh]
+  [[sources.ct_crtsh.domains]]
+  enabled = true
+  domain = "example.com"
+  include_subdomains = true
 
-	// Operator disables ct_crtsh.
-	overridden, err := loadFromTOML(t, `
-[sources.external_sources.ct_crtsh]
-enabled = false
-`)
-	if err != nil {
-		t.Fatalf("loadFromTOML: %v", err)
+[sources.ct_multi]
+  [[sources.ct_multi.groups]]
+  enabled = true
+  domain = "example.com"
+    [[sources.ct_multi.groups.children]]
+    [sources.ct_multi.groups.children.crtsh]
+    [[sources.ct_multi.groups.children]]
+    [sources.ct_multi.groups.children.static]
+    domain = "example.com"
+    log_url = "https://log.example.com/"
+    public_key_pem = "pem-placeholder"
+`
+	var cfg Config
+	if _, err := toml.Decode(tomlSrc, &cfg); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-	if overridden.Sources.ExternalSources.CtCrtsh.Enabled {
-		t.Error("override: ct_crtsh.enabled should be false")
+	if len(cfg.Sources.CtCrtsh.Domains) != 1 || cfg.Sources.CtCrtsh.Domains[0].Domain != "example.com" {
+		t.Fatalf("ct_crtsh domains = %+v", cfg.Sources.CtCrtsh.Domains)
 	}
-	// ct_static not overridden — should still default to true.
-	if !overridden.Sources.ExternalSources.CtStatic.Enabled {
-		t.Error("override: ct_static.enabled should remain true when not overridden")
+	if len(cfg.Sources.CtMulti.Groups) != 1 || len(cfg.Sources.CtMulti.Groups[0].Children) != 2 {
+		t.Fatalf("ct_multi groups = %+v", cfg.Sources.CtMulti.Groups)
+	}
+	if cfg.Sources.CtMulti.Groups[0].Children[0].Crtsh == nil {
+		t.Fatal("expected first child to be crtsh")
+	}
+	if cfg.Sources.CtMulti.Groups[0].Children[1].Static == nil || cfg.Sources.CtMulti.Groups[0].Children[1].Static.Domain != "example.com" {
+		t.Fatal("expected second child to be static with domain example.com")
 	}
 }
