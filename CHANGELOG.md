@@ -2,6 +2,43 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [2.3.0] - 2026-09-27
+
+### Security
+- **Signed BOMs were emitted without their signature on three paths.**
+  With `[cbom.signing]` enabled, `GET /api/v1/export/cbom`, the repo-CBOM
+  download and the S3 sink wrote `"signature":{}`: the signature was
+  computed but lost when the BOM was serialised. The server logged
+  "CBOM signing enabled" at startup, so these outputs looked signed. All
+  writers now go through one serialiser that keeps the signature, and
+  tests verify the signature on every path. Re-download any BOM you
+  relied on as signed. (File and HTTP sinks were not affected.)
+
+### Added
+- `GET /api/v1/export/cbom/estate`: a CBOM over every scored asset.
+- `GET /api/v1/applications/{tag}/cbom`: a CBOM of the assets carrying an
+  application tag (`404` when no scored asset carries it).
+- Both are readable by any authenticated user and signed when signing is
+  enabled.
+- Syslog sink: `tls_insecure` option, and `cert_file`/`key_file` are now
+  optional for `protocol = "tls"` (server-authenticated TLS). Setting only
+  one of the two is a configuration error.
+
+### Fixed
+- **`asset_count` overstated BOM contents.** It now equals the number of
+  asset components in the BOM. When health reports were dropped because
+  their asset no longer exists, `assets_omitted` and `assets_omitted_types`
+  properties disclose it.
+- Application exports now fail on a mapping error instead of silently
+  omitting the asset, matching scope exports.
+- CBOM export handlers no longer time out at the server's 30-second write
+  limit, no longer discard generation errors silently, and return a real
+  `500` if serialisation fails instead of a truncated `200`.
+
+### Notes
+- The estate export is assembled in memory with one lookup per asset; very
+  large inventories cost memory and time proportional to their size.
+
 ## [2.2.5] - 2026-09-25
 
 ### Fixed
