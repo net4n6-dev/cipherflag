@@ -39,8 +39,8 @@ type Generator struct {
 }
 
 // Generate produces a CycloneDX 1.6 BOM for the given scope. (The target format
-// is 1.7, but cyclonedx-go v0.10.0 caps at 1.6; upgrade the assignment below
-// when the library adds SpecVersion1_7.)
+// is 1.7, but cyclonedx-go v0.10.0 caps at 1.6; upgrade the assignment in
+// buildBOMFromRows when the library adds SpecVersion1_7.)
 func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *Scope) (*cdx.BOM, error) {
 	// 1. Resolve scope host IDs (patterns → UUIDs).
 	hostIDs, err := resolveHostIDsForScope(ctx, st, scope)
@@ -58,6 +58,39 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 		return nil, fmt.Errorf("cbom: list scope assets for %q: %w", scope.Name, err)
 	}
 
+	root := &cdx.Component{
+		Type:   cdx.ComponentTypeApplication,
+		BOMRef: "scope:" + scope.Name,
+		Name:   scope.Name,
+		Properties: &[]cdx.Property{
+			{Name: "cipherflag:scope.host_count", Value: strconv.Itoa(len(hostIDs))},
+			{Name: "cipherflag:scope.asset_count", Value: strconv.Itoa(len(rows))},
+		},
+	}
+	return g.buildBOMFromRows(ctx, st, rows, bomParams{root: root, label: "scope:" + scope.Name})
+}
+
+// bomParams configures buildBOMFromRows for one export flavour.
+type bomParams struct {
+	// root is the BOM's metadata.component. The caller sets its identity and
+	// its cipherflag:*.asset_count property.
+	root *cdx.Component
+	// label tags the drift and unresolved-dependency log lines ("scope:prod").
+	label string
+	// depsInBOMOnly restricts dependency edges to refs whose component is in
+	// this BOM (application exports). When false every ref counts as in scope
+	// (scope and estate exports).
+	depsInBOMOnly bool
+	// skipMapErrors drops a row whose asset cannot be loaded instead of failing
+	// the export. Temporary: removed in the honest-counts task.
+	skipMapErrors bool
+}
+
+// buildBOMFromRows maps asset rows to a CycloneDX 1.6 BOM: components, enriched
+// algorithm components, dependency graph, and (when a signer is configured) the
+// JSF signature. Shared by Generate, GenerateForApplication and
+// GenerateWholeEstate.
+func (g *Generator) buildBOMFromRows(ctx context.Context, st store.CryptoStore, rows []store.ScopeAssetRow, p bomParams) (*cdx.BOM, error) {
 	// 3. Map each row to a CycloneDX component; collect referenced algo BOM refs.
 	var components []cdx.Component
 	// enrichedAlgos deduplicates algorithm components by BOMRef, preserving
@@ -76,6 +109,9 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 	for _, row := range rows {
 		comp, algoComps, err := g.mapRow(ctx, st, row)
 		if err != nil {
+			if p.skipMapErrors {
+				continue
+			}
 			return nil, fmt.Errorf("cbom: map %s %s: %w", row.AssetType, row.AssetID, err)
 		}
 		if comp != nil {
@@ -160,9 +196,6 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 	bom := cdx.NewBOM()
 	bom.SpecVersion = cdx.SpecVersion1_6 // cyclonedx-go v0.10.0 caps at 1.6; upgrade when library adds 1.7
 	bom.SerialNumber = "urn:uuid:" + uuid.New().String()
-
-	hostCount := len(hostIDs)
-	assetCount := len(rows)
 	bom.Metadata = &cdx.Metadata{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Tools: &cdx.ToolsChoice{
@@ -172,23 +205,19 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 				Version: cbomVersion,
 			}},
 		},
-		Component: &cdx.Component{
-			Type:   cdx.ComponentTypeApplication,
-			BOMRef: "scope:" + scope.Name,
-			Name:   scope.Name,
-			Properties: &[]cdx.Property{
-				{Name: "cipherflag:scope.host_count", Value: strconv.Itoa(hostCount)},
-				{Name: "cipherflag:scope.asset_count", Value: strconv.Itoa(assetCount)},
-			},
-		},
+		Component: p.root,
 	}
 
-	// 6b. Compute dependency graph from assembled components.
+	// 6b. Compute the dependency graph from the assembled components.
 	lookup := issuanceLookupForStore(ctx, st)
-	deps := computeDependencies(components, lookup, func(string) bool { return true })
+	inBom := buildBOMRefSet(components)
+	inScope := func(string) bool { return true }
+	if p.depsInBOMOnly {
+		inScope = func(ref string) bool { return inBom[ref] }
+	}
+	deps := computeDependencies(components, lookup, inScope)
 
 	// 6c. Annotate components with unresolved/inferred dep signals.
-	inBom := buildBOMRefSet(components)
 	components = annotateUnresolvedAndInferred(components, deps, inBom, lookup)
 
 	if len(components) > 0 {
@@ -197,13 +226,11 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 	if len(deps) > 0 {
 		bom.Dependencies = &deps
 	}
-
-	logAlgorithmDrift(components, "scope:"+scope.Name)
-	logUnresolvedDeps(components, "scope:"+scope.Name)
+	logAlgorithmDrift(components, p.label)
+	logUnresolvedDeps(components, p.label)
 
 	// Opt-in JSF signing: sign after the BOM is fully assembled so the
 	// signature covers components + dependencies.
-	// Spec ref: docs/superpowers/plans/2026-05-16-l4-d-cbom-depth-pass.md §Task 13 Step 5.
 	if g.signer != nil {
 		if err := SignBOM(bom, g.signer); err != nil {
 			return nil, fmt.Errorf("cbom: sign BOM: %w", err)
