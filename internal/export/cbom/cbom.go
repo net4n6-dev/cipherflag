@@ -47,39 +47,24 @@ func NewGenerator() *Generator {
 //
 // Spec ref: docs/superpowers/plans/2026-05-16-l4-d-cbom-depth-pass.md §Task 13 Step 5.
 func NewGeneratorWithSigning(signingCfg config.CBOMSigningConfig) (*Generator, error) {
-	if !signingCfg.Enabled {
-		return NewGenerator(), nil
+	signer, err := LoadSigner(signingCfg)
+	if err != nil {
+		return nil, fmt.Errorf("cbom: signing: %w", err)
 	}
-	var signer Signer
-	switch signingCfg.Signer {
-	case "file":
-		s, err := NewFileSigner(signingCfg.Path)
-		if err != nil {
-			return nil, fmt.Errorf("cbom: signing: %w", err)
-		}
-		signer = s
-	case "env":
-		s, err := NewEnvSigner(signingCfg.EnvVar)
-		if err != nil {
-			return nil, fmt.Errorf("cbom: signing: %w", err)
-		}
-		signer = s
-	default:
-		return nil, fmt.Errorf("cbom: signing: signer %q is not supported (want \"file\" or \"env\")", signingCfg.Signer)
-	}
-	return &Generator{signer: signer, libraryFIPSLevel: scoring.LibraryFIPSLevel}, nil
+	g := NewGenerator()
+	g.signer = signer
+	return g, nil
 }
 
 // NewRuntime constructs a Runtime from a store and CBOMConfig.
 // Call Start(ctx) to begin background emission goroutines.
-// Panics if signing is enabled but the key material is invalid — callers
-// should validate config (including signing config) before calling NewRuntime.
+// Panics if signing is enabled but the key cannot be loaded. serve checks
+// the key with LoadSigner first and exits cleanly on an error
+// (checkCBOMSigning in cmd/cipherflag), so the panic is only a backstop.
 func NewRuntime(st store.CryptoStore, cfg *config.CBOMConfig) *Runtime {
 	gen, err := NewGeneratorWithSigning(cfg.Signing)
 	if err != nil {
-		// Fail-fast: signing misconfiguration is a startup error. The operator
-		// enabled signing but provided an invalid key — surface it loudly
-		// rather than silently emitting unsigned BOMs.
+		// Backstop only: never emit unsigned BOMs while signing is enabled.
 		panic("cbom: NewRuntime: " + err.Error())
 	}
 

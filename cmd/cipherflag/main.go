@@ -124,6 +124,8 @@ func main() {
 }
 
 func runServe(ctx context.Context, cfg *config.Config, configPath string) {
+	checkCBOMSigning(cfg.CBOM.Signing)
+
 	st, err := store.NewPostgresStore(ctx, cfg.Storage.PostgresURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to database")

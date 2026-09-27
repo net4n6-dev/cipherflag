@@ -63,8 +63,9 @@ type CBOMHandler struct {
 func NewCBOMHandler(st store.CryptoStore, cfg *config.CBOMConfig, importer cbomImporterIface) *CBOMHandler {
 	gen, err := cbom.NewGeneratorWithSigning(cfg.Signing)
 	if err != nil {
-		// Signing misconfiguration is a startup error — fail fast so the
-		// operator sees a clear message rather than silently unsigned BOMs.
+		// Backstop only: serve checks the key first and exits with a clear
+		// message (checkCBOMSigning). Never serve unsigned BOMs while
+		// signing is enabled.
 		panic("cbom handler: " + err.Error())
 	}
 	return &CBOMHandler{

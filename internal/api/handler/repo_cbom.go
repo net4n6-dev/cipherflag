@@ -49,6 +49,8 @@ func NewRepoCBOMHandler(s RepoCBOMStore, signingCfg ...config.CBOMSigningConfig)
 	}
 	gen, err := cbom.NewGeneratorWithSigning(cfg)
 	if err != nil {
+		// Backstop only: serve checks the key first and exits with a clear
+		// message (checkCBOMSigning).
 		panic("repo cbom handler: " + err.Error())
 	}
 	return &RepoCBOMHandler{store: s, gen: gen}

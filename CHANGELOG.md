@@ -45,6 +45,13 @@ All notable changes to CipherFlag are documented in this file.
   whose public half does not match its seed, which signed BOMs no verifier
   accepts, is now rejected when loaded. See "Key formats" in
   `docs/configuration.md`.
+- **A signing key that could not be loaded crash-looped the server.** With
+  `[cbom.signing]` enabled and a missing or unusable key, `serve` got past
+  startup and then panicked while building the CBOM runtime or the CBOM
+  download handlers, so a container under `restart: unless-stopped`
+  restarted forever. `serve` now checks the key first and exits with one
+  line naming the key file or environment variable and the way out
+  (`[cbom.signing] enabled = false`), before connecting to the database.
 
 ### Notes
 - The estate export is assembled in memory with one lookup per asset; very

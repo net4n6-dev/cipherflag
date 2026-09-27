@@ -154,7 +154,7 @@ The signer (`signer = "file"`, and `signer = "env"` with a PEM value) reads a `P
 
 - **Raw**: Go's 64-byte private key and 32-byte public key, as written by `cipherflag generate-signing-key`. These files carry the same PEM labels as the standard encoding but are not PKCS#8 or SPKI, so other tools (OpenSSL included) cannot read them.
 
-With `signer = "env"`, a value that does not start with `-----BEGIN` is read as standard base64 of either encoding's key bytes (PKCS#8 DER or the raw 64 bytes). Other key types (RSA, ECDSA) and a raw private key whose public half does not match its seed are rejected.
+With `signer = "env"`, a value that does not start with `-----BEGIN` is read as standard base64 of either encoding's key bytes (PKCS#8 DER or the raw 64 bytes). Other key types (RSA, ECDSA) and a raw private key whose public half does not match its seed are rejected. With signing enabled, a key that cannot be loaded stops `cipherflag serve` at startup, before it connects to the database, with one `FTL` line naming the key file or environment variable and the reason.
 
 CipherFlag CE before 2.3.0 reads only the raw encoding. Its `verify-cbom` misreads a standard `.pub` (including one from EE 4.11) and reports a trust mismatch for a genuine BOM; verify with 2.3.0 or later.
 
