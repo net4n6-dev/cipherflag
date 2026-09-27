@@ -1688,8 +1688,22 @@ func buildChildren(group config.CtMultiGroupConfig, httpClient *http.Client) ([]
 			if requestsPerHour == 0 {
 				requestsPerHour = certspotter.DefaultRequestsPerHour
 			}
-			p = &certspotter.Poller{}
-			_ = requestsPerHour // certspotter.Poller lazily builds its client with this rate in QueryDomain when client is nil; see Task 4 Step 7
+			// certspotter.Poller's fields are unexported, so a bare
+			// &certspotter.Poller{} from this package can never carry a
+			// per-child APIToken/RequestsPerHour — it would silently fall
+			// back to certspotterClient's hardcoded defaults (empty token,
+			// DefaultRequestsPerHour) every time, discarding whatever the
+			// operator configured for this multi-group child. Use the
+			// exported NewPoller constructor with a properly configured
+			// *certspotter.Client instead. ingester/store are nil: buildChildren
+			// only ever calls QueryDomain on the result (never Poll/pollDomain),
+			// and Task 4's QueryDomain never touches p.ingester or p.store.
+			p = certspotter.NewPoller(&certspotter.Client{
+				BaseURL:  "https://api.certspotter.com",
+				HTTP:     httpClient,
+				APIToken: child.Certspotter.APIToken,
+				Limiter:  certspotter.NewRateLimiter(requestsPerHour),
+			}, nil, nil, config.CtCertspotterSourceConfig{})
 		default:
 			return nil, fmt.Errorf("multi: group %q children[%d]: no sub-config (validation should have caught)", group.Domain, i)
 		}
