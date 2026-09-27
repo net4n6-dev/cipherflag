@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -81,9 +82,6 @@ type bomParams struct {
 	// this BOM (application exports). When false every ref counts as in scope
 	// (scope and estate exports).
 	depsInBOMOnly bool
-	// skipMapErrors drops a row whose asset cannot be loaded instead of failing
-	// the export. Temporary: removed in the honest-counts task.
-	skipMapErrors bool
 }
 
 // buildBOMFromRows maps asset rows to a CycloneDX 1.6 BOM: components, enriched
@@ -106,16 +104,18 @@ func (g *Generator) buildBOMFromRows(ctx context.Context, st store.CryptoStore, 
 	type libEntry struct{ name, version string }
 	var libEntries []libEntry
 
+	mapped := 0
+	omittedByType := map[string]int{}
 	for _, row := range rows {
 		comp, algoComps, err := g.mapRow(ctx, st, row)
 		if err != nil {
-			if p.skipMapErrors {
-				continue
-			}
 			return nil, fmt.Errorf("cbom: map %s %s: %w", row.AssetType, row.AssetID, err)
 		}
 		if comp != nil {
 			components = append(components, *comp)
+			mapped++
+		} else {
+			omittedByType[row.AssetType]++
 		}
 		for _, ac := range algoComps {
 			if _, seen := enrichedAlgos[ac.BOMRef]; !seen {
@@ -129,6 +129,7 @@ func (g *Generator) buildBOMFromRows(ctx context.Context, st store.CryptoStore, 
 			libEntries = append(libEntries, libEntry{row.LibraryName, row.LibraryVersion})
 		}
 	}
+	setAssetCounts(p.root, mapped, len(rows)-mapped, omittedByType)
 
 	// 4. Post-enrichment: set executionEnvironment and certificationLevel on
 	//    each algorithm component using the accumulated source and library data.
@@ -237,6 +238,38 @@ func (g *Generator) buildBOMFromRows(ctx context.Context, st store.CryptoStore, 
 		}
 	}
 	return bom, nil
+}
+
+// setAssetCounts makes the root's *.asset_count describe the components the BOM
+// actually contains, and discloses rows that produced no component (in CE, a
+// health report whose asset was deleted). The count value is patched in place
+// and the disclosure properties are appended, so existing property order (and
+// therefore the golden output) is unchanged when nothing was omitted.
+func setAssetCounts(root *cdx.Component, mapped, omitted int, omittedByType map[string]int) {
+	if root == nil || root.Properties == nil {
+		return
+	}
+	props := *root.Properties
+	for i := range props {
+		if !strings.HasSuffix(props[i].Name, ".asset_count") {
+			continue
+		}
+		props[i].Value = strconv.Itoa(mapped)
+		if omitted > 0 {
+			types := make([]string, 0, len(omittedByType))
+			for typ := range omittedByType {
+				types = append(types, typ)
+			}
+			sort.Strings(types)
+			prefix := strings.TrimSuffix(props[i].Name, "asset_count")
+			props = append(props,
+				cdx.Property{Name: prefix + "assets_omitted", Value: strconv.Itoa(omitted)},
+				cdx.Property{Name: prefix + "assets_omitted_types", Value: strings.Join(types, ",")},
+			)
+			*root.Properties = props
+		}
+		return
+	}
 }
 
 // mapRow loads the full asset record and converts it to a CycloneDX component.

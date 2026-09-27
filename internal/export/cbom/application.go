@@ -53,6 +53,5 @@ func (g *Generator) GenerateForApplication(ctx context.Context, st store.CryptoS
 		root:          root,
 		label:         "application:" + tag,
 		depsInBOMOnly: true,
-		skipMapErrors: true,
 	})
 }
