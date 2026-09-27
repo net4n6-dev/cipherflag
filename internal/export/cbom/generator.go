@@ -105,6 +105,7 @@ func (g *Generator) buildBOMFromRows(ctx context.Context, st store.CryptoStore, 
 	var libEntries []libEntry
 
 	mapped := 0
+	omitted := 0
 	omittedByType := map[string]int{}
 	for _, row := range rows {
 		comp, algoComps, err := g.mapRow(ctx, st, row)
@@ -114,9 +115,16 @@ func (g *Generator) buildBOMFromRows(ctx context.Context, st store.CryptoStore, 
 		if comp != nil {
 			components = append(components, *comp)
 			mapped++
-		} else {
+		} else if isSupportedAssetType(row.AssetType) {
+			// A supported type whose store lookup returned nothing (in CE, a
+			// health report whose asset was deleted): a real omission.
+			omitted++
 			omittedByType[row.AssetType]++
 		}
+		// Rows of an unsupported type (e.g. "host", "repository" — present in
+		// ListApplicationScopeAssets/ListAllAssetHealthReports for tag-scoping,
+		// not because they are crypto assets mapRow renders) are neither mapped
+		// nor disclosed as omitted: they were never eligible to appear in a CBOM.
 		for _, ac := range algoComps {
 			if _, seen := enrichedAlgos[ac.BOMRef]; !seen {
 				enrichedAlgos[ac.BOMRef] = ac
@@ -129,7 +137,7 @@ func (g *Generator) buildBOMFromRows(ctx context.Context, st store.CryptoStore, 
 			libEntries = append(libEntries, libEntry{row.LibraryName, row.LibraryVersion})
 		}
 	}
-	setAssetCounts(p.root, mapped, len(rows)-mapped, omittedByType)
+	setAssetCounts(p.root, mapped, omitted, omittedByType)
 
 	// 4. Post-enrichment: set executionEnvironment and certificationLevel on
 	//    each algorithm component using the accumulated source and library data.
@@ -269,6 +277,20 @@ func setAssetCounts(root *cdx.Component, mapped, omitted int, omittedByType map[
 			*root.Properties = props
 		}
 		return
+	}
+}
+
+// isSupportedAssetType reports whether mapRow has a case for assetType. Rows
+// of an unsupported type intentionally produce no component (mapRow's default
+// case) and must not be counted as an omission: they are not a crypto asset
+// that CBOM was ever going to render, so a nil component says nothing about
+// whether the underlying record still exists.
+func isSupportedAssetType(assetType string) bool {
+	switch assetType {
+	case "certificate", "ssh_key", "crypto_library", "crypto_config":
+		return true
+	default:
+		return false
 	}
 }
 

@@ -136,3 +136,28 @@ func TestGenerateForApplication_MappingErrorFailsExport(t *testing.T) {
 	_, err := NewGenerator().GenerateForApplication(context.Background(), st, "app-1")
 	require.Error(t, err, "application export must fail on a mapping error like the scope export")
 }
+
+// ListApplicationScopeAssets unions in repository and host rows alongside
+// crypto-asset rows (internal/store/cbom_store.go), and mapRow has no case for
+// them — its default returns a nil component, same as an orphaned crypto
+// asset. A repository row is not a crypto asset CBOM was ever going to render,
+// so it must not be conflated with "a health report outlived its asset" in the
+// omission disclosure.
+func TestGenerateForApplication_UnsupportedAssetTypeIsNotDisclosedAsOmitted(t *testing.T) {
+	st := &appRowsStore{
+		fakeGenStore: fakeGenStore{certs: map[string]*model.Certificate{"fp1": validCert("fp1")}},
+		rows: []store.ScopeAssetRow{
+			{AssetType: "certificate", AssetID: "fp1", Report: healthReport("certificate", "fp1")},
+			{AssetType: "repository", AssetID: "repo1", Report: healthReport("repository", "repo1")},
+		},
+	}
+
+	bom, err := NewGenerator().GenerateForApplication(context.Background(), st, "app-1")
+	require.NoError(t, err)
+
+	props := rootProps(t, bom)
+	require.Equal(t, "1", props["cipherflag:application.asset_count"], "asset_count must equal emitted components")
+	require.NotContains(t, props, "cipherflag:application.assets_omitted",
+		"a repository row is not a crypto asset; it must not be disclosed as an omitted (deleted) asset")
+	require.NotContains(t, props, "cipherflag:application.assets_omitted_types")
+}
