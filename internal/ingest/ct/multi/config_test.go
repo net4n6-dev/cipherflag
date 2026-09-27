@@ -45,13 +45,24 @@ func ed25519PEM(t *testing.T) string {
 	return pkixPEM(t, pub)
 }
 
+// p256PEM returns an ECDSA P-256 SPKI PEM — the key type every production
+// Static CT log uses.
+func p256PEM(t *testing.T) string {
+	t.Helper()
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	return pkixPEM(t, &k.PublicKey)
+}
+
 func TestValidateGroup(t *testing.T) {
-	validPEM := ed25519PEM(t)
+	validPEM := p256PEM(t)
 	valid := config.CtMultiGroupConfig{
 		Domain: "example.com",
 		Children: []config.CtMultiChildConfig{
 			{Crtsh: &config.CtMultiChildCrtshConfig{}},
-			{Static: &config.CtMultiChildStaticConfig{Domain: "example.com", LogURL: "https://log.example/2026h1/", PublicKeyPEM: validPEM}},
+			{Static: &config.CtMultiChildStaticConfig{Domain: "example.com", LogURL: "https://log.example/2026h1/", Origin: "log.example/2026h1", PublicKeyPEM: validPEM}},
 			{Certspotter: &config.CtMultiChildCertspotterConfig{RequestsPerHour: 100}},
 		},
 	}
@@ -71,7 +82,7 @@ func TestValidateGroup(t *testing.T) {
 		Domain: "example.com",
 		Children: []config.CtMultiChildConfig{
 			{Crtsh: &config.CtMultiChildCrtshConfig{}},
-			{Static: &config.CtMultiChildStaticConfig{Domain: "other.com", LogURL: "https://log.example/", PublicKeyPEM: validPEM}},
+			{Static: &config.CtMultiChildStaticConfig{Domain: "other.com", LogURL: "https://log.example/", Origin: "log.example", PublicKeyPEM: validPEM}},
 		},
 	}
 	if err := ValidateGroup(mismatchedDomain); err == nil {
@@ -95,15 +106,15 @@ func TestValidateGroup(t *testing.T) {
 // failing silently every cycle.
 func TestValidateGroup_DelegatesToPerKindValidators(t *testing.T) {
 	validPEM := ed25519PEM(t)
-	ecKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	ecKey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
-	ecdsaPEM := pkixPEM(t, &ecKey.PublicKey)
+	p384PEM := pkixPEM(t, &ecKey.PublicKey)
 
 	okCrtsh := config.CtMultiChildConfig{Crtsh: &config.CtMultiChildCrtshConfig{}}
 	static := func(logURL, pemStr string) config.CtMultiChildConfig {
-		return config.CtMultiChildConfig{Static: &config.CtMultiChildStaticConfig{LogURL: logURL, PublicKeyPEM: pemStr}}
+		return config.CtMultiChildConfig{Static: &config.CtMultiChildStaticConfig{LogURL: logURL, Origin: "log.example", PublicKeyPEM: pemStr}}
 	}
 	certspotter := func(rph int) config.CtMultiChildConfig {
 		return config.CtMultiChildConfig{Certspotter: &config.CtMultiChildCertspotterConfig{RequestsPerHour: rph}}
@@ -125,7 +136,8 @@ func TestValidateGroup_DelegatesToPerKindValidators(t *testing.T) {
 		{"static: empty log_url", group("example.com", okCrtsh, static("", validPEM)), "log_url is required"},
 		{"static: empty public key", group("example.com", okCrtsh, static("https://log.example/", "")), "public_key_pem is required"},
 		{"static: malformed public key", group("example.com", okCrtsh, static("https://log.example/", "not a pem")), "PEM decode failed"},
-		{"static: non-Ed25519 key", group("example.com", okCrtsh, static("https://log.example/", ecdsaPEM)), "not Ed25519"},
+		{"static: non-P-256 ECDSA key", group("example.com", okCrtsh, static("https://log.example/", p384PEM)), "want P-256"},
+		{"static: missing origin", group("example.com", okCrtsh, config.CtMultiChildConfig{Static: &config.CtMultiChildStaticConfig{LogURL: "https://log.example/", PublicKeyPEM: validPEM}}), "origin is required"},
 		// certspotter
 		{"certspotter: negative requests_per_hour", group("example.com", okCrtsh, certspotter(-1)), "requests_per_hour must be >= 0"},
 		{"certspotter: requests_per_hour too high", group("example.com", okCrtsh, certspotter(100001)), "requests_per_hour must be <= 100000"},

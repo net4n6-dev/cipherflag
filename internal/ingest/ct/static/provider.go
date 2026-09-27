@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"golang.org/x/mod/sumdb/tlog"
@@ -35,7 +34,7 @@ import (
 )
 
 // Provider is the ct_static Static-CT-API consumer. One Provider per
-// source instance (the config carries one log_url + public_key_pem).
+// source instance (the config carries one log_url + origin + public_key_pem).
 // The poller in poller.go constructs a fresh Provider per domain per
 // poll cycle — Provider itself is stateless and HTTP-only so ct_multi
 // (Task 5) can construct + call it directly without touching the store
@@ -45,15 +44,22 @@ import (
 var _ ct.Provider = (*Provider)(nil)
 
 // Config is the per-call configuration a static.Provider needs to poll
-// one domain against one Static CT log: the log's base URL, its
-// Ed25519 public key (PEM), the domain being filtered for, and the
-// Merkle-walk cache scratchpad. Distinct from
+// one domain against one Static CT log: the log's monitoring URL, its
+// checkpoint origin (signature key name), its public key (PEM; ECDSA
+// P-256 for every production log, or Ed25519), the domain being filtered
+// for, and the Merkle-walk cache scratchpad. Distinct from
 // config.CtStaticDomainConfig (internal/config, Task 6), which is the
 // TOML-sourced operator-facing config; poller.go's pollDomain converts
 // one into the other every cycle.
 type Config struct {
-	Domain       string
-	LogURL       string
+	Domain string
+	LogURL string
+	// Origin is the log's checkpoint origin — its submission URL without
+	// scheme or trailing slash (static-ct-api). It is both the expected
+	// first line of the checkpoint and the name on the log's signature
+	// line. It is NOT derivable from LogURL in general: most production
+	// logs serve monitoring from a different host than submission.
+	Origin       string
 	PublicKeyPEM string
 
 	// Cache is the per-domain Merkle-walk scratchpad. Callers (poller.go)
@@ -76,18 +82,17 @@ type Cache struct {
 type Provider struct {
 	Cfg        Config
 	HTTPClient *http.Client
-	// KeyName is the operator-supplied or convention-derived name that
-	// appears in the signed-note signature line. For Sunlight logs this
-	// is typically the log's hostname (e.g. "sunlight.letsencrypt.org").
-	// Plan A defaults to the host portion of LogURL if unset.
-	KeyName string
 
 	// LastSeenTreeSize is set by QueryDomain after a successful walk (or
 	// a bootstrap to the current head) so the poller (poller.go) can
 	// persist it to the per-source cache scratchpad without re-fetching
 	// the checkpoint. It is left unchanged when a walk fails, so the
-	// failed range is retried. It also serves as this instance's
-	// in-memory cursor for subsequent calls (see startTreeSize).
+	// failed range is retried. When the walk completes but a matched
+	// leaf's inclusion-proof fetch failed, it is set to that leaf's index
+	// (not the checkpoint's tree size), so the next call re-walks from
+	// the first leaf that was not fully processed instead of losing it.
+	// It also serves as this instance's in-memory cursor for subsequent
+	// calls (see startTreeSize).
 	LastSeenTreeSize uint64
 
 	// LastVerifiedCount is the number of SAN-matched leaves whose
@@ -98,7 +103,9 @@ type Provider struct {
 
 	// LastProofFetchFailures is the number of SAN-matched leaves that
 	// were skipped on the most recent QueryDomain call because their
-	// hash-tile fetch failed (per the split failure policy). Read by
+	// hash-tile fetch failed (per the split failure policy). Such leaves
+	// are retried on the next call (LastSeenTreeSize stops at the first
+	// of them). Read by
 	// poller.go's pollDomain and emitted as the proof_fetch_failures
 	// field of its "domain cycle complete" log line. (ct_multi does not
 	// surface these per-leaf counters; its static child's per-call
@@ -165,20 +172,16 @@ func (p *Provider) startTreeSize() (start uint64, bootstrap bool) {
 // the standalone poller's responsibility — so a ct_multi fan-out call
 // never drifts the standalone poller's persisted scratchpad.
 func (p *Provider) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry, error) {
-	pubKey, err := ParseEd25519PublicKeyPEM(p.Cfg.PublicKeyPEM)
+	pubKey, err := ParseLogPublicKeyPEM(p.Cfg.PublicKeyPEM)
 	if err != nil {
+		return nil, err
+	}
+	if err := ValidateOrigin(p.Cfg.Origin); err != nil {
 		return nil, err
 	}
 	hc := p.HTTPClient
 	if hc == nil {
 		hc = http.DefaultClient
-	}
-	keyName := p.KeyName
-	if keyName == "" {
-		keyName, err = deriveKeyName(p.Cfg.LogURL)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	// 1. Fetch + verify the checkpoint.
@@ -186,7 +189,7 @@ func (p *Provider) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry
 	if err != nil {
 		return nil, err
 	}
-	sth, err := ParseAndVerifyCheckpoint(cpBytes, pubKey, keyName)
+	sth, err := ParseAndVerifyCheckpoint(cpBytes, p.Cfg.Origin, pubKey)
 	if err != nil {
 		return nil, err
 	}
@@ -218,6 +221,17 @@ func (p *Provider) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry
 	hashReader := newTileHashReader(ctx, hc, p.Cfg.LogURL, int64(sth.TreeSize), sth.RootHash) // #nosec G115 -- see above
 
 	out := make([]ct.CTEntry, 0, 64)
+	// resumeAt records the first (lowest — the walk is in ascending leaf
+	// order) matched leaf whose inclusion proof could not be checked
+	// because a hash-tile fetch failed. The walk still completes so later
+	// matches are emitted, but the cursor must not move past this leaf:
+	// otherwise a transient 429/5xx on one hash tile would permanently
+	// drop that certificate. Leaves re-walked next time that were already
+	// emitted are harmless — ingest is idempotent by fingerprint.
+	var (
+		resumeAt   uint64
+		haveResume bool
+	)
 	for tile := startTile; tile <= endTile; tile++ {
 		tileBytes, err := FetchLeafTile(ctx, hc, p.Cfg.LogURL, tile, int64(sth.TreeSize)) // #nosec G115 -- see above
 		if err != nil {
@@ -262,15 +276,20 @@ func (p *Provider) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry
 			}
 			if err := verifyLeafInclusion(leaf, int64(leafIndex), sth, hashReader); err != nil {
 				if errors.Is(err, errProofFetch) {
-					// Fetch failure (network / HTTP / parse) — log + skip this leaf;
-					// continue the poll. Counted in LastProofFetchFailures and surfaced
-					// in the poll Summary by the Poller.
+					// Fetch failure (network / HTTP / parse) — log + skip this leaf
+					// for this call, continue the walk, and hold the cursor at this
+					// leaf so the next call retries it. Counted in
+					// LastProofFetchFailures and surfaced in the poll Summary by
+					// the Poller.
 					log.Warn().
 						Err(err).
 						Uint64("leaf_index", leafIndex).
 						Str("domain", domain).
-						Msg("static: inclusion proof fetch failed; skipping leaf")
+						Msg("static: inclusion proof fetch failed; skipping leaf this cycle, will retry")
 					p.LastProofFetchFailures++
+					if !haveResume {
+						resumeAt, haveResume = leafIndex, true
+					}
 					continue
 				}
 				// Cryptographic mismatch — abort the entire poll.
@@ -291,7 +310,13 @@ func (p *Provider) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry
 			})
 		}
 	}
-	p.LastSeenTreeSize = sth.TreeSize
+	if haveResume {
+		// resumeAt >= startTree > 0 (the walk path is only reached with a
+		// non-zero start), so this never collapses to the "no cursor" 0.
+		p.LastSeenTreeSize = resumeAt
+	} else {
+		p.LastSeenTreeSize = sth.TreeSize
+	}
 	return out, nil
 }
 
@@ -319,19 +344,6 @@ func fetchCheckpoint(ctx context.Context, hc *http.Client, logURL string) ([]byt
 		return nil, fmt.Errorf("static: fetchCheckpoint: body too large (>%d bytes)", cpMaxBytes)
 	}
 	return body, nil
-}
-
-// deriveKeyName returns the host portion of logURL — the Sunlight
-// convention is keyName = log hostname.
-func deriveKeyName(logURL string) (string, error) {
-	u, err := url.Parse(logURL)
-	if err != nil {
-		return "", fmt.Errorf("static: deriveKeyName: parse: %w", err)
-	}
-	if u.Host == "" {
-		return "", fmt.Errorf("static: deriveKeyName: %q has no host", logURL)
-	}
-	return u.Host, nil
 }
 
 // certMatchesDomain returns true if any DNS-SAN equals `domain` or is

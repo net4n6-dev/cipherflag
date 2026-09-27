@@ -98,7 +98,7 @@ func TestPollerE2E_RealStoreAndIngester(t *testing.T) {
 
 	cfg := config.CtStaticSourceConfig{
 		Domains: []config.CtStaticDomainConfig{
-			{Enabled: true, Domain: domain, LogURL: fl.logURL(), PublicKeyPEM: fl.pubPEM()},
+			{Enabled: true, Domain: domain, LogURL: fl.logURL(), Origin: fl.origin, PublicKeyPEM: fl.pubPEM()},
 		},
 	}
 
@@ -151,7 +151,7 @@ func TestPollerE2E_AbortsOnTamperedPathTile(t *testing.T) {
 	seedCursor(t, st, domain, "1")
 
 	domainCfg := config.CtStaticDomainConfig{
-		Enabled: true, Domain: domain, LogURL: fl.logURL(), PublicKeyPEM: fl.pubPEM(),
+		Enabled: true, Domain: domain, LogURL: fl.logURL(), Origin: fl.origin, PublicKeyPEM: fl.pubPEM(),
 	}
 
 	ingester := ingest.NewUnifiedIngester(st)

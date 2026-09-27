@@ -111,6 +111,12 @@ calls home, no telemetry, and no commercial license required.
   composer over the other three, with per-child provenance) ship in CE.
   `config/cipherflag.toml`-only — no operator UI. Enable per-domain (or
   per-group, for `ct_multi`) in config.
+- `ct_static` needs three values per log, all from the log's `tiled_logs`
+  entry in Google's `log_list.json`: `log_url` = `monitoring_url`;
+  `origin` = `submission_url` without `https://` and the trailing `/`
+  (e.g. `log.sycamore.ct.letsencrypt.org/2026h2` — usually a different
+  host from `log_url`); `public_key_pem` = `key` wrapped in a
+  `-----BEGIN PUBLIC KEY-----` PEM block (ECDSA P-256).
 - `ct_static` is forward-watching only: on first enable it starts at the
   log's current tree head and reports certificates logged after that
   point (a from-genesis walk of a production Sunlight shard is

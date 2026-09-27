@@ -37,8 +37,9 @@ const SourceName = "ct_multi"
 // runtime every cycle — each child passes its own kind's validator:
 //
 //   - crtsh:       crtsh.ValidateDomain(group domain)
-//   - static:      static.ValidateDomainConfig(group domain, log_url, public_key_pem)
-//     (https-only, trailing slash, parseable Ed25519 key)
+//   - static:      static.ValidateDomainConfig(group domain, log_url, origin, public_key_pem)
+//     (https-only, trailing slash, required origin, parseable ECDSA P-256
+//     or Ed25519 key)
 //   - certspotter: certspotter.ValidateDomain(group domain, requests_per_hour)
 //
 // A child's domain always equals the group's (checked first), so the
@@ -86,7 +87,7 @@ func validateChild(domain string, child config.CtMultiChildConfig) error {
 	case child.Crtsh != nil:
 		return crtsh.ValidateDomain(domain)
 	case child.Static != nil:
-		return static.ValidateDomainConfig(domain, child.Static.LogURL, child.Static.PublicKeyPEM)
+		return static.ValidateDomainConfig(domain, child.Static.LogURL, child.Static.Origin, child.Static.PublicKeyPEM)
 	case child.Certspotter != nil:
 		return certspotter.ValidateDomain(domain, child.Certspotter.RequestsPerHour)
 	}

@@ -51,6 +51,7 @@ func buildChildren(group config.CtMultiGroupConfig, httpClient *http.Client) ([]
 				Cfg: static.Config{
 					Domain:       group.Domain,
 					LogURL:       child.Static.LogURL,
+					Origin:       child.Static.Origin,
 					PublicKeyPEM: child.Static.PublicKeyPEM,
 				},
 				HTTPClient: httpClient,

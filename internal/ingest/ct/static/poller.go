@@ -121,6 +121,7 @@ func (p *Poller) pollDomain(ctx context.Context, d config.CtStaticDomainConfig) 
 		Cfg: Config{
 			Domain:       d.Domain,
 			LogURL:       d.LogURL,
+			Origin:       d.Origin,
 			PublicKeyPEM: d.PublicKeyPEM,
 			Cache:        &Cache{LastTreeSize: lastTreeSize},
 		},

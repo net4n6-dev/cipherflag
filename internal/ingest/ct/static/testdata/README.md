@@ -165,3 +165,40 @@ provenance fields in this README.
 - For every precert leaf, `Certificate` (the TBS) starts with the
   ASN.1 SEQUENCE tag (`0x30`) — `x509.ParseCertificate` can't directly
   consume a TBS, so this is the strongest sanity check available.
+
+---
+
+## `real_checkpoints/`
+
+The `/checkpoint` body of **every** `tiled_logs` entry in Google's
+`https://www.gstatic.com/ct/log_list/v3/log_list.json` — 38 production
+Static CT logs (Google Tessera, Let's Encrypt Sunlight, Geomys Sunlight,
+IPng TesseraCT, TrustAsia, Microsec) — fetched 2026-09-27 from each
+log's `monitoring_url`, committed byte-for-byte. `logs.json` records, per
+log, the operator, `origin` (= `submission_url` minus `https://` and the
+trailing `/`), `monitoring_url`, `submission_url`, the verbatim log-list
+`key` (base64 DER SPKI), and the fixture filename.
+
+These are the ground truth for `ParseAndVerifyCheckpoint` (see the
+`TestParseAndVerifyCheckpoint_RealProductionLogs` / `TestRealCheckpoints_*`
+tests in `sth_test.go`). An earlier verifier passed its own self-signed
+fixtures while rejecting all 38 of these, because the test signer shared
+the verifier's wrong assumptions (Ed25519-only, key ID without the `\n`
+separator, bail-out on the first non-68-byte same-name line, key name
+derived from the monitoring host). The fixtures exercise every real-world
+signature-block shape: RFC6962NoteSignature (type 0x05, ECDSA P-256),
+`grease.invalid` lines, same-origin GREASE lines with random key IDs and
+lengths ahead of the real line, ML-DSA `cosignature/v1` lines, and
+third-party witness cosignatures (Google logs).
+
+Checkpoints are signed static data, so the fixtures never go stale for
+verification purposes (log keys do not rotate within a log's lifetime).
+
+### Refresh procedure
+
+`go test -tags livect -run Live -v ./internal/ingest/ct/static/`
+(`live_test.go`) re-fetches the current log list and verifies every tiled
+log's live checkpoint, and runs the full `QueryDomain` tile walk +
+inclusion proofs against four real logs. To add or replace a fixture,
+save `GET <monitoring_url>checkpoint` as `<origin with / → _>.checkpoint`
+and add its entry (from `log_list.json`) to `logs.json`.

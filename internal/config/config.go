@@ -296,11 +296,20 @@ func (c CtCrtshSourceConfig) Enabled() bool {
 }
 
 // CtStaticDomainConfig is one monitored domain for the ct_static
-// (Sunlight/RFC 6962) adapter.
+// (Static CT API / Sunlight) adapter. The three log fields map onto the
+// log's tiled_logs entry in Google's log_list.json:
+//
+//   - log_url        = monitoring_url (checkpoint + tiles are read here)
+//   - origin         = submission_url minus "https://" and the trailing
+//     "/" (the checkpoint's origin line and signature key name; usually
+//     a different host from log_url, so it is not derived)
+//   - public_key_pem = key (base64 DER SPKI) as a PUBLIC KEY PEM block
+//     (ECDSA P-256 for every production log; Ed25519 also accepted)
 type CtStaticDomainConfig struct {
 	Enabled      bool   `toml:"enabled"`
 	Domain       string `toml:"domain"`
 	LogURL       string `toml:"log_url"`
+	Origin       string `toml:"origin"`
 	PublicKeyPEM string `toml:"public_key_pem"`
 }
 
@@ -348,9 +357,12 @@ func (c CtCertspotterSourceConfig) Enabled() bool {
 type CtMultiChildCrtshConfig struct{}
 
 // CtMultiChildStaticConfig is a ct_multi child backed by a Static CT log.
+// LogURL/Origin/PublicKeyPEM have the same meaning as on
+// CtStaticDomainConfig.
 type CtMultiChildStaticConfig struct {
 	Domain       string `toml:"domain"`
 	LogURL       string `toml:"log_url"`
+	Origin       string `toml:"origin"`
 	PublicKeyPEM string `toml:"public_key_pem"`
 }
 

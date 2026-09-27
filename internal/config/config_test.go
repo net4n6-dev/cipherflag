@@ -388,6 +388,14 @@ func TestSourcesConfig_CTFields_TOMLRoundTrip(t *testing.T) {
   domain = "example.com"
   include_subdomains = true
 
+[sources.ct_static]
+  [[sources.ct_static.domains]]
+  enabled = true
+  domain = "example.com"
+  log_url = "https://mon.sycamore.ct.letsencrypt.org/2026h2/"
+  origin = "log.sycamore.ct.letsencrypt.org/2026h2"
+  public_key_pem = "pem-placeholder"
+
 [sources.ct_multi]
   [[sources.ct_multi.groups]]
   enabled = true
@@ -398,6 +406,7 @@ func TestSourcesConfig_CTFields_TOMLRoundTrip(t *testing.T) {
     [sources.ct_multi.groups.children.static]
     domain = "example.com"
     log_url = "https://log.example.com/"
+    origin = "log.example.com"
     public_key_pem = "pem-placeholder"
 `
 	var cfg Config
@@ -415,6 +424,19 @@ func TestSourcesConfig_CTFields_TOMLRoundTrip(t *testing.T) {
 	}
 	if cfg.Sources.CtMulti.Groups[0].Children[1].Static == nil || cfg.Sources.CtMulti.Groups[0].Children[1].Static.Domain != "example.com" {
 		t.Fatal("expected second child to be static with domain example.com")
+	}
+	if got := cfg.Sources.CtMulti.Groups[0].Children[1].Static.Origin; got != "log.example.com" {
+		t.Errorf("ct_multi static child origin = %q, want log.example.com", got)
+	}
+	want := CtStaticDomainConfig{
+		Enabled:      true,
+		Domain:       "example.com",
+		LogURL:       "https://mon.sycamore.ct.letsencrypt.org/2026h2/",
+		Origin:       "log.sycamore.ct.letsencrypt.org/2026h2",
+		PublicKeyPEM: "pem-placeholder",
+	}
+	if len(cfg.Sources.CtStatic.Domains) != 1 || cfg.Sources.CtStatic.Domains[0] != want {
+		t.Errorf("ct_static domains = %+v, want [%+v]", cfg.Sources.CtStatic.Domains, want)
 	}
 }
 

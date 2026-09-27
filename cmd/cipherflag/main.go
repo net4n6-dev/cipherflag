@@ -349,7 +349,7 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 			if !d.Enabled {
 				continue
 			}
-			if err := static.ValidateDomainConfig(d.Domain, d.LogURL, d.PublicKeyPEM); err != nil {
+			if err := static.ValidateDomainConfig(d.Domain, d.LogURL, d.Origin, d.PublicKeyPEM); err != nil {
 				log.Fatal().Err(err).Str("domain", d.Domain).Msg("invalid ct_static domain config")
 			}
 		}

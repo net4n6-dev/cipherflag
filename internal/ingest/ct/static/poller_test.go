@@ -100,8 +100,8 @@ func TestRunCycle_OneDomainFails_DoesNotBlockOthers(t *testing.T) {
 	st.seed(okDomain, "1")
 	cfg := config.CtStaticSourceConfig{
 		Domains: []config.CtStaticDomainConfig{
-			{Enabled: true, Domain: failDomain, LogURL: failSrv.URL + "/2024h2/", PublicKeyPEM: okLog.pubPEM()},
-			{Enabled: true, Domain: okDomain, LogURL: okLog.logURL(), PublicKeyPEM: okLog.pubPEM()},
+			{Enabled: true, Domain: failDomain, LogURL: failSrv.URL + "/2024h2/", Origin: okLog.origin, PublicKeyPEM: okLog.pubPEM()},
+			{Enabled: true, Domain: okDomain, LogURL: okLog.logURL(), Origin: okLog.origin, PublicKeyPEM: okLog.pubPEM()},
 		},
 	}
 	p := NewPoller(ing, st, okLog.client(), cfg)
@@ -138,7 +138,7 @@ func TestRunCycle_EmptyResult_NotAnError(t *testing.T) {
 	st.seed(domain, "2")
 	cfg := config.CtStaticSourceConfig{
 		Domains: []config.CtStaticDomainConfig{
-			{Enabled: true, Domain: domain, LogURL: fl.logURL(), PublicKeyPEM: fl.pubPEM()},
+			{Enabled: true, Domain: domain, LogURL: fl.logURL(), Origin: fl.origin, PublicKeyPEM: fl.pubPEM()},
 		},
 	}
 	p := NewPoller(ing, st, fl.client(), cfg)
@@ -171,7 +171,7 @@ func TestPollDomain_MalformedCursor_ResetsRatherThanPanics(t *testing.T) {
 	st.seed(domain, "not-a-uint64")
 	cfg := config.CtStaticSourceConfig{
 		Domains: []config.CtStaticDomainConfig{
-			{Enabled: true, Domain: domain, LogURL: fl.logURL(), PublicKeyPEM: fl.pubPEM()},
+			{Enabled: true, Domain: domain, LogURL: fl.logURL(), Origin: fl.origin, PublicKeyPEM: fl.pubPEM()},
 		},
 	}
 	p := NewPoller(ing, st, fl.client(), cfg)
@@ -207,7 +207,7 @@ func TestPollDomain_NoCursor_BootstrapsToHeadThenWatchesForward(t *testing.T) {
 
 	ing := &fakeIngester{}
 	st := newFakeStore()
-	dcfg := config.CtStaticDomainConfig{Enabled: true, Domain: domain, LogURL: fl.logURL(), PublicKeyPEM: fl.pubPEM()}
+	dcfg := config.CtStaticDomainConfig{Enabled: true, Domain: domain, LogURL: fl.logURL(), Origin: fl.origin, PublicKeyPEM: fl.pubPEM()}
 	p := NewPoller(ing, st, fl.client(), config.CtStaticSourceConfig{Domains: []config.CtStaticDomainConfig{dcfg}})
 	ctx := context.Background()
 

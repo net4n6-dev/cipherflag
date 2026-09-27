@@ -20,8 +20,6 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/base64"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"math/big"
@@ -33,6 +31,8 @@ import (
 
 	"golang.org/x/crypto/cryptobyte"
 	"golang.org/x/mod/sumdb/tlog"
+
+	"github.com/net4n6-dev/cipherflag/internal/config"
 )
 
 // Most walk tests below start from Cache{LastTreeSize: 1} with a
@@ -326,29 +326,6 @@ func buildTestTile(t *testing.T, leaves []LeafData) []byte {
 	return bs
 }
 
-func uintToStr(n uint64) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
-}
-
-func mustEncodeEd25519PubPEM(t *testing.T, pub ed25519.PublicKey) string {
-	t.Helper()
-	der, err := x509.MarshalPKIXPublicKey(pub)
-	if err != nil {
-		t.Fatalf("MarshalPKIXPublicKey: %v", err)
-	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
-}
-
 // LastSeenTreeSize must only advance after the walk completes
 // successfully. A tile-fetch failure must leave it at its prior value
 // so the poller's cache cursor doesn't skip the failed tiles on retry.
@@ -474,19 +451,11 @@ func (m staticTestHashReader) ReadHashes(indexes []int64) ([]tlog.Hash, error) {
 	return out, nil
 }
 
-// buildTestCheckpointWithRoot builds a signed checkpoint for the given
-// tree size and root hash.
-func buildTestCheckpointWithRoot(t *testing.T, pub ed25519.PublicKey, priv ed25519.PrivateKey, keyName, origin string, treeSize uint64, rootHash []byte) string {
-	t.Helper()
-	body := origin + "\n" + uintToStr(treeSize) + "\n" + base64.StdEncoding.EncodeToString(rootHash) + "\n"
-	sig := ed25519.Sign(priv, []byte(body))
-	kh := KeyHashEd25519(keyName, pub)
-	return body + "\n— " + keyName + " " + base64.StdEncoding.EncodeToString(append(kh, sig...)) + "\n"
-}
-
-// One matched leaf, but every hash-tile request returns 500. Provider
-// logs + skips the leaf; the poll continues to completion with
-// LastSeenTreeSize advanced and LastProofFetchFailures incremented.
+// One matched leaf (index 1), but every hash-tile request returns 500.
+// Provider logs + skips the leaf and the walk completes without error —
+// but the cursor must NOT advance past the skipped leaf: LastSeenTreeSize
+// stops at its index (1), so the next cycle retries it instead of losing
+// the certificate forever.
 func TestProvider_QueryDomain_SkipsLeafOnPathTileFetchFailure(t *testing.T) {
 	fl := fourLeafLog(t)
 	fl.configure(func(f *fakeLog) { f.hashTileStatus = http.StatusInternalServerError })
@@ -505,8 +474,66 @@ func TestProvider_QueryDomain_SkipsLeafOnPathTileFetchFailure(t *testing.T) {
 	if prov.LastVerifiedCount != 0 {
 		t.Errorf("LastVerifiedCount = %d, want 0", prov.LastVerifiedCount)
 	}
-	if prov.LastSeenTreeSize != 4 {
-		t.Errorf("LastSeenTreeSize = %d, want 4 (poll completed; cursor should advance)", prov.LastSeenTreeSize)
+	if prov.LastSeenTreeSize != 1 {
+		t.Errorf("LastSeenTreeSize = %d, want 1 (held at the leaf whose proof fetch failed, not advanced to 4)", prov.LastSeenTreeSize)
+	}
+}
+
+// Through the real standalone poller: cycle 1 hits a transient hash-tile
+// 429 on the only matching leaf, so nothing is ingested and the persisted
+// cursor stays at that leaf. Once the log recovers, cycle 2 re-walks from
+// that leaf, verifies it, ingests the certificate, and advances to the
+// head. Before the fix, cycle 1 persisted cursor 4 and the cert at leaf 2
+// was never seen again.
+func TestPollDomain_ProofFetchFailure_RetriesLeafNextCycle(t *testing.T) {
+	const domain = "example.com"
+	fl := newFakeLogFromCerts(t, []*x509.Certificate{
+		mustGenerateLeafCert(t, "seen", []string{"other.test"}),
+		mustGenerateLeafCert(t, "filler", []string{"other.test"}),
+		mustGenerateLeafCert(t, "match", []string{domain}),
+		mustGenerateLeafCert(t, "filler-2", []string{"other.test"}),
+	})
+	fl.configure(func(f *fakeLog) { f.hashTileStatus = http.StatusTooManyRequests })
+
+	ing := &fakeIngester{}
+	st := newFakeStore()
+	st.seed(domain, "1")
+	dcfg := config.CtStaticDomainConfig{Enabled: true, Domain: domain, LogURL: fl.logURL(), Origin: fl.origin, PublicKeyPEM: fl.pubPEM()}
+	p := NewPoller(ing, st, fl.client(), config.CtStaticSourceConfig{Domains: []config.CtStaticDomainConfig{dcfg}})
+	ctx := context.Background()
+
+	if err := p.pollDomain(ctx, dcfg); err != nil {
+		t.Fatalf("cycle 1: %v", err)
+	}
+	if len(ing.calls) != 0 {
+		t.Fatalf("cycle 1 ingested %d batches, want 0", len(ing.calls))
+	}
+	if state := st.states["ct_static:"+domain]; state == nil || state.Cursor != "2" {
+		t.Fatalf("cycle 1 cursor = %+v, want 2 (held at the unverified matching leaf)", state)
+	}
+
+	fl.configure(func(f *fakeLog) { f.hashTileStatus = 0 })
+	if err := p.pollDomain(ctx, dcfg); err != nil {
+		t.Fatalf("cycle 2: %v", err)
+	}
+	if len(ing.calls) != 1 || len(ing.calls[0].Certificates) != 1 || ing.calls[0].Certificates[0].SubjectCN != "match" {
+		t.Fatalf("cycle 2 should ingest the retried cert; got %+v", ing.calls)
+	}
+	if state := st.states["ct_static:"+domain]; state == nil || state.Cursor != "4" {
+		t.Fatalf("cycle 2 cursor = %+v, want 4", state)
+	}
+}
+
+// Missing / malformed origin is rejected before any network request.
+func TestProvider_QueryDomain_RequiresOrigin(t *testing.T) {
+	fl := fourLeafLog(t)
+	prov := fl.newProvider("example.com", &Cache{LastTreeSize: 1})
+	prov.Cfg.Origin = ""
+	if _, err := prov.QueryDomain(context.Background(), "example.com"); err == nil || !strings.Contains(err.Error(), "origin is required") {
+		t.Fatalf("err = %v, want origin-required error", err)
+	}
+	if reqs := fl.requestLog(); len(reqs) != 0 {
+		t.Errorf("requests made without an origin: %v", reqs)
 	}
 }
 

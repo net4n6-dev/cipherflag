@@ -15,12 +15,9 @@
 package static
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/x509"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -42,17 +39,22 @@ import (
 //     now exists (allowed by the spec); the full tile is then served.
 //   - Hash tiles use the real geometry: tile level L holds Merkle level
 //     8*L hashes (tlog.ReadTileData), not Merkle level L.
+//   - The checkpoint is signed the way every production Static CT log
+//     signs it: an ECDSA P-256 RFC6962NoteSignature under the log's
+//     origin, preceded by GREASE signature lines, with an origin
+//     (fakeLogOrigin) that is NOT the serving host — like
+//     log.sycamore… vs mon.sycamore… — so a client deriving the key name
+//     from log_url fails here as it would in production.
 //
 // The published tree size can be changed between calls (setSize) to model
 // a growing log. The checkpoint always signs the true root; tamper
 // overrides only the hashes served in hash tiles.
 type fakeLog struct {
-	t       *testing.T
-	pub     ed25519.PublicKey
-	priv    ed25519.PrivateKey
-	keyName string
-	leaves  []LeafData
-	stored  map[int64]tlog.Hash
+	t      *testing.T
+	signer *rfc6962TestSigner
+	origin string
+	leaves []LeafData
+	stored map[int64]tlog.Hash
 
 	mu             sync.Mutex
 	size           int64
@@ -65,24 +67,17 @@ type fakeLog struct {
 	srv *httptest.Server
 }
 
+// fakeLogOrigin is the fake log's checkpoint origin (submission identity),
+// deliberately unrelated to the httptest server's 127.0.0.1 host.
+const fakeLogOrigin = "log.fakelog.example/2024h2"
+
 // newFakeLog serves leaves (all published) from a fresh httptest server.
-// keyName is the server's host, matching Provider's deriveKeyName
-// default, so tests need not set Provider.KeyName.
 func newFakeLog(t *testing.T, leaves []LeafData) *fakeLog {
 	t.Helper()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey: %v", err)
-	}
-	f := &fakeLog{t: t, pub: pub, priv: priv, leaves: leaves, size: int64(len(leaves))}
+	f := &fakeLog{t: t, signer: newRFC6962TestSigner(t, fakeLogOrigin), origin: fakeLogOrigin, leaves: leaves, size: int64(len(leaves))}
 	f.stored = buildStoredHashes(t, leafHashesFor(t, leaves))
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
-	u, err := url.Parse(f.srv.URL)
-	if err != nil {
-		t.Fatalf("parse srv.URL: %v", err)
-	}
-	f.keyName = u.Host
 	return f
 }
 
@@ -94,7 +89,7 @@ func newFakeLogFromCerts(t *testing.T, certs []*x509.Certificate) *fakeLog {
 
 func (f *fakeLog) logURL() string { return f.srv.URL + "/2024h2/" }
 
-func (f *fakeLog) pubPEM() string { return mustEncodeEd25519PubPEM(f.t, f.pub) }
+func (f *fakeLog) pubPEM() string { return f.signer.pubPEM() }
 
 func (f *fakeLog) client() *http.Client { return f.srv.Client() }
 
@@ -138,7 +133,7 @@ func tileRequests(paths []string) []string {
 // newProvider builds a Provider for this log with the given cache.
 func (f *fakeLog) newProvider(domain string, cache *Cache) *Provider {
 	return &Provider{
-		Cfg:        Config{Domain: domain, LogURL: f.logURL(), PublicKeyPEM: f.pubPEM(), Cache: cache},
+		Cfg:        Config{Domain: domain, LogURL: f.logURL(), Origin: f.origin, PublicKeyPEM: f.pubPEM(), Cache: cache},
 		HTTPClient: f.client(),
 	}
 }
@@ -254,7 +249,7 @@ func (f *fakeLog) checkpoint(size int64) string {
 	if err != nil {
 		f.t.Errorf("fakeLog: TreeHash(%d): %v", size, err)
 	}
-	return buildTestCheckpointWithRoot(f.t, f.pub, f.priv, f.keyName, "/2024h2/", uint64(size), root[:])
+	return signTestCheckpoint(f.t, f.signer, f.origin, uint64(size), root[:], true)
 }
 
 // leafHashesFor returns the RFC 6962 leaf hash of each leaf at its index,
