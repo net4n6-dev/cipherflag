@@ -15,6 +15,7 @@
 package certspotter
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -28,8 +29,12 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
@@ -98,6 +103,80 @@ func issuanceJSON(id, domain string, der []byte) string {
 		"not_after": "2026-04-01T00:00:00Z",
 		"cert": {"data": %q}
 	}]`, id, hex.EncodeToString(sum[:]), domain, certB64)
+}
+
+// captureLogs swaps the global zerolog logger for one writing into a
+// buffer for the duration of the test.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	orig := log.Logger
+	log.Logger = zerolog.New(&buf)
+	t.Cleanup(func() { log.Logger = orig })
+	return &buf
+}
+
+// TestClient_NilHTTP_UsesDefaultClient is the unit-level regression for
+// the final-review Critical finding: a Client with no HTTP field used to
+// call (*http.Client)(nil).Do and panic.
+func TestClient_NilHTTP_UsesDefaultClient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	c := &Client{BaseURL: srv.URL, Limiter: NewRateLimiter(3600000)} // HTTP deliberately nil
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("QueryDomain panicked with nil HTTP client: %v", r)
+		}
+	}()
+	if _, _, err := c.QueryDomain(context.Background(), "example.com", true, ""); err != nil {
+		t.Fatalf("QueryDomain: %v", err)
+	}
+}
+
+// TestRunOneCycleSafely_ProductionNilClientPath_IngestsWithoutPanic
+// drives the exact production construction path from
+// cmd/cipherflag/main.go — certspotter.NewPoller(nil, ...) — so
+// pollDomain lazily builds its own Client (no HTTP field). Before the
+// fix this panicked on every cycle, runOneCycleSafely swallowed the
+// panic, and nothing was ever ingested. Only the base URL is redirected
+// (defaultBaseURL) — everything else is the real production code path.
+func TestRunOneCycleSafely_ProductionNilClientPath_IngestsWithoutPanic(t *testing.T) {
+	der := generateTestCertDER(t, "example.com")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("after") == "" {
+			w.Write([]byte(issuanceJSON("42", "example.com", der)))
+			return
+		}
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	origBase := defaultBaseURL
+	defaultBaseURL = srv.URL
+	t.Cleanup(func() { defaultBaseURL = origBase })
+	logs := captureLogs(t)
+
+	ing := &fakeIngester{}
+	st := newFakeStore()
+	cfg := config.CtCertspotterSourceConfig{
+		Domains: []config.CtCertspotterDomainConfig{{Enabled: true, Domain: "example.com", RequestsPerHour: 3600000}},
+	}
+	p := NewPoller(nil, ing, st, cfg) // client == nil: the production path
+
+	p.runOneCycleSafely(context.Background())
+
+	if strings.Contains(logs.String(), "panic recovered") {
+		t.Fatalf("runOneCycleSafely recovered a panic; logs:\n%s", logs.String())
+	}
+	if len(ing.calls) != 1 || len(ing.calls[0].Certificates) != 1 {
+		t.Fatalf("expected 1 Ingest call with 1 cert via the nil-client production path, got %d calls; logs:\n%s", len(ing.calls), logs.String())
+	}
+	if st.states["ct_certspotter:example.com"] == nil || st.states["ct_certspotter:example.com"].Cursor != "42" {
+		t.Errorf("expected cursor 42 persisted, got %+v", st.states["ct_certspotter:example.com"])
+	}
 }
 
 func TestRunCycle_NoDomains_NoOp(t *testing.T) {

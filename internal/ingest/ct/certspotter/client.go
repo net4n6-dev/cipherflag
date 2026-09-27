@@ -44,14 +44,34 @@ type Issuance struct {
 
 const initialBackoff = time.Second
 
+// defaultHTTPClient is used whenever a Client is constructed without an
+// explicit HTTP field. The 60s timeout matches the http.Client ct_multi
+// hands its certspotter children (multi.NewPoller), so the standalone
+// and multi-composed paths behave identically.
+var defaultHTTPClient = &http.Client{Timeout: 60 * time.Second}
+
 // Client is the HTTP-layer wrapper around the SSLMate CertSpotter API.
 // Construction is the poller's responsibility; Client itself is
 // stateless modulo the rate limiter.
 type Client struct {
+	// HTTP may be nil — httpClient() then falls back to
+	// defaultHTTPClient. (Previously a nil HTTP reached c.HTTP.Do
+	// directly and panicked on every production ct_certspotter cycle,
+	// because the standalone poller's lazily-built Client never set it.)
 	HTTP     *http.Client
 	APIToken string
 	BaseURL  string // default "https://api.certspotter.com" — overridden in tests
 	Limiter  *RateLimiter
+}
+
+// httpClient returns c.HTTP, or defaultHTTPClient when unset. Single
+// point of truth so no construction site can reintroduce the nil-client
+// panic.
+func (c *Client) httpClient() *http.Client {
+	if c.HTTP != nil {
+		return c.HTTP
+	}
+	return defaultHTTPClient
 }
 
 // QueryDomain fetches a single page of issuances. nextCursor is the
@@ -88,7 +108,7 @@ func (c *Client) QueryDomain(ctx context.Context, domain string, includeSubdomai
 	}
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := c.HTTP.Do(req)
+	resp, err := c.httpClient().Do(req)
 	if err != nil {
 		return nil, "", fmt.Errorf("http: %w", err)
 	}

@@ -34,6 +34,13 @@ import (
 
 const defaultInterval = time.Hour
 
+// defaultBaseURL is the production SSLMate API root used when the poller
+// lazily builds its own Client (client == nil — the normal production
+// path from cmd/cipherflag/main.go). A var rather than a const only so
+// tests can drive that exact production construction path against an
+// httptest server.
+var defaultBaseURL = "https://api.certspotter.com"
+
 // Store mirrors crtsh.Store.
 type Store interface {
 	GetIngestionState(ctx context.Context, sourceName string) (*model.IngestionState, error)
@@ -94,7 +101,7 @@ func (p *Poller) certspotterClient(domain string, apiToken string) *Client {
 		return p.client
 	}
 	return &Client{
-		BaseURL:  "https://api.certspotter.com",
+		BaseURL:  defaultBaseURL,
 		APIToken: apiToken,
 		Limiter:  NewRateLimiter(DefaultRequestsPerHour),
 	}
@@ -161,7 +168,9 @@ func (p *Poller) pollDomain(ctx context.Context, d config.CtCertspotterDomainCon
 	}
 	client := p.client
 	if client == nil {
-		client = &Client{BaseURL: "https://api.certspotter.com", APIToken: d.APIToken, Limiter: NewRateLimiter(requestsPerHour)}
+		// HTTP deliberately left nil: Client.httpClient() supplies the
+		// default, so this path cannot reintroduce the nil-client panic.
+		client = &Client{BaseURL: defaultBaseURL, APIToken: d.APIToken, Limiter: NewRateLimiter(requestsPerHour)}
 	} else if client.Limiter == nil {
 		client.Limiter = NewRateLimiter(requestsPerHour)
 	}
