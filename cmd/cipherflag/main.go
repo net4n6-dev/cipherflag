@@ -34,6 +34,10 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/absolute"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/ct/certspotter"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/ct/crtsh"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/ct/multi"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/ct/static"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/defender"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/netwrix"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
@@ -319,6 +323,62 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		}
 		go absPoller.Run(absCtx)
 		log.Info().Str("console_url", cfg.Sources.Absolute.ConsoleURL).Msg("absolute poller started")
+	}
+
+	// Certificate Transparency: crt.sh (off by default).
+	if cfg.Sources.CtCrtsh.Enabled() {
+		ctCrtshCtx, ctCrtshCancel := context.WithCancel(ctx)
+		defer ctCrtshCancel()
+		ctCrtshIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		ctCrtshPoller := crtsh.NewPoller(nil, ctCrtshIngester, st, cfg.Sources.CtCrtsh)
+		go ctCrtshPoller.Run(ctCrtshCtx)
+		log.Info().Int("domains", len(cfg.Sources.CtCrtsh.Domains)).Msg("ct_crtsh poller started")
+	}
+
+	// Certificate Transparency: Static CT API / Sunlight (off by default).
+	if cfg.Sources.CtStatic.Enabled() {
+		for _, d := range cfg.Sources.CtStatic.Domains {
+			if !d.Enabled {
+				continue
+			}
+			if err := static.ValidateDomainConfig(d.Domain, d.LogURL, d.PublicKeyPEM); err != nil {
+				log.Fatal().Err(err).Str("domain", d.Domain).Msg("invalid ct_static domain config")
+			}
+		}
+		ctStaticCtx, ctStaticCancel := context.WithCancel(ctx)
+		defer ctStaticCancel()
+		ctStaticIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		ctStaticPoller := static.NewPoller(ctStaticIngester, st, nil, cfg.Sources.CtStatic)
+		go ctStaticPoller.Run(ctStaticCtx)
+		log.Info().Int("domains", len(cfg.Sources.CtStatic.Domains)).Msg("ct_static poller started")
+	}
+
+	// Certificate Transparency: SSLMate CertSpotter (off by default).
+	if cfg.Sources.CtCertspotter.Enabled() {
+		ctCertspotterCtx, ctCertspotterCancel := context.WithCancel(ctx)
+		defer ctCertspotterCancel()
+		ctCertspotterIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		ctCertspotterPoller := certspotter.NewPoller(nil, ctCertspotterIngester, st, cfg.Sources.CtCertspotter)
+		go ctCertspotterPoller.Run(ctCertspotterCtx)
+		log.Info().Int("domains", len(cfg.Sources.CtCertspotter.Domains)).Msg("ct_certspotter poller started")
+	}
+
+	// Certificate Transparency: multi-provider coverage union (off by default).
+	if cfg.Sources.CtMulti.Enabled() {
+		for _, g := range cfg.Sources.CtMulti.Groups {
+			if !g.Enabled {
+				continue
+			}
+			if err := multi.ValidateGroup(g); err != nil {
+				log.Fatal().Err(err).Str("domain", g.Domain).Msg("invalid ct_multi group config")
+			}
+		}
+		ctMultiCtx, ctMultiCancel := context.WithCancel(ctx)
+		defer ctMultiCancel()
+		ctMultiIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		ctMultiPoller := multi.NewPoller(ctMultiIngester, nil, cfg.Sources.CtMulti)
+		go ctMultiPoller.Run(ctMultiCtx)
+		log.Info().Int("groups", len(cfg.Sources.CtMulti.Groups)).Msg("ct_multi poller started")
 	}
 
 	// Netwrix Auditor AD CS connector (off by default).
