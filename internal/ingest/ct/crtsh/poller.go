@@ -332,7 +332,15 @@ func buildCTEntry(pemStr string, e CrtShEntry) (ct.CTEntry, error) {
 		IssuerName:  e.IssuerName,
 		NotBefore:   parsed.NotBefore,
 		NotAfter:    parsed.NotAfter,
-		Source:      "crtsh",
+		// Must match pollDomain's DiscoveryResult.Source ("ct_crtsh")
+		// exactly — ct_multi's composer (internal/ingest/ct/multi)
+		// groups entries by CTEntry.Source and stamps it directly as
+		// DiscoveryResult.Source for its per-child Ingest call, so a
+		// mismatch here would fragment asset_provenance.source between
+		// the standalone and ct_multi-composed paths for the same
+		// underlying provider (the Global Constraint this port exists
+		// to fix relative to EE's original inconsistent naming).
+		Source: "ct_crtsh",
 	}, nil
 }
 

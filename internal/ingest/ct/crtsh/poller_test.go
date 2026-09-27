@@ -299,8 +299,13 @@ func TestPoller_QueryDomain_SatisfiesProvider(t *testing.T) {
 				t.Fatalf("entries len = %d, want %d", len(entries), tc.wantCount)
 			}
 			if tc.wantCount > 0 {
-				if entries[0].Source != "crtsh" {
-					t.Errorf("entries[0].Source = %q, want %q", entries[0].Source, "crtsh")
+				// CTEntry.Source must match pollDomain's
+				// DiscoveryResult.Source ("ct_crtsh") — ct_multi's
+				// composer groups by CTEntry.Source and stamps it
+				// directly as DiscoveryResult.Source, so this must not
+				// drift from the standalone path's provenance string.
+				if entries[0].Source != "ct_crtsh" {
+					t.Errorf("entries[0].Source = %q, want %q", entries[0].Source, "ct_crtsh")
 				}
 				if entries[0].Fingerprint == "" {
 					t.Errorf("entries[0].Fingerprint is empty")
