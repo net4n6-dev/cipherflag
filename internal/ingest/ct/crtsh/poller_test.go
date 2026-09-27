@@ -16,8 +16,16 @@ package crtsh
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,6 +60,30 @@ func (f *fakeStore) SetIngestionState(ctx context.Context, state *model.Ingestio
 	return nil
 }
 
+// generateTestCertPEM returns a minimal, self-signed, valid PEM
+// certificate for cn — used wherever a test needs a cert that
+// certparse.ParseDER can actually parse (unlike the placeholder
+// "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"
+// strings used by client_test.go, whose tests never reach parsePEM).
+func generateTestCertPEM(t *testing.T, cn string) string {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: cn},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+
 func TestRunCycle_NoDomains_NoOp(t *testing.T) {
 	ing := &fakeIngester{}
 	st := newFakeStore()
@@ -64,39 +96,68 @@ func TestRunCycle_NoDomains_NoOp(t *testing.T) {
 	}
 }
 
+// TestRunCycle_OneDomainFails_DoesNotBlockOthers proves the isolation
+// property runCycle is named for (Review Focus: multi-domain isolation):
+// domain 1's crt.sh query always fails with a non-retryable 500, while
+// domain 2 succeeds and has one net-new cert. The only way to prove
+// runCycle doesn't abort after domain 1's failure is to assert domain
+// 2 was actually reached and ingested — a prior version of this test
+// only asserted "no panic", which passes identically even if isolation
+// were broken. Hermetic (httptest.Server, pollerOverrides) — no live
+// network, runs in milliseconds.
 func TestRunCycle_OneDomainFails_DoesNotBlockOthers(t *testing.T) {
-	// A domain-level failure (simulated via an invalid domain that fails
-	// ValidateDomain at construction time is out of scope here — this test
-	// exercises the isolation contract at the runCycle loop level using two
-	// valid domains and asserts both get an ingestion_state checkpoint
-	// attempt even when the poller has no live network access (client is
-	// nil, so the HTTP call itself will error for both — proving neither
-	// domain's failure prevents the other's cycle from running).
+	const failDomain = "fail.example.com"
+	const okDomain = "ok.example.com"
+	certPEM := generateTestCertPEM(t, okDomain)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if d := q.Get("d"); d != "" {
+			// FetchPEM call — only ever made for the surviving domain's
+			// single entry (id=1).
+			_, _ = w.Write([]byte(certPEM))
+			return
+		}
+		domain := q.Get("q")
+		if strings.Contains(domain, "fail") {
+			w.WriteHeader(http.StatusInternalServerError) // non-transient: no retry loop
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id": 1, "common_name": "` + okDomain + `", "name_value": "` + okDomain + `", "issuer_name": "Test CA", "not_before": "2026-01-01T00:00:00", "not_after": "2026-04-01T00:00:00", "entry_timestamp": "2026-01-01T00:00:00"}]`))
+	}))
+	defer srv.Close()
+
 	ing := &fakeIngester{}
 	st := newFakeStore()
 	cfg := config.CtCrtshSourceConfig{
 		Domains: []config.CtDomainConfig{
-			{Enabled: true, Domain: "example.com"},
-			{Enabled: true, Domain: "example.org"},
+			{Enabled: true, Domain: failDomain},
+			{Enabled: true, Domain: okDomain},
 		},
 	}
 	p := NewPoller(nil, ing, st, cfg)
-	// Bounded to 1s: this hits live crt.sh (no client override) with
-	// production retry/backoff and a 1s pemGap, so an unbounded context
-	// would let a single domain's retries run for minutes. The 1s
-	// deadline is enough to prove runCycle attempts both domains without
-	// making the suite slow or flaky against a live, rate-limited
-	// upstream.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	_ = p.runCycle(ctx) // errors/timeouts from a live call are expected; not asserted here
-	// Both domains must have been attempted (proven by both being absent
-	// from a hard early-return) — the real assertion is that runCycle
-	// does not return early after the first domain's client construction
-	// panics or errors. NewPoller(nil, ...) causes crtshClient() to still
-	// build a client (BaseURL/HTTPClient defaults), so this exercises the
-	// live crt.sh endpoint in short-timeout form; kept fast via a 1s
-	// context deadline.
+	p.overrides = &pollerOverrides{
+		client: &Client{BaseURL: srv.URL, HTTPClient: srv.Client()},
+		pemGap: time.Millisecond,
+	}
+
+	if err := p.runCycle(context.Background()); err != nil {
+		t.Fatalf("runCycle: %v", err)
+	}
+
+	if len(ing.calls) != 1 {
+		t.Fatalf("expected exactly 1 Ingest call (from the surviving domain) despite the first domain's failure, got %d", len(ing.calls))
+	}
+	if got := len(ing.calls[0].Certificates); got != 1 {
+		t.Fatalf("expected 1 certificate ingested from %s, got %d", okDomain, got)
+	}
+	if st.states["ct_crtsh:"+okDomain] == nil {
+		t.Fatalf("expected an ingestion_state checkpoint for the surviving domain %s", okDomain)
+	}
+	if st.states["ct_crtsh:"+failDomain] != nil {
+		t.Fatalf("did not expect a checkpoint for the failed domain %s (query never succeeded)", failDomain)
+	}
 }
 
 func TestRunCycle_EmptyResult_NotAnError(t *testing.T) {
@@ -138,6 +199,8 @@ func TestRunCycle_EmptyResult_NotAnError(t *testing.T) {
 // persisted ingestion_state.cursor (Review Focus: malformed checkpoint —
 // e.g. hand-edited, or written by a different kind by mistake) logs and
 // resets the seen-ID set instead of panicking the poller goroutine.
+// Hermetic — a fake crt.sh server backs the client override so this
+// never touches the live network.
 func TestPollDomain_MalformedCursor_ResetsRatherThanPanics(t *testing.T) {
 	ing := &fakeIngester{}
 	st := newFakeStore()
@@ -148,19 +211,111 @@ func TestPollDomain_MalformedCursor_ResetsRatherThanPanics(t *testing.T) {
 	cfg := config.CtCrtshSourceConfig{
 		Domains: []config.CtDomainConfig{{Enabled: true, Domain: "example.com"}},
 	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
 	p := NewPoller(nil, ing, st, cfg)
-	// A 1s-deadline context bounds the live crt.sh call this makes (no
-	// injectable client override is threaded through pollDomain directly
-	// in this test — it exercises the cursor-parse branch specifically,
-	// which runs before any network call). The assertion is that this
-	// does not panic; a network error after the cursor-parse branch is
-	// expected and not itself asserted.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+	p.overrides = &pollerOverrides{
+		client: &Client{BaseURL: srv.URL, HTTPClient: srv.Client()},
+		pemGap: time.Millisecond,
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			t.Fatalf("pollDomain panicked on malformed cursor: %v", r)
 		}
 	}()
-	_ = p.pollDomain(ctx, cfg.Domains[0])
+	if err := p.pollDomain(context.Background(), cfg.Domains[0]); err != nil {
+		t.Fatalf("pollDomain: %v", err)
+	}
+}
+
+// TestPoller_QueryDomain_SatisfiesProvider proves crtsh.Poller implements
+// ct.Provider (Task 5's ct_multi puts *crtsh.Poller directly into a
+// []ct.Provider slice) — QueryDomain converts crt.sh entries into the
+// normalised ct.CTEntry shape, and Name() reports the stable "crtsh"
+// provider id. See also the package-level `var _ ct.Provider =
+// (*Poller)(nil)` compile-time assertion in poller.go.
+func TestPoller_QueryDomain_SatisfiesProvider(t *testing.T) {
+	certPEM := generateTestCertPEM(t, "a.example.com")
+
+	cases := []struct {
+		name      string
+		queryBody string
+		queryFail bool
+		wantCount int
+		wantErr   bool
+	}{
+		{
+			name:      "happy path returns normalised CTEntry",
+			queryBody: `[{"id": 1, "common_name": "a.example.com", "name_value": "a.example.com", "issuer_name": "Test CA", "not_before": "2026-01-01T00:00:00", "not_after": "2026-04-01T00:00:00", "entry_timestamp": "2026-01-01T00:00:00"}]`,
+			wantCount: 1,
+		},
+		{
+			name:      "empty result is not an error",
+			queryBody: `[]`,
+			wantCount: 0,
+		},
+		{
+			name:      "query failure propagates as an error",
+			queryFail: true,
+			wantErr:   true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Query().Get("d") != "" {
+					_, _ = w.Write([]byte(certPEM))
+					return
+				}
+				if tc.queryFail {
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.queryBody))
+			}))
+			defer srv.Close()
+
+			p := NewPoller(nil, &fakeIngester{}, newFakeStore(), config.CtCrtshSourceConfig{})
+			p.overrides = &pollerOverrides{
+				client: &Client{BaseURL: srv.URL, HTTPClient: srv.Client()},
+				pemGap: time.Millisecond,
+			}
+
+			entries, err := p.QueryDomain(context.Background(), "a.example.com")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("QueryDomain error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if err != nil {
+				return
+			}
+			if len(entries) != tc.wantCount {
+				t.Fatalf("entries len = %d, want %d", len(entries), tc.wantCount)
+			}
+			if tc.wantCount > 0 {
+				if entries[0].Source != "crtsh" {
+					t.Errorf("entries[0].Source = %q, want %q", entries[0].Source, "crtsh")
+				}
+				if entries[0].Fingerprint == "" {
+					t.Errorf("entries[0].Fingerprint is empty")
+				}
+				if len(entries[0].PEM) == 0 {
+					t.Errorf("entries[0].PEM is empty")
+				}
+			}
+		})
+	}
+}
+
+func TestPoller_Name(t *testing.T) {
+	p := &Poller{}
+	if got := p.Name(); got != "crtsh" {
+		t.Errorf("Name() = %q, want %q", got, "crtsh")
+	}
 }

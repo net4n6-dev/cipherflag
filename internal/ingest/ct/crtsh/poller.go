@@ -61,6 +61,12 @@ type pollerOverrides struct {
 	pemGap time.Duration
 }
 
+// Compile-time assertion that Poller satisfies ct.Provider — Task 5's
+// ct_multi constructs *crtsh.Poller and puts it directly into a
+// []ct.Provider slice. If a future refactor drops QueryDomain or Name,
+// this fails the build here rather than at ct_multi's call site.
+var _ ct.Provider = (*Poller)(nil)
+
 // NewPoller constructs a Poller. client may be nil in production; a
 // per-domain production Client is built lazily by crtshClient().
 func NewPoller(client *Client, ing ingest.Ingester, st Store, cfg config.CtCrtshSourceConfig) *Poller {
@@ -255,6 +261,79 @@ func (p *Poller) waitForDomainGate() {
 	if p.overrides == nil {
 		ct.WaitForDomainGate()
 	}
+}
+
+// Name implements ct.Provider — the stable provider identifier used by
+// ct_multi for asset_provenance.source attribution. Deliberately
+// distinct from SourceName ("ct_crtsh"), which stamps
+// DiscoveryResult.Source and the ingestion_state checkpoint keys used
+// by pollDomain elsewhere in this file: Name/ct.CTEntry.Source is
+// provider identity, SourceName is provenance/checkpoint attribution.
+// EE's original crtsh/poller.go keeps the same two strings distinct.
+func (p *Poller) Name() string { return "crtsh" }
+
+// QueryDomain implements ct.Provider. Lists every crt.sh entry for the
+// domain, fetches each cert PEM, and returns the normalised CTEntry
+// slice. Per-cert fetch/parse failures are logged and skipped rather
+// than aborting the whole call, matching pollDomain's failure handling.
+//
+// QueryDomain does NOT filter against pollDomain's per-domain seen-ID
+// checkpoint, nor does it write ingestion_state — that side effect
+// remains on pollDomain (the standalone ct_crtsh poller's own cycle),
+// so a ct_multi fan-out calling QueryDomain directly doesn't drift or
+// duplicate-write the per-source checkpoint. Matches EE's documented
+// crtsh/poller.go contract.
+func (p *Poller) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry, error) {
+	p.waitForDomainGate()
+
+	client := p.crtshClient()
+	entries, err := client.QueryDomain(ctx, domain, false)
+	if err != nil {
+		return nil, fmt.Errorf("crtsh QueryDomain(%s): %w", domain, err)
+	}
+
+	out := make([]ct.CTEntry, 0, len(entries))
+	for i, e := range entries {
+		if i > 0 {
+			select {
+			case <-time.After(p.pemGap()):
+			case <-ctx.Done():
+				return out, ctx.Err()
+			}
+		}
+		pemStr, ferr := client.FetchPEM(ctx, e.ID)
+		if ferr != nil {
+			log.Warn().Err(ferr).Int64("crtsh_id", e.ID).Str("domain", domain).Msg("crtsh: FetchPEM failed; skipping")
+			continue
+		}
+		entry, berr := buildCTEntry(pemStr, e)
+		if berr != nil {
+			log.Warn().Err(berr).Int64("crtsh_id", e.ID).Msg("crtsh: cert parse failed; skipping")
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+// buildCTEntry parses a PEM string + crt.sh metadata into the
+// normalised ct.CTEntry shape consumed by ct_multi. Caller is
+// responsible for skipping entries this function rejects.
+func buildCTEntry(pemStr string, e CrtShEntry) (ct.CTEntry, error) {
+	parsed, err := parsePEM(pemStr)
+	if err != nil {
+		return ct.CTEntry{}, fmt.Errorf("buildCTEntry: %w", err)
+	}
+	return ct.CTEntry{
+		Fingerprint: parsed.FingerprintSHA256,
+		PEM:         []byte(pemStr),
+		CommonName:  e.CommonName,
+		NameValue:   e.NameValue,
+		IssuerName:  e.IssuerName,
+		NotBefore:   parsed.NotBefore,
+		NotAfter:    parsed.NotAfter,
+		Source:      "crtsh",
+	}, nil
 }
 
 func parsePEM(s string) (*model.Certificate, error) {
