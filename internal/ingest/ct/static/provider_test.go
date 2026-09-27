@@ -26,8 +26,7 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
-	"net/http/httptest"
-	"strconv"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,71 +35,48 @@ import (
 	"golang.org/x/mod/sumdb/tlog"
 )
 
-// End-to-end provider test against a httptest-served fake Sunlight log
-// containing two leaves: one cert with example.com in SAN, one without.
-// QueryDomain("example.com") returns exactly the matching cert as a
-// CTEntry with Source="ct_static".
+// Most walk tests below start from Cache{LastTreeSize: 1} with a
+// non-matching leaf at index 0: a zero cursor means "no persisted
+// state" and bootstraps to the head without walking (see
+// TestProvider_QueryDomain_NoPriorCursor_BootstrapsToHead), so a walk
+// test needs a real, non-zero starting position — exactly as the poller
+// has after its first cycle.
+
+// End-to-end provider test against a spec-faithful fake Sunlight log:
+// one non-matching leaf before the cursor, then a cert with example.com
+// in SAN and one without. QueryDomain returns exactly the matching cert.
+// The 3-leaf log's only data tile is partial, so it must be fetched at
+// tile/data/000.p/3 (the full URL 404s, as on a real log).
 func TestProvider_QueryDomain_FiltersBySAN(t *testing.T) {
-	// 1. Generate the test log's signing key + two leaf certs.
-	logPub, logPriv, _ := ed25519.GenerateKey(rand.Reader)
-
-	matchCert := mustGenerateLeafCert(t, "match", []string{"example.com", "api.example.com"})
-	missCert := mustGenerateLeafCert(t, "miss", []string{"other.test"})
-	certs := []*x509.Certificate{matchCert, missCert}
-	leaves := buildTestLeafData(certs)
-
-	// 2. Build a real 2-leaf tlog tree so inclusion-proof verification passes.
-	leafHashes := make([]tlog.Hash, len(leaves))
-	for i, ld := range leaves {
-		leafHashes[i] = fakeTreeLeafHash(t, ld, uint64(i))
+	certs := []*x509.Certificate{
+		mustGenerateLeafCert(t, "before-cursor", []string{"example.com"}), // index 0: already seen
+		mustGenerateLeafCert(t, "match", []string{"example.com", "api.example.com"}),
+		mustGenerateLeafCert(t, "miss", []string{"other.test"}),
 	}
-	storedHashes := buildStoredHashes(t, leafHashes)
-	rootHash, err := tlog.TreeHash(int64(len(certs)), staticTestHashReader(storedHashes))
-	if err != nil {
-		t.Fatalf("TreeHash: %v", err)
-	}
-
-	// 3. Build a one-tile leaf-data payload containing both leaves.
-	tileBytes := buildTestTile(t, leaves)
-
-	// 4. Build a signed checkpoint with the real root.
-	checkpoint := buildTestCheckpointWithRoot(t, logPub, logPriv, "sunlight.test", "/2024h2/", uint64(len(certs)), rootHash[:])
-
-	// 5. Serve checkpoint + data tile + path tiles.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/2024h2/checkpoint":
-			_, _ = w.Write([]byte(checkpoint))
-		case r.URL.Path == "/2024h2/tile/data/000":
-			_, _ = w.Write(tileBytes)
-		case strings.HasPrefix(r.URL.Path, "/2024h2/tile/"):
-			servePathTile(t, w, r, storedHashes, int64(len(certs)))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	pemPub := mustEncodeEd25519PubPEM(t, logPub)
-	cfg := Config{
-		Domain:       "example.com",
-		LogURL:       srv.URL + "/2024h2/",
-		PublicKeyPEM: pemPub,
-	}
-	prov := &Provider{Cfg: cfg, HTTPClient: srv.Client(), KeyName: "sunlight.test"}
+	fl := newFakeLogFromCerts(t, certs)
+	prov := fl.newProvider("example.com", &Cache{LastTreeSize: 1})
 
 	got, err := prov.QueryDomain(context.Background(), "example.com")
 	if err != nil {
 		t.Fatalf("QueryDomain: %v", err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("entries = %d, want 1 (only the matching cert)", len(got))
+		t.Fatalf("entries = %d, want 1 (only the matching cert after the cursor)", len(got))
 	}
 	if got[0].Source != "ct_static" {
 		t.Errorf("Source = %q, want ct_static", got[0].Source)
 	}
+	if got[0].CommonName != "match" {
+		t.Errorf("CommonName = %q, want match", got[0].CommonName)
+	}
 	if got[0].Fingerprint == "" || len(got[0].PEM) == 0 {
 		t.Errorf("missing Fingerprint or PEM: %+v", got[0])
+	}
+	if prov.LastSeenTreeSize != 3 || prov.LastVerifiedCount != 1 {
+		t.Errorf("LastSeenTreeSize=%d LastVerifiedCount=%d, want 3 and 1", prov.LastSeenTreeSize, prov.LastVerifiedCount)
+	}
+	if reqs := fl.requestLog(); !slices.Contains(reqs, "/2024h2/tile/data/000.p/3") {
+		t.Errorf("partial data tile URL not requested; requests: %v", reqs)
 	}
 }
 
@@ -108,6 +84,154 @@ func TestProvider_Name_ReturnsStatic(t *testing.T) {
 	p := &Provider{}
 	if got := p.Name(); got != "static" {
 		t.Errorf("Name() = %q, want static", got)
+	}
+}
+
+// Final-review Fix 2(b)/(c): with no prior cursor — Cache nil (always
+// the case under ct_multi) or LastTreeSize 0 (the standalone poller's
+// "no ingestion_state row yet") — QueryDomain must NOT walk the log from
+// leaf 0. A real Sunlight shard has hundreds of millions of leaves. It
+// bootstraps LastSeenTreeSize to the current head and fetches zero tiles,
+// even though matching certs exist in the historical range.
+func TestProvider_QueryDomain_NoPriorCursor_BootstrapsToHead(t *testing.T) {
+	const treeSize = 600
+	leaves := fillerLeaves(t, treeSize)
+	// Put matching certs in the historical range: they must NOT be returned.
+	hist := buildTestLeafData([]*x509.Certificate{
+		mustGenerateLeafCert(t, "historical-a", []string{"example.com"}),
+		mustGenerateLeafCert(t, "historical-b", []string{"example.com"}),
+	})
+	leaves[10], leaves[400] = hist[0], hist[1]
+	fl := newFakeLog(t, leaves)
+
+	for _, tc := range []struct {
+		name  string
+		cache *Cache
+	}{
+		{"nil cache (ct_multi child)", nil},
+		{"zero cursor (standalone first cycle)", &Cache{LastTreeSize: 0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fl.requestLog() // reset
+			prov := fl.newProvider("example.com", tc.cache)
+			got, err := prov.QueryDomain(context.Background(), "example.com")
+			if err != nil {
+				t.Fatalf("QueryDomain: %v", err)
+			}
+			if got != nil {
+				t.Errorf("got %d entries, want nil (bootstrap walks nothing)", len(got))
+			}
+			if tiles := tileRequests(fl.requestLog()); len(tiles) != 0 {
+				t.Errorf("bootstrap fetched %d tiles, want 0: %v", len(tiles), tiles)
+			}
+			if prov.LastSeenTreeSize != treeSize {
+				t.Errorf("LastSeenTreeSize = %d, want %d (bootstrapped to head)", prov.LastSeenTreeSize, treeSize)
+			}
+			if prov.LastVerifiedCount != 0 {
+				t.Errorf("LastVerifiedCount = %d, want 0", prov.LastVerifiedCount)
+			}
+		})
+	}
+}
+
+// The ct_multi path: a long-lived Provider with Cfg.Cache == nil. Call 1
+// bootstraps at the head (600); the log grows to 603; call 2 walks ONLY
+// the new leaves (data tile 2, requested as the partial 002.p/91) and
+// returns the two new matches with verified inclusion proofs; call 3
+// with no growth fetches nothing.
+//
+// Leaf 600's proof in a 603-leaf tree needs Merkle hashes above level 7,
+// which a real log serves only in the level-1 hash tile (tile/1/000.p/2,
+// holding Merkle level-8 hashes). So this also pins the tile geometry fix
+// in hashreader.go.
+func TestProvider_QueryDomain_InstanceCursor_WatchesForwardAcrossCalls(t *testing.T) {
+	leaves := fillerLeaves(t, 603)
+	news := buildTestLeafData([]*x509.Certificate{
+		mustGenerateLeafCert(t, "new-600", []string{"example.com"}),
+		mustGenerateLeafCert(t, "new-602", []string{"www.example.com"}),
+	})
+	leaves[600], leaves[602] = news[0], news[1]
+	fl := newFakeLog(t, leaves)
+	fl.setSize(600)
+
+	prov := fl.newProvider("example.com", nil)
+	ctx := context.Background()
+
+	if got, err := prov.QueryDomain(ctx, "example.com"); err != nil || got != nil {
+		t.Fatalf("call 1 (bootstrap): got %v, %v; want nil, nil", got, err)
+	}
+	if tiles := tileRequests(fl.requestLog()); len(tiles) != 0 {
+		t.Fatalf("call 1 fetched tiles %v, want none", tiles)
+	}
+
+	fl.setSize(603)
+	got, err := prov.QueryDomain(ctx, "example.com")
+	if err != nil {
+		t.Fatalf("call 2: %v", err)
+	}
+	var cns []string
+	for _, e := range got {
+		cns = append(cns, e.CommonName)
+	}
+	slices.Sort(cns)
+	if !slices.Equal(cns, []string{"new-600", "new-602"}) {
+		t.Fatalf("call 2 entries = %v, want [new-600 new-602]", cns)
+	}
+	if prov.LastVerifiedCount != 2 || prov.LastProofFetchFailures != 0 {
+		t.Errorf("LastVerifiedCount=%d LastProofFetchFailures=%d, want 2 and 0", prov.LastVerifiedCount, prov.LastProofFetchFailures)
+	}
+	if prov.LastSeenTreeSize != 603 {
+		t.Errorf("LastSeenTreeSize = %d, want 603", prov.LastSeenTreeSize)
+	}
+	reqs := tileRequests(fl.requestLog())
+	for _, old := range []string{"/2024h2/tile/data/000", "/2024h2/tile/data/001"} {
+		for _, r := range reqs {
+			if strings.HasPrefix(r, old) {
+				t.Errorf("call 2 re-fetched historical data tile %s", r)
+			}
+		}
+	}
+	for _, want := range []string{"/2024h2/tile/data/002.p/91", "/2024h2/tile/1/000.p/2"} {
+		if !slices.Contains(reqs, want) {
+			t.Errorf("call 2 did not request %s; requests: %v", want, reqs)
+		}
+	}
+
+	if got, err := prov.QueryDomain(ctx, "example.com"); err != nil || got != nil {
+		t.Fatalf("call 3 (no growth): got %v, %v; want nil, nil", got, err)
+	}
+	if tiles := tileRequests(fl.requestLog()); len(tiles) != 0 {
+		t.Errorf("call 3 fetched tiles %v, want none", tiles)
+	}
+}
+
+// A log that has grown past our checkpoint may prune a partial tile once
+// its full tile exists. FetchLeafTile (and the hash-tile reader) must then
+// fall back to the full URL. Published size 300 (tile 1 partial, W=44),
+// but the log holds 520 entries and has pruned partial tile 1.
+func TestProvider_QueryDomain_PrunedPartialTile_FallsBackToFullTile(t *testing.T) {
+	leaves := fillerLeaves(t, 520)
+	leaves[270] = buildTestLeafData([]*x509.Certificate{mustGenerateLeafCert(t, "match-270", []string{"example.com"})})[0]
+	fl := newFakeLog(t, leaves)
+	fl.setSize(300)
+	fl.configure(func(f *fakeLog) { f.prunePartials = true })
+
+	prov := fl.newProvider("example.com", &Cache{LastTreeSize: 256})
+	got, err := prov.QueryDomain(context.Background(), "example.com")
+	if err != nil {
+		t.Fatalf("QueryDomain: %v", err)
+	}
+	if len(got) != 1 || got[0].CommonName != "match-270" {
+		t.Fatalf("got %+v, want exactly match-270", got)
+	}
+	if prov.LastSeenTreeSize != 300 {
+		t.Errorf("LastSeenTreeSize = %d, want 300 (leaves beyond the checkpoint in the full tile are ignored)", prov.LastSeenTreeSize)
+	}
+	reqs := fl.requestLog()
+	for _, want := range []string{"/2024h2/tile/data/001.p/44", "/2024h2/tile/data/001", "/2024h2/tile/0/001.p/44", "/2024h2/tile/0/001"} {
+		if !slices.Contains(reqs, want) {
+			t.Errorf("expected request %s; requests: %v", want, reqs)
+		}
 	}
 }
 
@@ -202,20 +326,6 @@ func buildTestTile(t *testing.T, leaves []LeafData) []byte {
 	return bs
 }
 
-// buildTestCheckpoint builds a signed checkpoint pointing at the given
-// tree size. The root hash is intentionally NOT a real Merkle root —
-// the provider test does not verify inclusion proofs (T11's tree walk
-// trusts the STH for tree size; inclusion-proof verification is the
-// crypto layer's job tested separately in merkle_test.go).
-func buildTestCheckpoint(t *testing.T, pub ed25519.PublicKey, priv ed25519.PrivateKey, keyName, origin string, _ []byte, treeSize uint64) string {
-	t.Helper()
-	rootHash := make([]byte, 32) // placeholder — see comment above
-	body := origin + "\n" + uintToStr(treeSize) + "\n" + base64.StdEncoding.EncodeToString(rootHash) + "\n"
-	sig := ed25519.Sign(priv, []byte(body))
-	keyHash := KeyHashEd25519(keyName, pub) // already exists in sth.go
-	return body + "\n— " + keyName + " " + base64.StdEncoding.EncodeToString(append(keyHash, sig...)) + "\n"
-}
-
 func uintToStr(n uint64) string {
 	if n == 0 {
 		return "0"
@@ -243,32 +353,12 @@ func mustEncodeEd25519PubPEM(t *testing.T, pub ed25519.PublicKey) string {
 // successfully. A tile-fetch failure must leave it at its prior value
 // so the poller's cache cursor doesn't skip the failed tiles on retry.
 func TestProvider_QueryDomain_DoesNotAdvanceLastSeenTreeSizeOnError(t *testing.T) {
-	logPub, logPriv, _ := ed25519.GenerateKey(rand.Reader)
-	cert := mustGenerateLeafCert(t, "ok", []string{"example.com"})
-	tileBytes := buildTestTile(t, buildTestLeafData([]*x509.Certificate{cert}))
-	checkpoint := buildTestCheckpoint(t, logPub, logPriv, "sunlight.test", "/2024h2/", tileBytes, 1)
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/2024h2/checkpoint":
-			_, _ = w.Write([]byte(checkpoint))
-		case "/2024h2/tile/data/000":
-			http.Error(w, "intentional 500", http.StatusInternalServerError)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	prov := &Provider{
-		Cfg: Config{
-			Domain:       "example.com",
-			LogURL:       srv.URL + "/2024h2/",
-			PublicKeyPEM: mustEncodeEd25519PubPEM(t, logPub),
-		},
-		HTTPClient: srv.Client(),
-		KeyName:    "sunlight.test",
-	}
+	fl := newFakeLogFromCerts(t, []*x509.Certificate{
+		mustGenerateLeafCert(t, "before-cursor", []string{"example.com"}),
+		mustGenerateLeafCert(t, "ok", []string{"example.com"}),
+	})
+	fl.configure(func(f *fakeLog) { f.dataTileStatus = http.StatusInternalServerError })
+	prov := fl.newProvider("example.com", &Cache{LastTreeSize: 1})
 
 	got, err := prov.QueryDomain(context.Background(), "example.com")
 	if err == nil {
@@ -285,35 +375,8 @@ func TestProvider_QueryDomain_DoesNotAdvanceLastSeenTreeSizeOnError(t *testing.T
 // "Already up to date" — Cache.LastTreeSize >= sth.TreeSize returns
 // (nil, nil) without any tile fetch.
 func TestProvider_QueryDomain_AlreadyUpToDate(t *testing.T) {
-	logPub, logPriv, _ := ed25519.GenerateKey(rand.Reader)
-	cert := mustGenerateLeafCert(t, "ok", []string{"example.com"})
-	tileBytes := buildTestTile(t, buildTestLeafData([]*x509.Certificate{cert}))
-	checkpoint := buildTestCheckpoint(t, logPub, logPriv, "sunlight.test", "/2024h2/", tileBytes, 1)
-
-	tileCalls := 0
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/2024h2/checkpoint":
-			_, _ = w.Write([]byte(checkpoint))
-		case "/2024h2/tile/data/000":
-			tileCalls++
-			_, _ = w.Write(tileBytes)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	prov := &Provider{
-		Cfg: Config{
-			Domain:       "example.com",
-			LogURL:       srv.URL + "/2024h2/",
-			PublicKeyPEM: mustEncodeEd25519PubPEM(t, logPub),
-			Cache:        &Cache{LastTreeSize: 1}, // already at the STH's tree size
-		},
-		HTTPClient: srv.Client(),
-		KeyName:    "sunlight.test",
-	}
+	fl := newFakeLogFromCerts(t, []*x509.Certificate{mustGenerateLeafCert(t, "ok", []string{"example.com"})})
+	prov := fl.newProvider("example.com", &Cache{LastTreeSize: 1}) // already at the STH's tree size
 
 	got, err := prov.QueryDomain(context.Background(), "example.com")
 	if err != nil {
@@ -322,53 +385,19 @@ func TestProvider_QueryDomain_AlreadyUpToDate(t *testing.T) {
 	if got != nil {
 		t.Errorf("got %d entries, want nil", len(got))
 	}
-	if tileCalls != 0 {
-		t.Errorf("tile fetched %d times, want 0", tileCalls)
+	if tiles := tileRequests(fl.requestLog()); len(tiles) != 0 {
+		t.Errorf("tiles fetched %v, want none", tiles)
 	}
 }
 
 // Uppercase SAN must match a lowercase domain query (RFC 5280 case-
 // insensitivity).
 func TestProvider_QueryDomain_CaseInsensitiveSAN(t *testing.T) {
-	logPub, logPriv, _ := ed25519.GenerateKey(rand.Reader)
-	cert := mustGenerateLeafCert(t, "ok", []string{"EXAMPLE.COM"})
-	certs := []*x509.Certificate{cert}
-	leaves := buildTestLeafData(certs)
-
-	// Build a real 1-leaf tlog tree so inclusion-proof verification passes.
-	leafHashes := []tlog.Hash{fakeTreeLeafHash(t, leaves[0], 0)}
-	storedHashes := buildStoredHashes(t, leafHashes)
-	rootHash, err := tlog.TreeHash(int64(len(certs)), staticTestHashReader(storedHashes))
-	if err != nil {
-		t.Fatalf("TreeHash: %v", err)
-	}
-
-	tileBytes := buildTestTile(t, leaves)
-	checkpoint := buildTestCheckpointWithRoot(t, logPub, logPriv, "sunlight.test", "/2024h2/", uint64(len(certs)), rootHash[:])
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/2024h2/checkpoint":
-			_, _ = w.Write([]byte(checkpoint))
-		case r.URL.Path == "/2024h2/tile/data/000":
-			_, _ = w.Write(tileBytes)
-		case strings.HasPrefix(r.URL.Path, "/2024h2/tile/"):
-			servePathTile(t, w, r, storedHashes, int64(len(certs)))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-
-	prov := &Provider{
-		Cfg: Config{
-			Domain:       "example.com",
-			LogURL:       srv.URL + "/2024h2/",
-			PublicKeyPEM: mustEncodeEd25519PubPEM(t, logPub),
-		},
-		HTTPClient: srv.Client(),
-		KeyName:    "sunlight.test",
-	}
+	fl := newFakeLogFromCerts(t, []*x509.Certificate{
+		mustGenerateLeafCert(t, "before-cursor", []string{"other.test"}),
+		mustGenerateLeafCert(t, "ok", []string{"EXAMPLE.COM"}),
+	})
+	prov := fl.newProvider("example.com", &Cache{LastTreeSize: 1})
 
 	got, err := prov.QueryDomain(context.Background(), "example.com")
 	if err != nil {
@@ -379,60 +408,23 @@ func TestProvider_QueryDomain_CaseInsensitiveSAN(t *testing.T) {
 	}
 }
 
-// Real 4-leaf tlog tree, real path-tile server. The matched leaf at
-// index 1 passes inclusion-proof verification; the other tile entries
-// don't need to pass (only matched leaves get verified).
-func TestProvider_QueryDomain_VerifiesInclusionProof_Success(t *testing.T) {
-	logPub, logPriv, _ := ed25519.GenerateKey(rand.Reader)
-	matchCert := mustGenerateLeafCert(t, "match", []string{"example.com"})
-	otherCerts := []*x509.Certificate{
+// fourLeafLog is the 4-leaf corpus shared by the proof tests: the
+// example.com match sits at leaf index 1, the others never match.
+func fourLeafLog(t *testing.T) *fakeLog {
+	t.Helper()
+	return newFakeLogFromCerts(t, []*x509.Certificate{
 		mustGenerateLeafCert(t, "other-0", []string{"unmatched.test"}),
-		matchCert,
+		mustGenerateLeafCert(t, "match", []string{"example.com"}),
 		mustGenerateLeafCert(t, "other-2", []string{"unmatched.test"}),
 		mustGenerateLeafCert(t, "other-3", []string{"unmatched.test"}),
-	}
-	// Leaf index 1 is the one with example.com.
-	matchedLeafIndex := int64(1)
-	leaves := buildTestLeafData(otherCerts)
+	})
+}
 
-	// Build a real 4-leaf tlog tree from the RFC 6962 MerkleTreeLeaf bytes
-	// produced by EncodeTileLeaf — matches what verifyLeafInclusion computes.
-	leafHashes := make([]tlog.Hash, len(leaves))
-	for i, ld := range leaves {
-		leafHashes[i] = fakeTreeLeafHash(t, ld, uint64(i))
-	}
-	storedHashes := buildStoredHashes(t, leafHashes)
-	rootHash, err := tlog.TreeHash(int64(len(otherCerts)), staticTestHashReader(storedHashes))
-	if err != nil {
-		t.Fatalf("TreeHash: %v", err)
-	}
-
-	tileBytes := buildTestTile(t, leaves)
-	checkpoint := buildTestCheckpointWithRoot(t, logPub, logPriv, "sunlight.test", "/2024h2/", uint64(len(otherCerts)), rootHash[:])
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		switch {
-		case req.URL.Path == "/2024h2/checkpoint":
-			_, _ = w.Write([]byte(checkpoint))
-		case req.URL.Path == "/2024h2/tile/data/000":
-			_, _ = w.Write(tileBytes)
-		case strings.HasPrefix(req.URL.Path, "/2024h2/tile/"):
-			servePathTile(t, w, req, storedHashes, int64(len(otherCerts)))
-		default:
-			http.NotFound(w, req)
-		}
-	}))
-	defer srv.Close()
-
-	prov := &Provider{
-		Cfg: Config{
-			Domain:       "example.com",
-			LogURL:       srv.URL + "/2024h2/",
-			PublicKeyPEM: mustEncodeEd25519PubPEM(t, logPub),
-		},
-		HTTPClient: srv.Client(),
-		KeyName:    "sunlight.test",
-	}
+// Real 4-leaf tlog tree, real (spec-geometry) hash-tile server. The
+// matched leaf at index 1 passes inclusion-proof verification.
+func TestProvider_QueryDomain_VerifiesInclusionProof_Success(t *testing.T) {
+	fl := fourLeafLog(t)
+	prov := fl.newProvider("example.com", &Cache{LastTreeSize: 1})
 
 	got, err := prov.QueryDomain(context.Background(), "example.com")
 	if err != nil {
@@ -444,43 +436,24 @@ func TestProvider_QueryDomain_VerifiesInclusionProof_Success(t *testing.T) {
 	if prov.LastVerifiedCount != 1 {
 		t.Errorf("LastVerifiedCount = %d, want 1", prov.LastVerifiedCount)
 	}
-	_ = matchedLeafIndex // referenced for clarity; verification happens by the leaf-index math inside QueryDomain
 }
 
-// --- shared helpers used by T4 and T5/T6 below ---
+// --- shared helpers ---
 
-// buildStoredHashes computes every tlog-stored hash for a tree built
-// from the given leaf hashes. Returns a map keyed by stored-hash
-// index so the test server and the Provider's tileHashReader can
-// agree on every fetchable entry.
+// buildStoredHashes computes every tlog stored hash for a tree built
+// from the given leaf hashes, using tlog's own reference builder
+// (StoredHashesForRecordHash), keyed by stored-hash index.
 func buildStoredHashes(t *testing.T, leafHashes []tlog.Hash) map[int64]tlog.Hash {
 	t.Helper()
-	out := make(map[int64]tlog.Hash)
+	out := make(map[int64]tlog.Hash, 2*len(leafHashes))
 	for i, h := range leafHashes {
-		out[tlog.StoredHashIndex(0, int64(i))] = h
-	}
-	// Higher levels: compute internal nodes.
-	level := 0
-	for {
-		level++
-		entriesAtLevel := (int64(len(leafHashes)) + (1 << level) - 1) >> level
-		if entriesAtLevel == 0 {
-			break
+		hashes, err := tlog.StoredHashesForRecordHash(int64(i), h, staticTestHashReader(out))
+		if err != nil {
+			t.Fatalf("StoredHashesForRecordHash(%d): %v", i, err)
 		}
-		for n := int64(0); n < entriesAtLevel; n++ {
-			leftIdx := tlog.StoredHashIndex(level-1, n*2)
-			rightIdx := tlog.StoredHashIndex(level-1, n*2+1)
-			left := out[leftIdx]
-			var right tlog.Hash
-			if r, ok := out[rightIdx]; ok {
-				right = r
-			} else {
-				right = left // odd node: duplicate left at incomplete subtree boundary
-			}
-			out[tlog.StoredHashIndex(level, n)] = tlog.NodeHash(left, right)
-		}
-		if entriesAtLevel == 1 {
-			break
+		base := tlog.StoredHashIndex(0, int64(i))
+		for j, x := range hashes {
+			out[base+int64(j)] = x
 		}
 	}
 	return out
@@ -501,9 +474,8 @@ func (m staticTestHashReader) ReadHashes(indexes []int64) ([]tlog.Hash, error) {
 	return out, nil
 }
 
-// buildTestCheckpointWithRoot is like buildTestCheckpoint but takes an
-// explicit root hash (so the test can sign a checkpoint that matches
-// the real tlog-built tree, not a zero placeholder).
+// buildTestCheckpointWithRoot builds a signed checkpoint for the given
+// tree size and root hash.
 func buildTestCheckpointWithRoot(t *testing.T, pub ed25519.PublicKey, priv ed25519.PrivateKey, keyName, origin string, treeSize uint64, rootHash []byte) string {
 	t.Helper()
 	body := origin + "\n" + uintToStr(treeSize) + "\n" + base64.StdEncoding.EncodeToString(rootHash) + "\n"
@@ -512,110 +484,13 @@ func buildTestCheckpointWithRoot(t *testing.T, pub ed25519.PublicKey, priv ed255
 	return body + "\n— " + keyName + " " + base64.StdEncoding.EncodeToString(append(kh, sig...)) + "\n"
 }
 
-// servePathTile serves a Static CT path tile assembled from a
-// precomputed stored-hash map. Used by the success/abort/skip tests
-// in T4/T5/T6. Treats partial-tile URLs (.p/<N>) the same way real
-// Sunlight logs do.
-func servePathTile(t *testing.T, w http.ResponseWriter, req *http.Request, stored map[int64]tlog.Hash, treeSize int64) {
-	t.Helper()
-	// Path: /2024h2/tile/<level>/<W>[/<partial-suffix>]
-	parts := strings.Split(strings.TrimPrefix(req.URL.Path, "/2024h2/tile/"), "/")
-	if len(parts) < 2 {
-		http.NotFound(w, req)
-		return
-	}
-	level, err := strconv.Atoi(parts[0])
-	if err != nil {
-		http.NotFound(w, req)
-		return
-	}
-	tileSpec := parts[1] // "000" or "000.p"
-	var partialN int64
-	if strings.HasSuffix(tileSpec, ".p") && len(parts) >= 3 {
-		tileSpec = strings.TrimSuffix(tileSpec, ".p")
-		partialN, _ = strconv.ParseInt(parts[2], 10, 64)
-	}
-	tileN, _ := strconv.ParseInt(strings.TrimLeft(tileSpec, "0"), 10, 64)
-	if tileSpec == "000" {
-		tileN = 0
-	}
-
-	entriesAtLevel := (treeSize + (1 << level) - 1) >> level
-	count := int64(256)
-	if remaining := entriesAtLevel - tileN*256; remaining < 256 {
-		count = remaining
-	}
-	// If the request specified a partial-suffix size but it doesn't match
-	// our level's actual remaining, 404. Otherwise serve count entries.
-	if partialN > 0 && partialN != count {
-		http.NotFound(w, req)
-		return
-	}
-	// Full-tile URL only valid when count == 256.
-	if partialN == 0 && count < 256 {
-		http.NotFound(w, req)
-		return
-	}
-
-	body := make([]byte, count*int64(tlog.HashSize))
-	baseIndex := tileN * 256
-	for i := int64(0); i < count; i++ {
-		h, ok := stored[tlog.StoredHashIndex(level, baseIndex+i)]
-		if !ok {
-			http.NotFound(w, req)
-			return
-		}
-		copy(body[i*int64(tlog.HashSize):], h[:])
-	}
-	_, _ = w.Write(body)
-}
-
-// One matched leaf, but the path-tile endpoint returns 500. Provider
+// One matched leaf, but every hash-tile request returns 500. Provider
 // logs + skips the leaf; the poll continues to completion with
 // LastSeenTreeSize advanced and LastProofFetchFailures incremented.
 func TestProvider_QueryDomain_SkipsLeafOnPathTileFetchFailure(t *testing.T) {
-	logPub, logPriv, _ := ed25519.GenerateKey(rand.Reader)
-	matchCert := mustGenerateLeafCert(t, "match", []string{"example.com"})
-	otherCerts := []*x509.Certificate{
-		mustGenerateLeafCert(t, "other-0", []string{"unmatched.test"}),
-		matchCert,
-		mustGenerateLeafCert(t, "other-2", []string{"unmatched.test"}),
-		mustGenerateLeafCert(t, "other-3", []string{"unmatched.test"}),
-	}
-	leaves := buildTestLeafData(otherCerts)
-	leafHashes := make([]tlog.Hash, len(leaves))
-	for i, ld := range leaves {
-		leafHashes[i] = fakeTreeLeafHash(t, ld, uint64(i))
-	}
-	storedHashes := buildStoredHashes(t, leafHashes)
-	rootHash, _ := tlog.TreeHash(int64(len(otherCerts)), staticTestHashReader(storedHashes))
-
-	tileBytes := buildTestTile(t, leaves)
-	checkpoint := buildTestCheckpointWithRoot(t, logPub, logPriv, "sunlight.test", "/2024h2/", uint64(len(otherCerts)), rootHash[:])
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		switch {
-		case req.URL.Path == "/2024h2/checkpoint":
-			_, _ = w.Write([]byte(checkpoint))
-		case req.URL.Path == "/2024h2/tile/data/000":
-			_, _ = w.Write(tileBytes)
-		case strings.HasPrefix(req.URL.Path, "/2024h2/tile/"):
-			http.Error(w, "intentional 500", http.StatusInternalServerError)
-		default:
-			http.NotFound(w, req)
-		}
-	}))
-	defer srv.Close()
-
-	prov := &Provider{
-		Cfg: Config{
-			Domain:       "example.com",
-			LogURL:       srv.URL + "/2024h2/",
-			PublicKeyPEM: mustEncodeEd25519PubPEM(t, logPub),
-		},
-		HTTPClient: srv.Client(),
-		KeyName:    "sunlight.test",
-	}
+	fl := fourLeafLog(t)
+	fl.configure(func(f *fakeLog) { f.hashTileStatus = http.StatusInternalServerError })
+	prov := fl.newProvider("example.com", &Cache{LastTreeSize: 1})
 
 	got, err := prov.QueryDomain(context.Background(), "example.com")
 	if err != nil {
@@ -635,69 +510,17 @@ func TestProvider_QueryDomain_SkipsLeafOnPathTileFetchFailure(t *testing.T) {
 	}
 }
 
-// Real tree, real tile bytes, real path-tile server — but one path-tile
-// hash is tampered. The proof check fails with a cryptographic
-// mismatch (NOT a fetch error). Provider must return (nil, err) and
-// NOT advance LastSeenTreeSize.
+// Real tree, real tile bytes — but one leaf hash in the served level-0
+// hash tile is tampered while the checkpoint signs the true root.
+// tlog.TileHashReader's tile authentication fails ("downloaded
+// inconsistent tile") — a cryptographic mismatch, NOT a fetch error.
+// Provider must return (nil, err) and NOT advance LastSeenTreeSize.
 func TestProvider_QueryDomain_AbortsOnProofMismatch(t *testing.T) {
-	logPub, logPriv, _ := ed25519.GenerateKey(rand.Reader)
-	matchCert := mustGenerateLeafCert(t, "match", []string{"example.com"})
-	otherCerts := []*x509.Certificate{
-		mustGenerateLeafCert(t, "other-0", []string{"unmatched.test"}),
-		matchCert,
-		mustGenerateLeafCert(t, "other-2", []string{"unmatched.test"}),
-		mustGenerateLeafCert(t, "other-3", []string{"unmatched.test"}),
-	}
-	leaves := buildTestLeafData(otherCerts)
-	leafHashes := make([]tlog.Hash, len(leaves))
-	for i, ld := range leaves {
-		leafHashes[i] = fakeTreeLeafHash(t, ld, uint64(i))
-	}
-	storedHashes := buildStoredHashes(t, leafHashes)
-
-	// Tamper one stored level-1 hash before computing the root the log
-	// signs (the log signs the REAL root; the served tiles return the
-	// tampered hash → mismatch when the Provider tries to verify).
-	rootHash, _ := tlog.TreeHash(int64(len(otherCerts)), staticTestHashReader(storedHashes))
-	tampered := make(map[int64]tlog.Hash, len(storedHashes))
-	for k, v := range storedHashes {
-		tampered[k] = v
-	}
-	// For leaf index 1 in a 4-leaf tree the proof path is:
-	//   StoredHashIndex(0, 0) — sibling leaf 0
-	//   StoredHashIndex(1, 1) — hash of leaves 2+3
-	// Tamper StoredHashIndex(1, 1) so it IS in the proof path.
-	level1Idx := tlog.StoredHashIndex(1, 1)
+	fl := fourLeafLog(t)
 	var bad tlog.Hash
 	bad[0] = 0xFF
-	tampered[level1Idx] = bad
-
-	tileBytes := buildTestTile(t, leaves)
-	checkpoint := buildTestCheckpointWithRoot(t, logPub, logPriv, "sunlight.test", "/2024h2/", uint64(len(otherCerts)), rootHash[:])
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		switch {
-		case req.URL.Path == "/2024h2/checkpoint":
-			_, _ = w.Write([]byte(checkpoint))
-		case req.URL.Path == "/2024h2/tile/data/000":
-			_, _ = w.Write(tileBytes)
-		case strings.HasPrefix(req.URL.Path, "/2024h2/tile/"):
-			servePathTile(t, w, req, tampered, int64(len(otherCerts)))
-		default:
-			http.NotFound(w, req)
-		}
-	}))
-	defer srv.Close()
-
-	prov := &Provider{
-		Cfg: Config{
-			Domain:       "example.com",
-			LogURL:       srv.URL + "/2024h2/",
-			PublicKeyPEM: mustEncodeEd25519PubPEM(t, logPub),
-		},
-		HTTPClient: srv.Client(),
-		KeyName:    "sunlight.test",
-	}
+	fl.configure(func(f *fakeLog) { f.tamper = map[int64]tlog.Hash{tlog.StoredHashIndex(0, 2): bad} })
+	prov := fl.newProvider("example.com", &Cache{LastTreeSize: 1})
 
 	got, err := prov.QueryDomain(context.Background(), "example.com")
 	if err == nil {

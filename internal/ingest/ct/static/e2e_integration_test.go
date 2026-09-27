@@ -24,29 +24,22 @@
 // verification end-to-end against a real Postgres store and the real
 // ingest pipeline — but drives it through CE's static.Poller
 // (NewPoller/runCycle/pollDomain) instead. It reuses the package-local
-// fake-log fixture helpers already defined in provider_test.go
-// (mustGenerateLeafCert, buildTestLeafData, fakeTreeLeafHash,
-// buildStoredHashes, staticTestHashReader, buildTestTile,
-// buildTestCheckpointWithRoot, servePathTile, mustEncodeEd25519PubPEM)
-// rather than redefining e2e_-prefixed duplicates, since this file lives
-// in the same (internal, non-_test-suffixed) package static.
+// spec-faithful fake log (fakelog_test.go) rather than redefining
+// e2e_-prefixed duplicates, since this file lives in the same package.
 package static
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/x509"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/mod/sumdb/tlog"
 
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
+	"github.com/net4n6-dev/cipherflag/internal/model"
 	"github.com/net4n6-dev/cipherflag/internal/store"
 	"github.com/net4n6-dev/cipherflag/internal/testdb"
 )
@@ -73,59 +66,44 @@ func newIntegrationStore(t *testing.T) *store.PostgresStore {
 	return st
 }
 
+// seedCursor persists a ct_static cursor so the poll walks from a real,
+// non-zero position (a zero/absent cursor bootstraps to the head without
+// walking — see Provider.QueryDomain).
+func seedCursor(t *testing.T, st *store.PostgresStore, domain, cursor string) {
+	t.Helper()
+	if err := st.SetIngestionState(context.Background(), &model.IngestionState{
+		SourceName: "ct_static:" + domain, Cursor: cursor, UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("seed cursor: %v", err)
+	}
+}
+
 // End-to-end: wires static.Poller against a REAL *store.PostgresStore +
-// real ingest pipeline, fed by a hermetic httptest fake Sunlight log.
+// real ingest pipeline, fed by a hermetic fake Sunlight log whose leaf 0
+// was already seen (cursor seeded at 1) and leaf 1 is net-new.
 // Asserts:
 //  1. runCycle returns no error.
 //  2. A certificates row is inserted with source_discovery = "ct_static".
-//  3. ingestion_state["ct_static:e2e.example"].cursor advances to "1".
+//  3. ingestion_state["ct_static:e2e.example"].cursor advances to "2".
 func TestPollerE2E_RealStoreAndIngester(t *testing.T) {
 	ctx := context.Background()
 	st := newIntegrationStore(t)
 
 	const domain = "e2e.example"
-	logPub, logPriv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey: %v", err)
-	}
-	cert := mustGenerateLeafCert(t, "e2e", []string{domain})
-	leaves := buildTestLeafData([]*x509.Certificate{cert})
-	leafHash := fakeTreeLeafHash(t, leaves[0], 0)
-	storedHashes := buildStoredHashes(t, []tlog.Hash{leafHash})
-	rootHash, err := tlog.TreeHash(1, staticTestHashReader(storedHashes))
-	if err != nil {
-		t.Fatalf("TreeHash: %v", err)
-	}
-	tileBytes := buildTestTile(t, leaves)
-
-	var checkpoint string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/2024h2/checkpoint":
-			_, _ = w.Write([]byte(checkpoint))
-		case r.URL.Path == "/2024h2/tile/data/000":
-			_, _ = w.Write(tileBytes)
-		case strings.HasPrefix(r.URL.Path, "/2024h2/tile/"):
-			servePathTile(t, w, r, storedHashes, 1)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(srv.Close)
-	u, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatalf("parse srv.URL: %v", err)
-	}
-	checkpoint = buildTestCheckpointWithRoot(t, logPub, logPriv, u.Host, "/2024h2/", 1, rootHash[:])
+	fl := newFakeLogFromCerts(t, []*x509.Certificate{
+		mustGenerateLeafCert(t, "e2e-already-seen", []string{"other.test"}),
+		mustGenerateLeafCert(t, "e2e", []string{domain}),
+	})
+	seedCursor(t, st, domain, "1")
 
 	cfg := config.CtStaticSourceConfig{
 		Domains: []config.CtStaticDomainConfig{
-			{Enabled: true, Domain: domain, LogURL: srv.URL + "/2024h2/", PublicKeyPEM: mustEncodeEd25519PubPEM(t, logPub)},
+			{Enabled: true, Domain: domain, LogURL: fl.logURL(), PublicKeyPEM: fl.pubPEM()},
 		},
 	}
 
 	ingester := ingest.NewUnifiedIngester(st)
-	poller := NewPoller(ingester, st, srv.Client(), cfg)
+	poller := NewPoller(ingester, st, fl.client(), cfg)
 
 	if err := poller.runCycle(ctx); err != nil {
 		t.Fatalf("runCycle: %v", err)
@@ -142,90 +120,42 @@ func TestPollerE2E_RealStoreAndIngester(t *testing.T) {
 		t.Errorf("source_discovery = %q, want contains ct_static", sourceDiscovery)
 	}
 
-	// Assertion 3: ingestion_state cursor advanced to 1.
+	// Assertion 3: ingestion_state cursor advanced to 2.
 	state, err := st.GetIngestionState(ctx, "ct_static:"+domain)
 	if err != nil {
 		t.Fatalf("GetIngestionState: %v", err)
 	}
-	if state == nil || state.Cursor != "1" {
-		t.Errorf("ingestion_state = %+v, want Cursor=\"1\"", state)
+	if state == nil || state.Cursor != "2" {
+		t.Errorf("ingestion_state = %+v, want Cursor=\"2\"", state)
 	}
 }
 
-// E2E: serve a tampered path tile (2-leaf tree, sibling hash corrupted).
-// pollDomain must return an error, no certs row inserted, no
-// ingestion_state cursor written.
-//
-// Design note: a 1-leaf tree cannot exercise tampered-tile abort because
-// the audit proof for leaf 0 in a size-1 tree is empty (the leaf hash IS
-// the root; no siblings fetched). We use a 2-leaf tree instead: for leaf
-// 0 the proof has one element — StoredHashIndex(0,1) (the sibling).
-// Tampering that sibling causes CheckRecord to recompute a different
-// root, which mismatches the signed root → abort. runCycle itself
-// swallows per-domain errors (multi-domain isolation, by design), so
-// this test calls pollDomain directly to observe the abort.
+// E2E: serve a tampered hash tile (3-leaf tree, one leaf hash corrupted
+// in the served level-0 tile while the checkpoint signs the true root).
+// tlog.TileHashReader's tile authentication rejects it — a cryptographic
+// mismatch, so pollDomain must return an error, insert no certs row, and
+// leave the seeded cursor untouched.
 func TestPollerE2E_AbortsOnTamperedPathTile(t *testing.T) {
 	ctx := context.Background()
 	st := newIntegrationStore(t)
 
 	const domain = "e2e-tampered.example"
-	logPub, logPriv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey: %v", err)
-	}
-
-	cert0 := mustGenerateLeafCert(t, "tampered-e2e", []string{domain})
-	cert1 := mustGenerateLeafCert(t, "tampered-e2e-other", []string{"other-" + domain})
-	leaves := buildTestLeafData([]*x509.Certificate{cert0, cert1})
-
-	leafHashes := []tlog.Hash{
-		fakeTreeLeafHash(t, leaves[0], 0),
-		fakeTreeLeafHash(t, leaves[1], 1),
-	}
-	storedHashes := buildStoredHashes(t, leafHashes)
-	rootHash, err := tlog.TreeHash(2, staticTestHashReader(storedHashes))
-	if err != nil {
-		t.Fatalf("TreeHash: %v", err)
-	}
-
-	// Sign the REAL root, but tamper the sibling (StoredHashIndex(0,1)) in
-	// the served path tiles so the proof recomputes a different root.
-	tampered := make(map[int64]tlog.Hash, len(storedHashes))
-	for k, v := range storedHashes {
-		tampered[k] = v
-	}
+	fl := newFakeLogFromCerts(t, []*x509.Certificate{
+		mustGenerateLeafCert(t, "tampered-e2e-seen", []string{"other.test"}),
+		mustGenerateLeafCert(t, "tampered-e2e", []string{domain}),
+		mustGenerateLeafCert(t, "tampered-e2e-other", []string{"other-" + domain}),
+	})
 	var bad tlog.Hash
 	bad[0] = 0xFF
-	tampered[tlog.StoredHashIndex(0, 1)] = bad
-
-	tileBytes := buildTestTile(t, leaves)
-
-	var checkpoint string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/2024h2/checkpoint":
-			_, _ = w.Write([]byte(checkpoint))
-		case r.URL.Path == "/2024h2/tile/data/000":
-			_, _ = w.Write(tileBytes)
-		case strings.HasPrefix(r.URL.Path, "/2024h2/tile/"):
-			servePathTile(t, w, r, tampered, 2)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(srv.Close)
-	u, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatalf("parse srv.URL: %v", err)
-	}
-	checkpoint = buildTestCheckpointWithRoot(t, logPub, logPriv, u.Host, "/2024h2/", 2, rootHash[:])
+	fl.configure(func(f *fakeLog) { f.tamper = map[int64]tlog.Hash{tlog.StoredHashIndex(0, 0): bad} })
+	seedCursor(t, st, domain, "1")
 
 	domainCfg := config.CtStaticDomainConfig{
-		Enabled: true, Domain: domain, LogURL: srv.URL + "/2024h2/", PublicKeyPEM: mustEncodeEd25519PubPEM(t, logPub),
+		Enabled: true, Domain: domain, LogURL: fl.logURL(), PublicKeyPEM: fl.pubPEM(),
 	}
 
 	ingester := ingest.NewUnifiedIngester(st)
-	poller := NewPoller(ingester, st, srv.Client(), config.CtStaticSourceConfig{Domains: []config.CtStaticDomainConfig{domainCfg}})
+	poller := NewPoller(ingester, st, fl.client(), config.CtStaticSourceConfig{Domains: []config.CtStaticDomainConfig{domainCfg}})
 
 	if err := poller.pollDomain(ctx, domainCfg); err == nil {
 		t.Fatalf("pollDomain: expected an error on tampered inclusion proof, got nil")
@@ -244,7 +174,7 @@ func TestPollerE2E_AbortsOnTamperedPathTile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetIngestionState: %v", err)
 	}
-	if state != nil {
-		t.Errorf("ingestion_state = %+v, want nil (must not persist a cursor on crypto abort)", state)
+	if state == nil || state.Cursor != "1" {
+		t.Errorf("ingestion_state = %+v, want the seeded Cursor=\"1\" unchanged (must not advance on crypto abort)", state)
 	}
 }

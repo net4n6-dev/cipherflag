@@ -16,16 +16,11 @@ package static
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/x509"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
-
-	"golang.org/x/mod/sumdb/tlog"
 
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
@@ -55,6 +50,10 @@ func (f *fakeStore) SetIngestionState(ctx context.Context, state *model.Ingestio
 	return nil
 }
 
+func (f *fakeStore) seed(domain, cursor string) {
+	f.states["ct_static:"+domain] = &model.IngestionState{SourceName: "ct_static:" + domain, Cursor: cursor}
+}
+
 func TestRunCycle_NoDomains_NoOp(t *testing.T) {
 	ing := &fakeIngester{}
 	st := newFakeStore()
@@ -67,52 +66,15 @@ func TestRunCycle_NoDomains_NoOp(t *testing.T) {
 	}
 }
 
-// newFakeSunlightServer builds a hermetic one-leaf Static CT log (checkpoint
-// + data tile + path tiles) serving a single cert whose SAN is domain.
-// Mirrors the fake-log construction in TestProvider_QueryDomain_FiltersBySAN
-// (provider_test.go), reusing its package-local helpers. Returns the
-// *httptest.Server and the log's PEM-encoded Ed25519 public key.
-func newFakeSunlightServer(t *testing.T, domain string) (*httptest.Server, string) {
+// newFakeSunlightLog builds a hermetic two-leaf Static CT log: leaf 0 is
+// a non-matching leaf the poller has already seen (the tests seed cursor
+// "1"), leaf 1 is a net-new cert whose SAN is domain.
+func newFakeSunlightLog(t *testing.T, domain string) *fakeLog {
 	t.Helper()
-	logPub, logPriv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatalf("GenerateKey: %v", err)
-	}
-	cert := mustGenerateLeafCert(t, domain, []string{domain})
-	leaves := buildTestLeafData([]*x509.Certificate{cert})
-	leafHash := fakeTreeLeafHash(t, leaves[0], 0)
-	storedHashes := buildStoredHashes(t, []tlog.Hash{leafHash})
-	rootHash, err := tlog.TreeHash(1, staticTestHashReader(storedHashes))
-	if err != nil {
-		t.Fatalf("TreeHash: %v", err)
-	}
-	tileBytes := buildTestTile(t, leaves)
-
-	// checkpoint is filled in below, once the server's own host is known —
-	// the poller (poller.go's pollDomain) never sets Provider.KeyName, so
-	// Provider.QueryDomain derives it from the LogURL host (deriveKeyName),
-	// which for a httptest.Server is only known after it starts listening.
-	var checkpoint string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/2024h2/checkpoint":
-			_, _ = w.Write([]byte(checkpoint))
-		case r.URL.Path == "/2024h2/tile/data/000":
-			_, _ = w.Write(tileBytes)
-		case strings.HasPrefix(r.URL.Path, "/2024h2/tile/"):
-			servePathTile(t, w, r, storedHashes, 1)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(srv.Close)
-
-	u, err := url.Parse(srv.URL)
-	if err != nil {
-		t.Fatalf("parse srv.URL: %v", err)
-	}
-	checkpoint = buildTestCheckpointWithRoot(t, logPub, logPriv, u.Host, "/2024h2/", 1, rootHash[:])
-	return srv, mustEncodeEd25519PubPEM(t, logPub)
+	return newFakeLogFromCerts(t, []*x509.Certificate{
+		mustGenerateLeafCert(t, "already-seen", []string{"other.test"}),
+		mustGenerateLeafCert(t, domain, []string{domain}),
+	})
 }
 
 // TestRunCycle_OneDomainFails_DoesNotBlockOthers proves the isolation
@@ -131,17 +93,18 @@ func TestRunCycle_OneDomainFails_DoesNotBlockOthers(t *testing.T) {
 	}))
 	t.Cleanup(failSrv.Close)
 
-	okSrv, okPubPEM := newFakeSunlightServer(t, okDomain)
+	okLog := newFakeSunlightLog(t, okDomain)
 
 	ing := &fakeIngester{}
 	st := newFakeStore()
+	st.seed(okDomain, "1")
 	cfg := config.CtStaticSourceConfig{
 		Domains: []config.CtStaticDomainConfig{
-			{Enabled: true, Domain: failDomain, LogURL: failSrv.URL + "/2024h2/", PublicKeyPEM: okPubPEM},
-			{Enabled: true, Domain: okDomain, LogURL: okSrv.URL + "/2024h2/", PublicKeyPEM: okPubPEM},
+			{Enabled: true, Domain: failDomain, LogURL: failSrv.URL + "/2024h2/", PublicKeyPEM: okLog.pubPEM()},
+			{Enabled: true, Domain: okDomain, LogURL: okLog.logURL(), PublicKeyPEM: okLog.pubPEM()},
 		},
 	}
-	p := NewPoller(ing, st, okSrv.Client(), cfg)
+	p := NewPoller(ing, st, okLog.client(), cfg)
 
 	if err := p.runCycle(context.Background()); err != nil {
 		t.Fatalf("runCycle: %v", err)
@@ -153,8 +116,8 @@ func TestRunCycle_OneDomainFails_DoesNotBlockOthers(t *testing.T) {
 	if got := len(ing.calls[0].Certificates); got != 1 {
 		t.Fatalf("expected 1 certificate ingested from %s, got %d", okDomain, got)
 	}
-	if st.states["ct_static:"+okDomain] == nil {
-		t.Fatalf("expected an ingestion_state checkpoint for the surviving domain %s", okDomain)
+	if state := st.states["ct_static:"+okDomain]; state == nil || state.Cursor != "2" {
+		t.Fatalf("expected the surviving domain's cursor to advance to 2, got %+v", state)
 	}
 	if st.states["ct_static:"+failDomain] != nil {
 		t.Fatalf("did not expect a checkpoint for the failed domain %s (query never succeeded)", failDomain)
@@ -166,23 +129,19 @@ func TestRunCycle_OneDomainFails_DoesNotBlockOthers(t *testing.T) {
 // an error, and does not produce a spurious Ingest call.
 func TestRunCycle_EmptyResult_NotAnError(t *testing.T) {
 	const domain = "example.com"
-	srv, pubPEM := newFakeSunlightServer(t, domain)
+	fl := newFakeSunlightLog(t, domain)
 
 	ing := &fakeIngester{}
 	st := newFakeStore()
-	// Pre-seed the cursor at the log's current tree size (1) so
-	// QueryDomain's "already up to date" branch fires and returns zero
-	// entries without needing to walk any tiles.
-	st.states["ct_static:"+domain] = &model.IngestionState{
-		SourceName: "ct_static:" + domain,
-		Cursor:     "1",
-	}
+	// Pre-seed the cursor at the log's current tree size (2) so
+	// QueryDomain's "already up to date" branch fires.
+	st.seed(domain, "2")
 	cfg := config.CtStaticSourceConfig{
 		Domains: []config.CtStaticDomainConfig{
-			{Enabled: true, Domain: domain, LogURL: srv.URL + "/2024h2/", PublicKeyPEM: pubPEM},
+			{Enabled: true, Domain: domain, LogURL: fl.logURL(), PublicKeyPEM: fl.pubPEM()},
 		},
 	}
-	p := NewPoller(ing, st, srv.Client(), cfg)
+	p := NewPoller(ing, st, fl.client(), cfg)
 
 	if err := p.runCycle(context.Background()); err != nil {
 		t.Fatalf("runCycle: %v", err)
@@ -190,32 +149,32 @@ func TestRunCycle_EmptyResult_NotAnError(t *testing.T) {
 	if len(ing.calls) != 0 {
 		t.Fatalf("expected no Ingest calls for an already-up-to-date domain, got %d", len(ing.calls))
 	}
+	if tiles := tileRequests(fl.requestLog()); len(tiles) != 0 {
+		t.Errorf("fetched tiles %v for an up-to-date domain", tiles)
+	}
 }
 
 // TestPollDomain_MalformedCursor_ResetsRatherThanPanics proves a corrupted
 // persisted ingestion_state.Cursor (Review Focus, shared with Task 2's
 // ct/crtsh — e.g. hand-edited, or written by a different kind by mistake)
-// logs a warning and resets lastTreeSize to 0 instead of panicking the
-// poller goroutine. Mirrors crtsh's own
-// TestPollDomain_MalformedCursor_ResetsRatherThanPanics
-// (internal/ingest/ct/crtsh/poller_test.go). Hermetic — a fake Sunlight
-// log backs the domain so this never touches the live network.
+// logs a warning and is treated as "no persisted state" instead of
+// panicking the poller goroutine. "No persisted state" bootstraps to the
+// log's current head (forward-watching; see Provider.QueryDomain), so the
+// cycle ingests nothing and overwrites the bad cursor with a well-formed
+// one.
 func TestPollDomain_MalformedCursor_ResetsRatherThanPanics(t *testing.T) {
 	const domain = "example.com"
-	srv, pubPEM := newFakeSunlightServer(t, domain)
+	fl := newFakeSunlightLog(t, domain)
 
 	ing := &fakeIngester{}
 	st := newFakeStore()
-	st.states["ct_static:"+domain] = &model.IngestionState{
-		SourceName: "ct_static:" + domain,
-		Cursor:     "not-a-uint64",
-	}
+	st.seed(domain, "not-a-uint64")
 	cfg := config.CtStaticSourceConfig{
 		Domains: []config.CtStaticDomainConfig{
-			{Enabled: true, Domain: domain, LogURL: srv.URL + "/2024h2/", PublicKeyPEM: pubPEM},
+			{Enabled: true, Domain: domain, LogURL: fl.logURL(), PublicKeyPEM: fl.pubPEM()},
 		},
 	}
-	p := NewPoller(ing, st, srv.Client(), cfg)
+	p := NewPoller(ing, st, fl.client(), cfg)
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -225,16 +184,61 @@ func TestPollDomain_MalformedCursor_ResetsRatherThanPanics(t *testing.T) {
 	if err := p.pollDomain(context.Background(), cfg.Domains[0]); err != nil {
 		t.Fatalf("pollDomain: %v", err)
 	}
-
-	// A malformed cursor must reset lastTreeSize to 0 rather than aborting
-	// the poll — proven by the cycle completing as if starting fresh: the
-	// fake log's single leaf (tree size 1) is ingested, and the malformed
-	// cursor is overwritten with a well-formed one afterward.
-	if len(ing.calls) != 1 {
-		t.Fatalf("expected 1 Ingest call (poll proceeded as if starting fresh from tree size 0), got %d", len(ing.calls))
+	if len(ing.calls) != 0 {
+		t.Fatalf("expected 0 Ingest calls (malformed cursor = no state = bootstrap to head), got %d", len(ing.calls))
 	}
-	state := st.states["ct_static:"+domain]
-	if state == nil || state.Cursor != "1" {
-		t.Fatalf("expected the malformed cursor to be overwritten with a well-formed one after a successful poll, got %+v", state)
+	if state := st.states["ct_static:"+domain]; state == nil || state.Cursor != "2" {
+		t.Fatalf("expected the malformed cursor to be overwritten with the current head (2), got %+v", state)
+	}
+}
+
+// Final-review Fix 2(b), through the real standalone poller: the first
+// cycle for a domain with no ingestion_state row, against a 600-leaf log
+// that already holds a matching cert, fetches no tiles, ingests nothing
+// and persists cursor "600". After the log grows by one matching leaf,
+// the second cycle walks only that new leaf's tile and ingests it.
+func TestPollDomain_NoCursor_BootstrapsToHeadThenWatchesForward(t *testing.T) {
+	const domain = "example.com"
+	leaves := fillerLeaves(t, 601)
+	leaves[5] = buildTestLeafData([]*x509.Certificate{mustGenerateLeafCert(t, "historical", []string{domain})})[0]
+	leaves[600] = buildTestLeafData([]*x509.Certificate{mustGenerateLeafCert(t, "brand-new", []string{domain})})[0]
+	fl := newFakeLog(t, leaves)
+	fl.setSize(600)
+
+	ing := &fakeIngester{}
+	st := newFakeStore()
+	dcfg := config.CtStaticDomainConfig{Enabled: true, Domain: domain, LogURL: fl.logURL(), PublicKeyPEM: fl.pubPEM()}
+	p := NewPoller(ing, st, fl.client(), config.CtStaticSourceConfig{Domains: []config.CtStaticDomainConfig{dcfg}})
+	ctx := context.Background()
+
+	// Cycle 1: bootstrap.
+	if err := p.pollDomain(ctx, dcfg); err != nil {
+		t.Fatalf("cycle 1: %v", err)
+	}
+	if tiles := tileRequests(fl.requestLog()); len(tiles) != 0 {
+		t.Fatalf("cycle 1 fetched %d tiles (%v); a cold start must not walk the log", len(tiles), tiles)
+	}
+	if len(ing.calls) != 0 {
+		t.Fatalf("cycle 1 ingested %d batches, want 0 (historical certs are not backfilled)", len(ing.calls))
+	}
+	if state := st.states["ct_static:"+domain]; state == nil || state.Cursor != "600" {
+		t.Fatalf("cycle 1 cursor = %+v, want 600 (bootstrapped to head)", state)
+	}
+
+	// Cycle 2: the log grows by one matching leaf.
+	fl.setSize(601)
+	if err := p.pollDomain(ctx, dcfg); err != nil {
+		t.Fatalf("cycle 2: %v", err)
+	}
+	if len(ing.calls) != 1 || len(ing.calls[0].Certificates) != 1 || ing.calls[0].Certificates[0].SubjectCN != "brand-new" {
+		t.Fatalf("cycle 2 should ingest exactly the brand-new cert; got %+v", ing.calls)
+	}
+	for _, r := range tileRequests(fl.requestLog()) {
+		if strings.HasPrefix(r, "/2024h2/tile/data/000") || strings.HasPrefix(r, "/2024h2/tile/data/001") {
+			t.Errorf("cycle 2 fetched historical data tile %s", r)
+		}
+	}
+	if state := st.states["ct_static:"+domain]; state == nil || state.Cursor != "601" {
+		t.Fatalf("cycle 2 cursor = %+v, want 601", state)
 	}
 }

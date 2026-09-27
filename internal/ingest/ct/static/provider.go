@@ -59,12 +59,15 @@ type Config struct {
 	// Cache is the per-domain Merkle-walk scratchpad. Callers (poller.go)
 	// populate it from the persisted ingestion_state cursor before each
 	// call; Provider does not persist it itself — see LastSeenTreeSize.
+	// nil (always the case under ct_multi) means "no persisted state".
 	Cache *Cache
 }
 
 // Cache is the per-domain Merkle-walk scratchpad. LastTreeSize is the
 // tree size of the last successfully processed STH; QueryDomain only
-// walks leaves with indices >= LastTreeSize.
+// walks leaves with indices >= LastTreeSize. LastTreeSize == 0 means
+// "no persisted state" — it does NOT mean "walk from leaf 0"; see
+// Provider.QueryDomain's forward-watching note.
 type Cache struct {
 	LastTreeSize uint64
 }
@@ -79,9 +82,12 @@ type Provider struct {
 	// Plan A defaults to the host portion of LogURL if unset.
 	KeyName string
 
-	// LastSeenTreeSize is set by QueryDomain after STH verification so
-	// the poller (poller.go) can persist it to the per-source cache
-	// scratchpad without re-fetching the checkpoint.
+	// LastSeenTreeSize is set by QueryDomain after a successful walk (or
+	// a bootstrap to the current head) so the poller (poller.go) can
+	// persist it to the per-source cache scratchpad without re-fetching
+	// the checkpoint. It is left unchanged when a walk fails, so the
+	// failed range is retried. It also serves as this instance's
+	// in-memory cursor for subsequent calls (see startTreeSize).
 	LastSeenTreeSize uint64
 
 	// LastVerifiedCount is the number of SAN-matched leaves whose
@@ -97,19 +103,64 @@ type Provider struct {
 	LastProofFetchFailures uint64
 }
 
-// Name implements ct.Provider — stable provider id used by ct_multi
-// for asset_provenance.source attribution and by the poller's
-// per-cert ingest stamp.
+// Name implements ct.Provider — a short identifier used for logging and
+// ct_multi's per-child status. Provenance attribution uses
+// CTEntry.Source ("ct_static"), not Name().
 func (p *Provider) Name() string { return "static" }
 
-// QueryDomain implements ct.Provider. Walks all tiles between the
-// per-source cached LastTreeSize and the freshly-fetched checkpoint
-// tree size, parses each leaf cert, and emits CTEntry for every cert
-// whose SANs match `domain` (or its subdomains).
+// startTreeSize decides where this QueryDomain call's walk begins, given
+// the freshly verified checkpoint's tree size. bootstrap reports that
+// there was no prior position at all, in which case the caller records
+// the current head and walks nothing.
 //
-// QueryDomain does NOT update the per-source cache — that is the
-// poller's responsibility, so a ct_multi fan-out call doesn't drift
-// the per-source scratchpad.
+// Precedence:
+//  1. Cfg.Cache.LastTreeSize > 0 — the persisted cursor (standalone
+//     ct_static poller; poller.go loads it from ingestion_state).
+//  2. p.LastSeenTreeSize > 0 — this same Provider instance's own
+//     high-water mark from a previous successful call. This is what
+//     makes ct_multi's static child work: ct_multi deliberately has no
+//     persisted cursor (Cfg.Cache is always nil there), but it caches
+//     its Composer — and therefore this Provider — per group for the
+//     life of the process, so the in-memory mark carries across hourly
+//     cycles. (poller.go builds a fresh Provider per cycle, so this
+//     fallback never applies to the standalone path.)
+//  3. Otherwise: bootstrap.
+func (p *Provider) startTreeSize() (start uint64, bootstrap bool) {
+	if p.Cfg.Cache != nil && p.Cfg.Cache.LastTreeSize > 0 {
+		return p.Cfg.Cache.LastTreeSize, false
+	}
+	if p.LastSeenTreeSize > 0 {
+		return p.LastSeenTreeSize, false
+	}
+	return 0, true
+}
+
+// QueryDomain implements ct.Provider. Walks all tiles between the
+// starting position (see startTreeSize) and the freshly-fetched
+// checkpoint tree size, parses each leaf cert, and emits CTEntry for
+// every cert whose SANs match `domain` (or its subdomains) and whose
+// inclusion proof verifies.
+//
+// FORWARD-WATCHING ONLY — deliberate scoping decision, not a gap: with
+// no prior position (no persisted cursor and no earlier call on this
+// instance) QueryDomain does NOT walk the log from leaf 0. It records the
+// current checkpoint's tree size as its starting point
+// (LastSeenTreeSize), walks zero leaves, and returns (nil, nil); later
+// calls see only certificates logged after that moment. A real Sunlight
+// shard holds hundreds of millions of leaves (multi-MB data tiles, 256
+// leaves each), so a from-genesis walk is infeasible on a cold start —
+// and, before this change, ct_multi's cursor-less static child repeated
+// that full walk on every hourly cycle. Historical coverage is the job of
+// ct_crtsh and ct_certspotter, which query by domain (the coverage-union
+// design ct_multi exists for). Consequence for operators: ct_static only
+// reports certificates issued after it was first enabled for a domain;
+// after a restart ct_multi's static child re-bootstraps at the then-
+// current head, so leaves logged while the process was down are not seen
+// by that child.
+//
+// QueryDomain does NOT update Cfg.Cache — persisting LastSeenTreeSize is
+// the standalone poller's responsibility — so a ct_multi fan-out call
+// never drifts the standalone poller's persisted scratchpad.
 func (p *Provider) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry, error) {
 	pubKey, err := ParseEd25519PublicKeyPEM(p.Cfg.PublicKeyPEM)
 	if err != nil {
@@ -137,27 +188,35 @@ func (p *Provider) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry
 		return nil, err
 	}
 
-	// 2. Walk tiles. Static CT data tiles each hold up to 256 leaves;
-	// tile index = floor(leaf_index / 256). The starting tile index is
-	// derived from the cached LastTreeSize; the ending tile is the
-	// floor of (sth.TreeSize-1)/256.
-	var startTree uint64
-	if p.Cfg.Cache != nil {
-		startTree = p.Cfg.Cache.LastTreeSize
+	// 2. Decide where to start (see startTreeSize and the
+	// forward-watching note on QueryDomain).
+	p.LastVerifiedCount = 0
+	p.LastProofFetchFailures = 0
+	startTree, bootstrap := p.startTreeSize()
+	if bootstrap {
+		log.Info().
+			Str("domain", domain).
+			Str("log_url", p.Cfg.LogURL).
+			Uint64("tree_size", sth.TreeSize).
+			Msg("static: no prior cursor; starting to watch from the current tree head (no historical backfill)")
+		p.LastSeenTreeSize = sth.TreeSize
+		return nil, nil
 	}
 	if startTree >= sth.TreeSize {
 		return nil, nil // already up to date
 	}
+
+	// 3. Walk tiles. Static CT data tiles each hold up to 256 leaves;
+	// tile index = floor(leaf_index / 256). The ending tile is the
+	// floor of (sth.TreeSize-1)/256.
 	startTile := int64(startTree / 256)
 	endTile := int64((sth.TreeSize - 1) / 256) // #nosec G115 -- sth.TreeSize is bounds-checked against math.MaxInt64 in sth.go's ParseAndVerifyCheckpoint before an STH is ever returned
 
-	p.LastVerifiedCount = 0
-	p.LastProofFetchFailures = 0
-	hashReader := newTileHashReader(ctx, hc, p.Cfg.LogURL, int64(sth.TreeSize)) // #nosec G115 -- see above
+	hashReader := newTileHashReader(ctx, hc, p.Cfg.LogURL, int64(sth.TreeSize), sth.RootHash) // #nosec G115 -- see above
 
 	out := make([]ct.CTEntry, 0, 64)
 	for tile := startTile; tile <= endTile; tile++ {
-		tileBytes, err := FetchLeafTile(ctx, hc, p.Cfg.LogURL, tile)
+		tileBytes, err := FetchLeafTile(ctx, hc, p.Cfg.LogURL, tile, int64(sth.TreeSize)) // #nosec G115 -- see above
 		if err != nil {
 			return nil, err
 		}
@@ -321,7 +380,7 @@ func joinSANs(sans []string) string {
 // checks `leafIndex >= sth.TreeSize` before calling this — and sth.TreeSize
 // is itself bounds-checked against math.MaxInt64 in sth.go, so every
 // conversion below is provably safe (gosec G115).
-func verifyLeafInclusion(leaf LeafData, leafIndex int64, sth *STH, hashReader *tileHashReader) error {
+func verifyLeafInclusion(leaf LeafData, leafIndex int64, sth *STH, hashReader tlog.HashReader) error {
 	proof, err := tlog.ProveRecord(int64(sth.TreeSize), leafIndex, hashReader) // #nosec G115
 	if err != nil {
 		// The hashReader wraps HTTP errors with errProofFetch; if so,

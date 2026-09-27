@@ -111,6 +111,12 @@ calls home, no telemetry, and no commercial license required.
   composer over the other three, with per-child provenance) ship in CE.
   `config/cipherflag.toml`-only — no operator UI. Enable per-domain (or
   per-group, for `ct_multi`) in config.
+- `ct_static` is forward-watching only: on first enable it starts at the
+  log's current tree head and reports certificates logged after that
+  point (a from-genesis walk of a production Sunlight shard is
+  infeasible). Historical coverage comes from `ct_crtsh` and
+  `ct_certspotter`. Inside `ct_multi` the static child keeps its position
+  in memory only, so it restarts from the head after a process restart.
 
 **Layer 5.4 — Venafi TPP + Cloud push export (CE)**
 - Push-exports the CBOM inventory to a Venafi Trust Protection

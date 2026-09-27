@@ -16,55 +16,115 @@ package static
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
 	"golang.org/x/crypto/cryptobyte"
 )
 
-// tileIndexFormat is the zero-padded three-digit decimal tile index
-// used in Static CT URLs (`/tile/data/000`, `/tile/data/001`, etc.).
-// Per the spec, indices >= 1000 use four digits and so on — i.e. the
-// shortest decimal representation with at least three digits.
+// tileWidth is the number of entries in a full Static CT tile (tile
+// height 8 → 2^8 entries), for both data tiles and hash tiles.
+const tileWidth = 256
+
+// tileIndexFormat encodes a tile index N as the c2sp.org/tlog-tiles
+// path element(s): zero-padded 3-digit groups, every group but the last
+// prefixed with "x". So 0 → "000", 999 → "999", 1000 → "x001/000",
+// 1234067 → "x001/x234/067". Identical to golang.org/x/mod/sumdb/tlog's
+// Tile.Path encoding of N.
+//
+// History: this previously rendered N >= 1000 as a bare decimal
+// ("1234"), which 404s against any real log with more than 256,000
+// leaves (i.e. every production Sunlight shard).
 func tileIndexFormat(n int64) string {
-	if n < 1000 {
-		return fmt.Sprintf("%03d", n)
+	s := fmt.Sprintf("%03d", n%1000)
+	for n >= 1000 {
+		n /= 1000
+		s = fmt.Sprintf("x%03d/%s", n%1000, s)
 	}
-	return fmt.Sprintf("%d", n)
+	return s
 }
 
-// FetchLeafTile GETs <logURL>tile/data/<index> and returns the raw
-// tile bytes. The caller is responsible for parsing the tile into
-// individual leaves (see ParseLeafTile below) — keeping fetch and
-// parse separate lets the poller stream-verify inclusion proofs
-// without buffering an entire batch in memory if a future change
-// needs that.
-//
-// logURL must end with "/" (enforced by Config.Validate).
-//
-// Spec: c2sp.org/static-ct-api §1.1.3 (tile URLs and format).
-func FetchLeafTile(ctx context.Context, hc *http.Client, logURL string, index int64) ([]byte, error) {
-	url := logURL + "tile/data/" + tileIndexFormat(index)
+// tileURL returns <logURL>tile/<level>/<N>[.p/<W>]. level is "data" for
+// data tiles or the decimal tile level for hash tiles. width < tileWidth
+// selects the partial-tile URL form.
+func tileURL(logURL, level string, index int64, width int) string {
+	u := logURL + "tile/" + level + "/" + tileIndexFormat(index)
+	if width < tileWidth {
+		u += ".p/" + strconv.Itoa(width)
+	}
+	return u
+}
+
+// errTileNotFound marks a 404 from a tile URL so callers can try the
+// alternate (full vs. partial) form.
+var errTileNotFound = errors.New("tile not found")
+
+// fetchTileURL GETs one tile URL with a body-size cap. A 404 is returned
+// wrapped in errTileNotFound.
+func fetchTileURL(ctx context.Context, hc *http.Client, url string, maxBytes int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("static: FetchLeafTile: build request: %w", err)
+		return nil, fmt.Errorf("build request: %w", err)
 	}
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("static: FetchLeafTile: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%s returned %d: %w", url, resp.StatusCode, errTileNotFound)
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("static: FetchLeafTile: %s returned %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("%s returned %d", url, resp.StatusCode)
 	}
-	const maxTileBytes = 16 << 20 // 16 MiB; a real 256-leaf data tile is well under 3 MiB
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTileBytes+1))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("static: FetchLeafTile: read body: %w", err)
+		return nil, fmt.Errorf("read body: %w", err)
 	}
-	if int64(len(body)) > maxTileBytes {
-		return nil, fmt.Errorf("static: FetchLeafTile: tile too large (>%d bytes)", maxTileBytes)
+	if int64(len(body)) > maxBytes {
+		return nil, fmt.Errorf("%s: tile too large (>%d bytes)", url, maxBytes)
+	}
+	return body, nil
+}
+
+// FetchLeafTile fetches data tile `index` of a log whose verified
+// checkpoint has tree size treeSize, and returns the raw tile bytes. The
+// caller is responsible for parsing the tile into individual leaves (see
+// ParseLeafTile below) and for ignoring any leaf at index >= treeSize.
+//
+// Full vs. partial tiles (c2sp.org/tlog-tiles, static-ct-api §1.1.3): a
+// data tile holding fewer than 256 entries — always true of the LAST tile
+// of a live, growing log — is served ONLY at the partial URL
+// tile/data/<N>.p/<W>, where W = treeSize - N*256; the full URL 404s
+// until the tile fills. Since W is known authoritatively from the signed
+// checkpoint, a partial tile is requested at its .p/<W> URL directly;
+// on 404 we fall back to the full URL, because a log MAY prune partial
+// tiles once the full tile exists (the log grew past our checkpoint).
+// A full tile's superset of entries is harmless: QueryDomain skips
+// leaves at index >= treeSize.
+//
+// logURL must end with "/" (enforced by ValidateDomainConfig).
+func FetchLeafTile(ctx context.Context, hc *http.Client, logURL string, index, treeSize int64) ([]byte, error) {
+	const maxTileBytes = 16 << 20 // 16 MiB; a real 256-leaf data tile is well under 3 MiB
+	remaining := treeSize - index*tileWidth
+	if index < 0 || remaining <= 0 {
+		return nil, fmt.Errorf("static: FetchLeafTile: tile %d is beyond tree size %d", index, treeSize)
+	}
+	width := tileWidth
+	if remaining < tileWidth {
+		width = int(remaining)
+	}
+	u := tileURL(logURL, "data", index, width)
+	body, err := fetchTileURL(ctx, hc, u, maxTileBytes)
+	if err != nil && width < tileWidth && errors.Is(err, errTileNotFound) {
+		u = tileURL(logURL, "data", index, tileWidth)
+		body, err = fetchTileURL(ctx, hc, u, maxTileBytes)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("static: FetchLeafTile: %w", err)
 	}
 	return body, nil
 }

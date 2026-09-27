@@ -21,32 +21,119 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"golang.org/x/crypto/cryptobyte"
+	"golang.org/x/mod/sumdb/tlog"
 )
 
-func TestFetchLeafTile_OK(t *testing.T) {
-	const tileBody = "fake-tile-bytes-for-test"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Static CT data-tile path: /tile/data/<index>
-		if r.URL.Path != "/2024h2/tile/data/000" {
-			http.NotFound(w, r)
-			return
+// tileIndexFormat must match the c2sp.org/tlog-tiles N encoding, which is
+// exactly golang.org/x/mod/sumdb/tlog's Tile.Path encoding.
+func TestTileIndexFormat_MatchesTlogTilesEncoding(t *testing.T) {
+	for _, tc := range []struct {
+		n    int64
+		want string
+	}{
+		{0, "000"}, {7, "007"}, {999, "999"},
+		{1000, "x001/000"}, {1234, "x001/234"}, {1234067, "x001/x234/067"},
+	} {
+		if got := tileIndexFormat(tc.n); got != tc.want {
+			t.Errorf("tileIndexFormat(%d) = %q, want %q", tc.n, got, tc.want)
 		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = w.Write([]byte(tileBody))
-	}))
-	defer srv.Close()
+		// Cross-check against the reference implementation.
+		ref := strings.TrimPrefix(tlog.Tile{H: 8, L: 0, N: tc.n, W: 256}.Path(), "tile/8/0/")
+		if got := tileIndexFormat(tc.n); got != ref {
+			t.Errorf("tileIndexFormat(%d) = %q, tlog reference = %q", tc.n, got, ref)
+		}
+	}
+}
 
-	logURL := srv.URL + "/2024h2/"
-	got, err := FetchLeafTile(context.Background(), srv.Client(), logURL, 0)
+// fetchRecorder serves body at exactly the listed paths and records every
+// request path.
+func fetchRecorder(t *testing.T, body string, okPaths ...string) (*httptest.Server, *[]string) {
+	t.Helper()
+	var (
+		mu   sync.Mutex
+		seen []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.URL.Path)
+		mu.Unlock()
+		for _, p := range okPaths {
+			if r.URL.Path == p {
+				_, _ = w.Write([]byte(body))
+				return
+			}
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &seen
+}
+
+// A full tile (256 entries at this tree size) is fetched at the bare URL.
+func TestFetchLeafTile_FullTile(t *testing.T) {
+	srv, seen := fetchRecorder(t, "full-tile", "/2024h2/tile/data/001")
+	got, err := FetchLeafTile(context.Background(), srv.Client(), srv.URL+"/2024h2/", 1, 600)
 	if err != nil {
 		t.Fatalf("FetchLeafTile: %v", err)
 	}
-	if string(got) != tileBody {
-		t.Errorf("body = %q, want %q", got, tileBody)
+	if string(got) != "full-tile" || len(*seen) != 1 {
+		t.Errorf("body=%q requests=%v", got, *seen)
+	}
+}
+
+// Final-review Fix 2(a): the last tile of a live log is partial and is
+// served ONLY at tile/data/<N>.p/<W> (the full URL 404s). Tree size 300 →
+// tile 1 holds 300-256 = 44 entries.
+func TestFetchLeafTile_PartialTile_UsesDotPURL(t *testing.T) {
+	srv, seen := fetchRecorder(t, "partial-tile", "/2024h2/tile/data/001.p/44")
+	got, err := FetchLeafTile(context.Background(), srv.Client(), srv.URL+"/2024h2/", 1, 300)
+	if err != nil {
+		t.Fatalf("FetchLeafTile: %v (requests %v)", err, *seen)
+	}
+	if string(got) != "partial-tile" {
+		t.Errorf("body = %q", got)
+	}
+	if len(*seen) != 1 || (*seen)[0] != "/2024h2/tile/data/001.p/44" {
+		t.Errorf("requests = %v, want only the .p/44 URL", *seen)
+	}
+}
+
+// If the log has grown and pruned the partial tile, fall back to the
+// full tile.
+func TestFetchLeafTile_PartialPruned_FallsBackToFull(t *testing.T) {
+	srv, seen := fetchRecorder(t, "full-tile", "/2024h2/tile/data/001")
+	got, err := FetchLeafTile(context.Background(), srv.Client(), srv.URL+"/2024h2/", 1, 300)
+	if err != nil {
+		t.Fatalf("FetchLeafTile: %v", err)
+	}
+	if string(got) != "full-tile" {
+		t.Errorf("body = %q", got)
+	}
+	if want := []string{"/2024h2/tile/data/001.p/44", "/2024h2/tile/data/001"}; len(*seen) != 2 || (*seen)[0] != want[0] || (*seen)[1] != want[1] {
+		t.Errorf("requests = %v, want %v", *seen, want)
+	}
+}
+
+// Tile indexes >= 1000 use the x-prefixed path encoding.
+func TestFetchLeafTile_LargeIndexEncoding(t *testing.T) {
+	srv, seen := fetchRecorder(t, "t", "/2024h2/tile/data/x001/234")
+	if _, err := FetchLeafTile(context.Background(), srv.Client(), srv.URL+"/2024h2/", 1234, 1235*256); err != nil {
+		t.Fatalf("FetchLeafTile: %v (requests %v)", err, *seen)
+	}
+}
+
+func TestFetchLeafTile_BeyondTreeSize_Errors(t *testing.T) {
+	srv, seen := fetchRecorder(t, "t")
+	if _, err := FetchLeafTile(context.Background(), srv.Client(), srv.URL+"/2024h2/", 2, 512); err == nil {
+		t.Fatal("want error for a tile index beyond the tree size")
+	}
+	if len(*seen) != 0 {
+		t.Errorf("made requests %v for an out-of-range tile", *seen)
 	}
 }
 
@@ -56,7 +143,7 @@ func TestFetchLeafTile_HTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := FetchLeafTile(context.Background(), srv.Client(), srv.URL+"/2024h2/", 0)
+	_, err := FetchLeafTile(context.Background(), srv.Client(), srv.URL+"/2024h2/", 0, 10)
 	if err == nil || !strings.Contains(err.Error(), "returned 500") {
 		t.Errorf("err = %v, want substring \"returned 500\"", err)
 	}
