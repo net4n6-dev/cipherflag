@@ -21,12 +21,14 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
+	"github.com/net4n6-dev/cipherflag/internal/export/cbom/cbomtest"
 	cbomimport "github.com/net4n6-dev/cipherflag/internal/import/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/model"
 	"github.com/net4n6-dev/cipherflag/internal/store"
@@ -38,6 +40,10 @@ type fakeCBOMGen struct {
 }
 
 func (f *fakeCBOMGen) Generate(_ context.Context, _ store.CryptoStore, _ *cbom.Scope) (*cdx.BOM, error) {
+	return f.bom, f.err
+}
+
+func (f *fakeCBOMGen) GenerateWholeEstate(_ context.Context, _ store.CryptoStore) (*cdx.BOM, error) {
 	return f.bom, f.err
 }
 
@@ -143,6 +149,50 @@ func TestCBOMHandler_Download_AdHocFilter_200(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200; body = %s", rr.Code, rr.Body.String())
 	}
+}
+
+func TestCBOMHandler_DownloadEstate_200(t *testing.T) {
+	h := newTestCBOMHandler(&fakeCBOMGen{bom: minimalTestBOM()}, &config.CBOMConfig{})
+
+	rr := httptest.NewRecorder()
+	h.DownloadEstate(rr, httptest.NewRequest(http.MethodGet, "/api/v1/export/cbom/estate", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d; body = %s", rr.Code, rr.Body.String())
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/vnd.cyclonedx+json") {
+		t.Errorf("Content-Type = %q", ct)
+	}
+	cd := rr.Header().Get("Content-Disposition")
+	if !regexp.MustCompile(`^attachment; filename="cipherflag-cbom-estate-\d{4}-\d{2}-\d{2}\.cdx\.json"$`).MatchString(cd) {
+		t.Errorf("Content-Disposition = %q", cd)
+	}
+	if !strings.Contains(rr.Body.String(), `"bomFormat":"CycloneDX"`) {
+		t.Errorf("body is not a CycloneDX document: %s", rr.Body.String())
+	}
+}
+
+func TestCBOMHandler_DownloadEstate_GenerationErrorIs500WithoutDetail(t *testing.T) {
+	h := newTestCBOMHandler(&fakeCBOMGen{err: fmt.Errorf("pq: password authentication failed")}, &config.CBOMConfig{})
+
+	rr := httptest.NewRecorder()
+	h.DownloadEstate(rr, httptest.NewRequest(http.MethodGet, "/api/v1/export/cbom/estate", nil))
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rr.Code)
+	}
+	if strings.Contains(rr.Body.String(), "password") {
+		t.Errorf("internal error detail leaked to the client: %s", rr.Body.String())
+	}
+}
+
+func TestCBOMHandler_DownloadEstate_SignedBOMKeepsSignature(t *testing.T) {
+	h := newTestCBOMHandler(&fakeCBOMGen{bom: cbomtest.SignedBOM(t)}, &config.CBOMConfig{})
+
+	rr := httptest.NewRecorder()
+	h.DownloadEstate(rr, httptest.NewRequest(http.MethodGet, "/api/v1/export/cbom/estate", nil))
+
+	cbomtest.AssertValidSignature(t, rr.Body.Bytes())
 }
 
 // --- Import tests ---

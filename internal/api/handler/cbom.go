@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/google/uuid"
@@ -36,6 +37,7 @@ const cbomContentType = "application/vnd.cyclonedx+json; version=1.6"
 // *cbom.Generator satisfies it. Tests inject a fake.
 type cbomGenerator interface {
 	Generate(ctx context.Context, st store.CryptoStore, scope *cbom.Scope) (*cdx.BOM, error)
+	GenerateWholeEstate(ctx context.Context, st store.CryptoStore) (*cdx.BOM, error)
 }
 
 // cbomImporterIface is the minimal interface the handler needs for imports.
@@ -147,6 +149,20 @@ func (h *CBOMHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeBOM(w, bom, "", false)
+}
+
+// DownloadEstate handles GET /api/v1/export/cbom/estate: a CycloneDX 1.6 CBOM
+// over every scored asset. Signed when [cbom.signing] is enabled.
+func (h *CBOMHandler) DownloadEstate(w http.ResponseWriter, r *http.Request) {
+	extendWriteDeadline(w)
+	bom, err := h.gen.GenerateWholeEstate(r.Context(), h.store)
+	if err != nil {
+		log.Error().Err(err).Msg("cbom: estate generation failed")
+		writeError(w, http.StatusInternalServerError, "CBOM generation failed")
+		return
+	}
+	filename := "cipherflag-cbom-estate-" + time.Now().UTC().Format("2006-01-02") + ".cdx.json"
+	writeBOM(w, bom, filename, false)
 }
 
 // cbomImportMaxSize is the body size cap for POST /api/v1/import/cbom.

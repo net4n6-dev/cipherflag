@@ -207,6 +207,7 @@ func NewRouter(
 
 			// CBOM export (Layer 5.1)
 			r.Get("/export/cbom", cbomH.Download)
+			r.Get("/export/cbom/estate", cbomH.DownloadEstate)
 
 			// CBOM import (Layer 5.2) — writes foreign-BOM contents into the
 			// shared inventory, so admin-only like the other inventory mutations.
