@@ -59,9 +59,10 @@ const queryMaxRetries = 5
 // flaky crt.sh upstream produces dozens of 502s, each taking ~90s with
 // queryMaxRetries semantics. That ballooned single scans to hours and
 // caused the "scanning forever" symptom. 2 retries is enough to ride
-// out a transient nginx blip; failed PEMs are re-discovered on the
-// next poll, so there's no persistent data loss — the scan just goes
-// to status="partial" with a non-zero fetch_failures count.
+// out a transient nginx blip. A PEM whose fetch still fails is retried on
+// the next poll cycle — Poller.pollDomain records an ID in its persisted
+// seen-set only after a successful fetch — so there's no persistent data
+// loss; the cycle's summary log just reports a non-zero fetch_failures.
 const pemMaxRetries = 2
 
 const maxBackoff = 60 * time.Second

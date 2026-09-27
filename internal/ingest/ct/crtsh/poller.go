@@ -170,8 +170,16 @@ func (p *Poller) pollDomain(ctx context.Context, d config.CtDomainConfig) error 
 		return fmt.Errorf("query domain %s: %w", d.Domain, err)
 	}
 
+	// Seen-set policy: an ID is recorded (and so never fetched again) only
+	// once its PEM has been fetched successfully — whether or not it then
+	// parses, since a fetched body that doesn't parse never will. A FETCH
+	// failure (transient 5xx that exhausted retries, timeout, ...) is
+	// deliberately NOT recorded, so the next poll cycle retries it.
+	// Previously fetch failures were marked seen, which blacklisted the
+	// cert permanently until an operator hand-edited the cursor JSON.
 	scanTime := time.Now().UTC()
 	var certs []dedup.CertDiscovery
+	var fetchFailures int
 	for _, e := range entries {
 		if _, already := seen[e.ID]; already {
 			continue
@@ -181,8 +189,8 @@ func (p *Poller) pollDomain(ctx context.Context, d config.CtDomainConfig) error 
 		}
 		pemStr, ferr := client.FetchPEM(ctx, e.ID)
 		if ferr != nil {
-			log.Warn().Err(ferr).Int64("crtsh_id", e.ID).Str("domain", d.Domain).Msg("ct_crtsh: PEM fetch failed; skipping")
-			seen[e.ID] = struct{}{}
+			log.Warn().Err(ferr).Int64("crtsh_id", e.ID).Str("domain", d.Domain).Msg("ct_crtsh: PEM fetch failed; will retry next cycle")
+			fetchFailures++
 			continue
 		}
 		select {
@@ -192,8 +200,8 @@ func (p *Poller) pollDomain(ctx context.Context, d config.CtDomainConfig) error 
 		}
 		parsed, perr := parsePEM(pemStr)
 		if perr != nil {
-			log.Warn().Err(perr).Int64("crtsh_id", e.ID).Msg("ct_crtsh: PEM parse failed; skipping")
-			seen[e.ID] = struct{}{}
+			log.Warn().Err(perr).Int64("crtsh_id", e.ID).Msg("ct_crtsh: PEM parse failed; skipping permanently")
+			seen[e.ID] = struct{}{} // fetched but unparseable: will never parse, don't refetch
 			continue
 		}
 		certs = append(certs, dedup.CertDiscovery{
@@ -251,7 +259,7 @@ func (p *Poller) pollDomain(ctx context.Context, d config.CtDomainConfig) error 
 			log.Warn().Err(err).Str("source", sourceName).Msg("ct_crtsh: failed to persist cursor")
 		}
 	}
-	log.Info().Str("domain", d.Domain).Int("certs", len(certs)).Msg("ct_crtsh: domain cycle complete")
+	log.Info().Str("domain", d.Domain).Int("certs", len(certs)).Int("fetch_failures", fetchFailures).Msg("ct_crtsh: domain cycle complete")
 	return nil
 }
 

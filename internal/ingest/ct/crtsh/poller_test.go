@@ -21,11 +21,14 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -157,6 +160,101 @@ func TestRunCycle_OneDomainFails_DoesNotBlockOthers(t *testing.T) {
 	}
 	if st.states["ct_crtsh:"+failDomain] != nil {
 		t.Fatalf("did not expect a checkpoint for the failed domain %s (query never succeeded)", failDomain)
+	}
+}
+
+// Final-review Fix 6: a transient PEM-fetch failure must NOT permanently
+// blacklist the cert. Cycle 1: id=2's PEM fetch returns 502 on every
+// attempt (retries exhausted), id=3's PEM fetches fine but is garbage.
+// Cycle 2: crt.sh has recovered. id=2 must be fetched again and ingested;
+// id=1 (ingested) and id=3 (fetched-but-unparseable) must not be refetched.
+func TestPollDomain_TransientPEMFetchFailure_RetriedNextCycle(t *testing.T) {
+	const domain = "example.com"
+	pem1 := generateTestCertPEM(t, "one."+domain)
+	pem2 := generateTestCertPEM(t, "two."+domain)
+
+	var (
+		mu         sync.Mutex
+		recovered  bool
+		pemFetches = map[string]int{}
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if id := q.Get("d"); id != "" {
+			mu.Lock()
+			pemFetches[id]++
+			ok := recovered
+			mu.Unlock()
+			switch id {
+			case "1":
+				_, _ = w.Write([]byte(pem1))
+			case "2":
+				if !ok {
+					w.WriteHeader(http.StatusBadGateway) // transient
+					return
+				}
+				_, _ = w.Write([]byte(pem2))
+			case "3":
+				_, _ = w.Write([]byte("<html>not a certificate</html>"))
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id": 1, "common_name": "one.example.com"}, {"id": 2, "common_name": "two.example.com"}, {"id": 3, "common_name": "three.example.com"}]`))
+	}))
+	defer srv.Close()
+
+	ing := &fakeIngester{}
+	st := newFakeStore()
+	dcfg := config.CtDomainConfig{Enabled: true, Domain: domain}
+	p := NewPoller(nil, ing, st, config.CtCrtshSourceConfig{Domains: []config.CtDomainConfig{dcfg}})
+	p.overrides = &pollerOverrides{
+		client: &Client{BaseURL: srv.URL, HTTPClient: srv.Client(), BackoffBase: time.Millisecond},
+		pemGap: time.Millisecond,
+	}
+	ctx := context.Background()
+
+	// Cycle 1: id=2 fails transiently.
+	if err := p.pollDomain(ctx, dcfg); err != nil {
+		t.Fatalf("cycle 1: %v", err)
+	}
+	if len(ing.calls) != 1 || len(ing.calls[0].Certificates) != 1 || ing.calls[0].Certificates[0].SubjectCN != "one."+domain {
+		t.Fatalf("cycle 1 should ingest only id=1, got %+v", ing.calls)
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(st.states["ct_crtsh:"+domain].Cursor), &ids); err != nil {
+		t.Fatalf("cursor: %v", err)
+	}
+	slices.Sort(ids)
+	if !slices.Equal(ids, []int64{1, 3}) {
+		t.Fatalf("cycle 1 seen-set = %v, want [1 3] (id=2's failed fetch must not be recorded)", ids)
+	}
+
+	// Cycle 2: crt.sh recovered.
+	mu.Lock()
+	recovered = true
+	mu.Unlock()
+	if err := p.pollDomain(ctx, dcfg); err != nil {
+		t.Fatalf("cycle 2: %v", err)
+	}
+	if len(ing.calls) != 2 || len(ing.calls[1].Certificates) != 1 || ing.calls[1].Certificates[0].SubjectCN != "two."+domain {
+		t.Fatalf("cycle 2 should ingest id=2 (retried after the transient failure), got %+v", ing.calls)
+	}
+	ids = nil
+	if err := json.Unmarshal([]byte(st.states["ct_crtsh:"+domain].Cursor), &ids); err != nil {
+		t.Fatalf("cursor: %v", err)
+	}
+	slices.Sort(ids)
+	if !slices.Equal(ids, []int64{1, 2, 3}) {
+		t.Errorf("cycle 2 seen-set = %v, want [1 2 3]", ids)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if pemFetches["1"] != 1 || pemFetches["3"] != 1 {
+		t.Errorf("already-handled IDs refetched: fetches = %v (want id 1 and 3 fetched exactly once)", pemFetches)
+	}
+	if pemFetches["2"] < 2 {
+		t.Errorf("id=2 fetched %d times, want retries in cycle 1 plus a fetch in cycle 2", pemFetches["2"])
 	}
 }
 
