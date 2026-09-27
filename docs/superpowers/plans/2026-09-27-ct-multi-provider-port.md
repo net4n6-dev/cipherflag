@@ -2101,7 +2101,7 @@ git commit -m "feat(ingest): port ct_multi (coverage-union CT composer with per-
 - Test: `internal/config/config_test.go` (extend existing table, or add a new test function if none covers `SourcesConfig` TOML round-tripping)
 
 **Interfaces:**
-- Produces: `config.CtCrtshSourceConfig{Domains []CtDomainConfig}`, `config.CtDomainConfig{Enabled bool, Domain string, IncludeSubdomains bool, PollIntervalSeconds int}`, `config.CtStaticSourceConfig{Domains []CtStaticDomainConfig}`, `config.CtStaticDomainConfig{Enabled bool, Domain string, LogURL string, PublicKeyPEM string}`, `config.CtCertspotterSourceConfig{Domains []CtCertspotterDomainConfig}`, `config.CtCertspotterDomainConfig{Enabled bool, Domain string, IncludeSubdomains bool, APIToken string, RequestsPerHour int}`, `config.CtMultiSourceConfig{Groups []CtMultiGroupConfig}`, `config.CtMultiGroupConfig{Enabled bool, Domain string, Children []CtMultiChildConfig}`, `config.CtMultiChildConfig{Crtsh *CtMultiChildCrtshConfig, Static *CtMultiChildStaticConfig, Certspotter *CtMultiChildCertspotterConfig}` (tagged union — `CtMultiChildCrtshConfig` is an empty marker struct since crtsh has no per-child fields beyond the shared domain; `CtMultiChildStaticConfig{Domain, LogURL, PublicKeyPEM string}`; `CtMultiChildCertspotterConfig{Domain string, APIToken string, RequestsPerHour int}`).
+- Produces: `config.CtCrtshSourceConfig{Domains []CtDomainConfig}`, `config.CtDomainConfig{Enabled bool, Domain string, IncludeSubdomains bool}`, `config.CtStaticSourceConfig{Domains []CtStaticDomainConfig}`, `config.CtStaticDomainConfig{Enabled bool, Domain string, LogURL string, PublicKeyPEM string}`, `config.CtCertspotterSourceConfig{Domains []CtCertspotterDomainConfig}`, `config.CtCertspotterDomainConfig{Enabled bool, Domain string, IncludeSubdomains bool, APIToken string, RequestsPerHour int}`, `config.CtMultiSourceConfig{Groups []CtMultiGroupConfig}`, `config.CtMultiGroupConfig{Enabled bool, Domain string, Children []CtMultiChildConfig}`, `config.CtMultiChildConfig{Crtsh *CtMultiChildCrtshConfig, Static *CtMultiChildStaticConfig, Certspotter *CtMultiChildCertspotterConfig}` (tagged union — `CtMultiChildCrtshConfig` is an empty marker struct since crtsh has no per-child fields beyond the shared domain; `CtMultiChildStaticConfig{Domain, LogURL, PublicKeyPEM string}`; `CtMultiChildCertspotterConfig{Domain string, APIToken string, RequestsPerHour int}`). Note: `poll_interval_seconds` was deliberately dropped from these structs (pre-flight ruling, SDD ledger) — every poller uses one shared per-kind ticker (`defaultInterval = time.Hour`) over its whole `Domains` list, not a per-domain ticker, so a per-domain interval field would be declared but never read — the same dead-config shape this port's Global Constraints section exists to eliminate.
 
 - [ ] **Step 1: Delete the dead stub**
 
@@ -2114,10 +2114,9 @@ Add to `internal/config/config.go`, replacing the deleted block:
 ```go
 // CtDomainConfig is one monitored domain for the ct_crtsh adapter.
 type CtDomainConfig struct {
-	Enabled             bool   `toml:"enabled"`
-	Domain              string `toml:"domain"`
-	IncludeSubdomains   bool   `toml:"include_subdomains"`
-	PollIntervalSeconds int    `toml:"poll_interval_seconds"`
+	Enabled           bool   `toml:"enabled"`
+	Domain            string `toml:"domain"`
+	IncludeSubdomains bool   `toml:"include_subdomains"`
 }
 
 // CtCrtshSourceConfig configures the crt.sh CT adapter across N domains.
@@ -2163,12 +2162,11 @@ func (c CtStaticSourceConfig) Enabled() bool {
 // CtCertspotterDomainConfig is one monitored domain for the SSLMate
 // CertSpotter adapter.
 type CtCertspotterDomainConfig struct {
-	Enabled             bool   `toml:"enabled"`
-	Domain              string `toml:"domain"`
-	IncludeSubdomains   bool   `toml:"include_subdomains"`
-	APIToken            string `toml:"api_token"`
-	RequestsPerHour     int    `toml:"requests_per_hour"`
-	PollIntervalSeconds int    `toml:"poll_interval_seconds"`
+	Enabled           bool   `toml:"enabled"`
+	Domain            string `toml:"domain"`
+	IncludeSubdomains bool   `toml:"include_subdomains"`
+	APIToken          string `toml:"api_token"`
+	RequestsPerHour   int    `toml:"requests_per_hour"`
 }
 
 // CtCertspotterSourceConfig configures the CertSpotter adapter across N domains.
