@@ -27,6 +27,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 	cbomimport "github.com/net4n6-dev/cipherflag/internal/import/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/store"
+	"github.com/rs/zerolog/log"
 )
 
 const cbomContentType = "application/vnd.cyclonedx+json; version=1.6"
@@ -74,6 +75,7 @@ func NewCBOMHandler(st store.CryptoStore, cfg *config.CBOMConfig, importer cbomI
 // params (host_id, hostname_pattern, asset_type, min_risk_score).
 // Mixing both is a 400.
 func (h *CBOMHandler) Download(w http.ResponseWriter, r *http.Request) {
+	extendWriteDeadline(w)
 	q := r.URL.Query()
 
 	scopeName := q.Get("scope")
@@ -140,18 +142,11 @@ func (h *CBOMHandler) Download(w http.ResponseWriter, r *http.Request) {
 
 	bom, err := h.gen.Generate(r.Context(), h.store, scope)
 	if err != nil {
+		log.Error().Err(err).Msg("cbom: generate failed")
 		writeError(w, http.StatusInternalServerError, "CBOM generation failed")
 		return
 	}
-
-	w.Header().Set("Content-Type", cbomContentType)
-	w.WriteHeader(http.StatusOK)
-	enc := cdx.NewBOMEncoder(w, cdx.BOMFileFormatJSON)
-	enc.SetPretty(false)
-	if err := enc.Encode(bom); err != nil {
-		// Headers already sent — cannot change status. Log and drop.
-		_ = err
-	}
+	writeBOM(w, bom, "", false)
 }
 
 // cbomImportMaxSize is the body size cap for POST /api/v1/import/cbom.

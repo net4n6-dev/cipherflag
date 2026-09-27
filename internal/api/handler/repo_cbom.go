@@ -16,7 +16,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/google/uuid"
@@ -55,6 +54,7 @@ func NewRepoCBOMHandler(s RepoCBOMStore, signingCfg ...config.CBOMSigningConfig)
 }
 
 func (h *RepoCBOMHandler) Download(w http.ResponseWriter, r *http.Request) {
+	extendWriteDeadline(w)
 	repoID := r.URL.Query().Get("repo_id")
 	if repoID == "" {
 		writeError(w, http.StatusBadRequest, "repo_id required")
@@ -71,10 +71,5 @@ func (h *RepoCBOMHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/vnd.cyclonedx+json; version=1.6")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+repoID+`.cdx.json"`)
-	w.WriteHeader(http.StatusOK)
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(bom)
+	writeBOM(w, bom, repoID+".cdx.json", true)
 }
