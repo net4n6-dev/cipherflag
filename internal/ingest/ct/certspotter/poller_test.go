@@ -1,10 +1,35 @@
+// Copyright 2026 net4n6-dev
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package certspotter
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/hex"
+	"fmt"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
@@ -32,6 +57,47 @@ func (f *fakeStore) GetIngestionState(ctx context.Context, sourceName string) (*
 func (f *fakeStore) SetIngestionState(ctx context.Context, state *model.IngestionState) error {
 	f.states[state.SourceName] = state
 	return nil
+}
+
+// generateTestCertDER returns a minimal, self-signed, valid DER
+// certificate for cn — used wherever a test needs an issuance whose
+// cert.data actually decodes via issuanceToCTEntry's x509.ParseCertificate
+// step (unlike the truncated placeholder base64 used by client_test.go's
+// pageOne fixture, whose tests never reach that parse step).
+func generateTestCertDER(t *testing.T, cn string) []byte {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: cn},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("create certificate: %v", err)
+	}
+	return der
+}
+
+// issuanceJSON builds a single-entry CertSpotter /v1/issuances JSON page
+// wrapping der as the (valid, decodable) cert.data payload.
+func issuanceJSON(id, domain string, der []byte) string {
+	sum := sha256.Sum256(der)
+	certB64 := base64.StdEncoding.EncodeToString(der)
+	return fmt.Sprintf(`[{
+		"id": %q,
+		"tbs_sha256": "aaa",
+		"cert_sha256": %q,
+		"dns_names": [%q],
+		"issuer": {"name": "CN=Test CA"},
+		"not_before": "2026-01-01T00:00:00Z",
+		"not_after": "2026-04-01T00:00:00Z",
+		"cert": {"data": %q}
+	}]`, id, hex.EncodeToString(sum[:]), domain, certB64)
 }
 
 func TestRunCycle_NoDomains_NoOp(t *testing.T) {
@@ -71,11 +137,15 @@ func TestRunCycle_EmptyResult_NotAnError(t *testing.T) {
 	}
 }
 
-// TestRunCycle_IngestsAndPersistsCursor proves a non-empty page is
-// converted, ingested, and the resulting cursor (CertSpotter's opaque
-// "after" id) is persisted to the store under the per-domain checkpoint
-// key.
-func TestRunCycle_IngestsAndPersistsCursor(t *testing.T) {
+// TestRunCycle_CursorPersists_EvenWhenIssuanceDecodeFails proves the
+// cursor still advances to the page's last id when the page's only
+// issuance fails to decode (this fixture's cert.data is the same
+// truncated placeholder base64 used by client_test.go's pageOne, which
+// deliberately does not parse as a real x509 cert). This test does NOT
+// prove a cert is ever ingested — see
+// TestRunCycle_ValidIssuance_IngestsAndPersistsCursor below for the real
+// "parse a valid cert -> build DiscoveryResult -> call Ingest" path.
+func TestRunCycle_CursorPersists_EvenWhenIssuanceDecodeFails(t *testing.T) {
 	pageOne := `[{
 	  "id": "42",
 	  "tbs_sha256": "aaa",
@@ -107,10 +177,14 @@ func TestRunCycle_IngestsAndPersistsCursor(t *testing.T) {
 	if err := p.runCycle(context.Background()); err != nil {
 		t.Fatalf("runCycle: %v", err)
 	}
-	// The decode step for this fixture's cert data will fail to parse as
-	// a real x509 cert (truncated base64 body), so no Ingest call is
-	// guaranteed here — the important assertion is that runCycle itself
-	// doesn't error and the cursor still advances via QueryDomainAll.
+	// The decode step for this fixture's cert data fails to parse as a
+	// real x509 cert (truncated base64 body), so no Ingest call happens
+	// — assert that explicitly, since the poller's len(certs) > 0 guard
+	// skips Ingest entirely when every issuance in the page fails to
+	// decode.
+	if len(ing.calls) != 0 {
+		t.Fatalf("expected no Ingest calls when the only issuance fails to decode, got %d", len(ing.calls))
+	}
 	state, err := st.GetIngestionState(context.Background(), "ct_certspotter:example.com")
 	if err != nil {
 		t.Fatalf("GetIngestionState: %v", err)
@@ -120,6 +194,119 @@ func TestRunCycle_IngestsAndPersistsCursor(t *testing.T) {
 	}
 	if state.Cursor != "42" {
 		t.Errorf("cursor = %q, want %q", state.Cursor, "42")
+	}
+}
+
+// TestRunCycle_ValidIssuance_IngestsAndPersistsCursor proves the real
+// happy path: a page with one valid, decodable cert is converted to a
+// dedup.CertDiscovery, Ingest is actually called with it, and the
+// resulting cursor is persisted to the per-domain checkpoint key.
+func TestRunCycle_ValidIssuance_IngestsAndPersistsCursor(t *testing.T) {
+	der := generateTestCertDER(t, "example.com")
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Write([]byte(issuanceJSON("42", "example.com", der)))
+			return
+		}
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	ing := &fakeIngester{}
+	st := newFakeStore()
+	cfg := config.CtCertspotterSourceConfig{
+		Domains: []config.CtCertspotterDomainConfig{{Enabled: true, Domain: "example.com"}},
+	}
+	client := &Client{BaseURL: srv.URL, HTTP: srv.Client(), Limiter: NewRateLimiter(100000)}
+	p := NewPoller(client, ing, st, cfg)
+	if err := p.runCycle(context.Background()); err != nil {
+		t.Fatalf("runCycle: %v", err)
+	}
+
+	if len(ing.calls) != 1 {
+		t.Fatalf("expected exactly 1 Ingest call for the valid issuance, got %d", len(ing.calls))
+	}
+	if got := len(ing.calls[0].Certificates); got != 1 {
+		t.Fatalf("expected 1 certificate ingested, got %d", got)
+	}
+	cert := ing.calls[0].Certificates[0]
+	if cert.SubjectCN != "example.com" {
+		t.Errorf("SubjectCN = %q, want %q", cert.SubjectCN, "example.com")
+	}
+	if cert.RawPEM == "" {
+		t.Error("RawPEM unexpectedly empty")
+	}
+
+	state, err := st.GetIngestionState(context.Background(), "ct_certspotter:example.com")
+	if err != nil {
+		t.Fatalf("GetIngestionState: %v", err)
+	}
+	if state == nil {
+		t.Fatal("expected ingestion state to be persisted")
+	}
+	if state.Cursor != "42" {
+		t.Errorf("cursor = %q, want %q", state.Cursor, "42")
+	}
+}
+
+// TestRunCycle_OneDomainFails_DoesNotBlockOthers proves the isolation
+// property runCycle is named for (Review Focus item shared with Tasks
+// 2/3: multi-domain isolation): the first configured domain's query
+// always fails with a non-retryable 400, while the second domain
+// succeeds and has one net-new (valid, decodable) cert. The only way to
+// prove runCycle doesn't abort after the first domain's failure is to
+// assert the second domain was actually reached and ingested. Hermetic
+// (httptest.Server) — no live network, runs in milliseconds.
+func TestRunCycle_OneDomainFails_DoesNotBlockOthers(t *testing.T) {
+	const failDomain = "fail.example.com"
+	const okDomain = "ok.example.com"
+	der := generateTestCertDER(t, okDomain)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("domain") == failDomain {
+			w.WriteHeader(http.StatusBadRequest) // non-retryable: no retry loop
+			return
+		}
+		if q.Get("after") == "" {
+			w.Write([]byte(issuanceJSON("7", okDomain, der)))
+			return
+		}
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	ing := &fakeIngester{}
+	st := newFakeStore()
+	cfg := config.CtCertspotterSourceConfig{
+		Domains: []config.CtCertspotterDomainConfig{
+			{Enabled: true, Domain: failDomain},
+			{Enabled: true, Domain: okDomain},
+		},
+	}
+	client := &Client{BaseURL: srv.URL, HTTP: srv.Client(), Limiter: NewRateLimiter(100000)}
+	p := NewPoller(client, ing, st, cfg)
+
+	if err := p.runCycle(context.Background()); err != nil {
+		t.Fatalf("runCycle: %v", err)
+	}
+
+	if len(ing.calls) != 1 {
+		t.Fatalf("expected exactly 1 Ingest call (from the surviving domain) despite the first domain's failure, got %d", len(ing.calls))
+	}
+	if got := len(ing.calls[0].Certificates); got != 1 {
+		t.Fatalf("expected 1 certificate ingested from %s, got %d", okDomain, got)
+	}
+	if st.states["ct_certspotter:"+okDomain] == nil {
+		t.Fatalf("expected an ingestion_state checkpoint for the surviving domain %s", okDomain)
+	}
+	if state := st.states["ct_certspotter:"+okDomain]; state.Cursor != "7" {
+		t.Errorf("surviving domain cursor = %q, want %q", state.Cursor, "7")
+	}
+	if st.states["ct_certspotter:"+failDomain] != nil {
+		t.Fatalf("did not expect a checkpoint for the failed domain %s (query never succeeded)", failDomain)
 	}
 }
 
