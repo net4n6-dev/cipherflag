@@ -132,6 +132,8 @@ All notable changes to CipherFlag are documented in this file.
   (`[cbom.signing] enabled = false`), before connecting to the database.
 
 ### Changed
+- `docker-compose.yml` runs the release it ships with
+  (`ghcr.io/net4n6-dev/cipherflag-ce:2.3.0`) instead of `:latest`.
 - **`verify-cbom` exits `3` when it could not verify (breaking for
   scripts).** Its documented codes are `0` (valid), `1` (valid, signed by a
   different key) and `2` (invalid), but runs that checked nothing exited

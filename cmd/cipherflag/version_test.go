@@ -15,6 +15,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -37,4 +38,35 @@ func TestVersionHasChangelogSection(t *testing.T) {
 	base, _, _ := strings.Cut(Version, "-") // a prerelease documents under its release
 	require.Contains(t, string(changelog), "\n## ["+base+"]",
 		"CHANGELOG.md has no ## [%s] section for Version %q", base, Version)
+}
+
+// Everything else that names the release must name the same one. The
+// frontend's package.json said 0.0.1, and docker-compose.yml ran :latest,
+// so a compose install ran whatever was newest rather than the release it
+// was written for.
+func TestVersionMatchesFrontendAndCompose(t *testing.T) {
+	var pkg struct {
+		Version string `json:"version"`
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "frontend", "package.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &pkg))
+	require.Equal(t, Version, pkg.Version, "frontend/package.json version")
+
+	var lock struct {
+		Version  string `json:"version"`
+		Packages map[string]struct {
+			Version string `json:"version"`
+		} `json:"packages"`
+	}
+	raw, err = os.ReadFile(filepath.Join("..", "..", "frontend", "package-lock.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &lock))
+	require.Equal(t, Version, lock.Version, "frontend/package-lock.json version")
+	require.Equal(t, Version, lock.Packages[""].Version, `frontend/package-lock.json packages[""].version`)
+
+	compose, err := os.ReadFile(filepath.Join("..", "..", "docker-compose.yml"))
+	require.NoError(t, err)
+	require.Contains(t, string(compose), "image: ghcr.io/net4n6-dev/cipherflag-ce:"+Version+"\n",
+		"docker-compose.yml must run the release it ships with, not :latest")
 }
