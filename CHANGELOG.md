@@ -23,6 +23,17 @@ All notable changes to CipherFlag are documented in this file.
 - Syslog sink: `tls_insecure` option, and `cert_file`/`key_file` are now
   optional for `protocol = "tls"` (server-authenticated TLS). Setting only
   one of the two is a configuration error.
+- **Certificate Transparency sources** (off by default, configured in
+  `config/cipherflag.toml` only): `ct_crtsh` (crt.sh), `ct_static` (Static
+  CT API / Sunlight logs, verifying each log's signed checkpoint and the
+  inclusion of every leaf), `ct_certspotter` (SSLMate CertSpotter), and
+  `ct_multi`, which combines the other three for one set of domains and
+  records which provider found each certificate. Configured domains are
+  validated at startup. They replace the CT settings stub of earlier
+  versions, which did nothing. `ct_static` watches forward from the log's
+  current head; historical coverage comes from `ct_crtsh` and
+  `ct_certspotter`. See the README for the per-log values `ct_static`
+  needs.
 
 ### Fixed
 - BOMs named their producing tool as `cipherflag dev`; they now carry the

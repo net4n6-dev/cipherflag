@@ -363,7 +363,7 @@ tree-sitter language bindings, and others).
 | SSE live updates (dashboard + explorer) | shipped v2.2 (CE) |
 | CBOM hardening: `verify-cbom` validation, admin-only import, push-scheduler panic containment | shipped v2.2.2–v2.2.3 (CE) |
 | Fresh-install schema fixes (migration `v2.2.4_schema_parity.sql`) + integration tests in CI | shipped v2.2.4 (CE) |
-| Certificate Transparency multi-provider (`ct_crtsh`/`ct_static`/`ct_certspotter`/`ct_multi`) | shipped (CE, off by default, config-only) |
+| Certificate Transparency multi-provider (`ct_crtsh`/`ct_static`/`ct_certspotter`/`ct_multi`) | shipped v2.3 (CE, off by default, config-only) |
 | Risk prioritization + blast-radius (host-dependency) | **EE-only** |
 | Optional LLM-assisted repo enrichment (off by default; local or BYO-key model) | **EE-only** |
 | Container image scanning | **EE-only** |
