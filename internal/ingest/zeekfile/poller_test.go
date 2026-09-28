@@ -442,3 +442,36 @@ func TestPollOnce_LeavesSSLAloneWhenX509Failed(t *testing.T) {
 	require.NoError(t, p.PollOnce(context.Background()))
 	require.Len(t, st.obs, 4, "the sessions are recorded once the certificates are")
 }
+
+// A poll reads at most maxReadPerFile from one file. Sessions reference
+// certificates, so while an x509 file has more left than that cap allowed,
+// the ssl files must wait: read now, their sessions would count as unknown
+// and the ssl cursor would move past them for good.
+func TestPollOnce_HoldsSSLWhileAnX509BacklogRemains(t *testing.T) {
+	// Padded so two x509 lines are longer than the ssl line the cap must let through.
+	pad := strings.Repeat("x", 400)
+	x509 := func(fp string) string { return strings.TrimSuffix(x509Line(fp), "}") + `,"pad":"` + pad + `"}` }
+	line := x509("aa11")
+	old := maxReadPerFile
+	maxReadPerFile = int64(2*(len(line)+1) + 5) // two whole lines and a bit of the third
+	t.Cleanup(func() { maxReadPerFile = old })
+
+	dir := t.TempDir()
+	writeLines(t, filepath.Join(dir, "x509.log"), x509("aa11"), x509("bb22"), x509("cc33"))
+	writeLines(t, filepath.Join(dir, "ssl.log"),
+		`{"ts":1790614100.25,"uid":"C1","id.orig_h":"10.0.0.9","id.orig_p":50000,"id.resp_h":"10.0.0.5","id.resp_p":443,`+
+			`"version":"TLSv12","cipher":"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384","server_name":"c.test","cert_chain_fps":["cc33"]}`)
+	p, st, ing := newTestPoller(t, dir, 0)
+
+	// Poll 1 reads two of the three certificates; the session of the third
+	// is not read yet.
+	require.NoError(t, p.PollOnce(context.Background()))
+	require.Equal(t, []string{"aa11", "bb22"}, fingerprints(ing))
+	require.Empty(t, st.obs)
+
+	// Poll 2 reads the last certificate, then the session that references it.
+	require.NoError(t, p.PollOnce(context.Background()))
+	require.Equal(t, []string{"aa11", "bb22", "cc33"}, fingerprints(ing))
+	require.Len(t, st.obs, 1, "the session was held, not dropped")
+	require.Equal(t, "cc33", st.obs[0].CertFingerprint)
+}

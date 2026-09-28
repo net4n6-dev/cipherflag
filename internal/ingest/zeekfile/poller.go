@@ -73,11 +73,13 @@ type Config struct {
 const (
 	defaultInterval   = 30 * time.Second
 	defaultBatchLines = 500
-	// maxReadPerFile bounds what one poll reads from one file, so a large
-	// backlog is worked through over several polls.
-	maxReadPerFile = 16 << 20
-	doneMarker     = ".done"
+	doneMarker        = ".done"
 )
+
+// maxReadPerFile bounds what one poll reads from one file, so a large
+// backlog is worked through over several polls. A variable so tests can
+// lower it.
+var maxReadPerFile int64 = 16 << 20
 
 // logKinds are the logs read, in order: certificates before the sessions
 // that reference them (observations have a foreign key to certificates).
@@ -168,11 +170,19 @@ func (p *Poller) PollOnce(ctx context.Context) error {
 	// move the cursor past them.
 	var firstErr error
 	x509Failed := false
+	// x509Behind is set when an x509 file has more to read than this poll's
+	// cap allowed. The ssl files wait for the next poll for the same reason as
+	// after a failure.
+	x509Behind := false
 	for _, f := range files {
-		if f.kind == "ssl" && x509Failed {
+		if f.kind == "ssl" && (x509Failed || x509Behind) {
 			continue
 		}
-		if err := p.readFile(ctx, f, cursor, known, &stats); err != nil {
+		hitLimit, err := p.readFile(ctx, f, cursor, known, &stats)
+		if f.kind == "x509" && hitLimit {
+			x509Behind = true
+		}
+		if err != nil {
 			if firstErr == nil {
 				firstErr = err
 			} else {
@@ -256,8 +266,9 @@ func (p *Poller) listFiles() ([]logFile, error) {
 }
 
 // readFile ingests f's complete lines from its cursor on, one batch at a
-// time, saving the cursor after each.
-func (p *Poller) readFile(ctx context.Context, f logFile, cursor map[string]cursorEntry, known map[string]bool, stats *pollStats) error {
+// time, saving the cursor after each. hitLimit reports that the read stopped
+// at maxReadPerFile, so more of the file may be left.
+func (p *Poller) readFile(ctx context.Context, f logFile, cursor map[string]cursorEntry, known map[string]bool, stats *pollStats) (hitLimit bool, err error) {
 	offset := cursor[f.id].Offset
 	if f.size < offset {
 		// Truncated in place, or a new file that reused the inode.
@@ -265,18 +276,20 @@ func (p *Poller) readFile(ctx context.Context, f logFile, cursor map[string]curs
 	}
 	cursor[f.id] = cursorEntry{Path: f.path, Offset: offset}
 	if f.size == offset {
-		return nil
+		return false, nil
 	}
 
 	fh, err := os.Open(f.path)
 	if err != nil {
-		return fmt.Errorf("open %s: %w", f.path, err)
+		return false, fmt.Errorf("open %s: %w", f.path, err)
 	}
 	defer fh.Close()
 	if _, err := fh.Seek(offset, io.SeekStart); err != nil {
-		return fmt.Errorf("seek %s: %w", f.path, err)
+		return false, fmt.Errorf("seek %s: %w", f.path, err)
 	}
-	r := bufio.NewReader(io.LimitReader(fh, maxReadPerFile))
+	limited := &io.LimitedReader{R: fh, N: maxReadPerFile}
+	r := bufio.NewReader(limited)
+	defer func() { hitLimit = limited.N == 0 }()
 
 	var batch [][]byte
 	var batchBytes int64
@@ -298,9 +311,9 @@ func (p *Poller) readFile(ctx context.Context, f logFile, cursor map[string]curs
 			// io.EOF: line, if any, is incomplete (or cut by the read limit)
 			// and is left for the next poll.
 			if !errors.Is(err, io.EOF) {
-				return fmt.Errorf("read %s: %w", f.path, err)
+				return false, fmt.Errorf("read %s: %w", f.path, err)
 			}
-			return flush()
+			return false, flush()
 		}
 		batchBytes += int64(len(line))
 		if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 && trimmed[0] != '#' {
@@ -308,7 +321,7 @@ func (p *Poller) readFile(ctx context.Context, f logFile, cursor map[string]curs
 		}
 		if len(batch) >= p.cfg.BatchLines {
 			if err := flush(); err != nil {
-				return err
+				return false, err
 			}
 		}
 	}

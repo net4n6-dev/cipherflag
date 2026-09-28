@@ -37,6 +37,12 @@ All notable changes to CipherFlag are documented in this file.
   it was read. The poller now treats only certificates ingest reports as
   stored as known, and a file that fails is reported after the others have
   been read (the ssl logs wait for the next poll if an x509 log failed).
+- **A large x509 backlog lost the TLS sessions that followed it.** The poller
+  reads at most 16 MB of a file per poll, but it read the ssl logs in the same
+  poll even when an x509 log had more left. Sessions referencing certificates
+  not yet read were dropped as unknown and the ssl position moved past them
+  for good, which is the case for an upgrade from 2.3.0 with a big backlog.
+  The ssl logs now wait until the x509 logs are caught up.
 - **The Zeek sensor image failed at startup.** `cipherflag-ce-zeek` was
   built on `zeek/zeek:latest`, which moved to Zeek 9, and Zeek 9 removed the
   `extract-certs-pem` policy the sensor loaded. The images published for
