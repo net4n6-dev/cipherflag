@@ -47,8 +47,3 @@ folder = "\\VED\\Policy\\Discovered\\CipherFlag"
 
 # Push schedule
 push_interval_minutes = 60
-
-[pcap]
-max_file_size_mb = 500
-retention_hours = 24
-input_dir = "/pcap-input"

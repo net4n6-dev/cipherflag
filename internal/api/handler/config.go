@@ -66,6 +66,8 @@ type CorelightConfigResponse struct {
 	HasToken bool   `json:"has_token"`
 }
 
+// PCAPConfigResponse reports the [pcap] block, which CE does not use (PCAP
+// upload is EE-only). Kept so API clients written against it keep working.
 type PCAPConfigResponse struct {
 	MaxFileSizeMB  int    `json:"max_file_size_mb"`
 	RetentionHours int    `json:"retention_hours"`

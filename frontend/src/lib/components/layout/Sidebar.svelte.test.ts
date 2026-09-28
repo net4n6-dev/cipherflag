@@ -5,9 +5,18 @@ import Sidebar from './Sidebar.svelte';
 describe('Sidebar', () => {
   it('renders the CE-native nav items', () => {
     const { getByText } = render(Sidebar, { props: { currentPath: '/' } });
-    for (const label of ['Dashboard', 'Certificates', 'PKI Constellation', 'Analytics', 'Reports', 'Statistics', 'Upload', 'Settings']) {
+    for (const label of ['Dashboard', 'Certificates', 'PKI Constellation', 'Analytics', 'Reports', 'Statistics', 'Settings']) {
       expect(getByText(label)).toBeTruthy();
     }
+  });
+
+  // PCAP upload is an Enterprise Edition feature; CE has no PCAP backend, so
+  // the page could never work and is not offered.
+  it('does not offer the EE-only PCAP upload page', () => {
+    const { queryByText, container } = render(Sidebar, { props: { currentPath: '/' } });
+    expect(queryByText('Upload')).toBeNull();
+    expect(queryByText('Ingest')).toBeNull();
+    expect(container.querySelector('a[href="/upload"]')).toBeNull();
   });
 
   it('shows the CE badge, not EE', () => {

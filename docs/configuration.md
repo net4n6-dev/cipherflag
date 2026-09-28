@@ -175,13 +175,7 @@ Before 2.3.0, `verify-cbom` had no code `3`: it exited `0` for `-h`, `1` for an 
 
 ### `[pcap]`
 
-Controls PCAP upload and processing.
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `max_file_size_mb` | `500` | Maximum PCAP file size for uploads (megabytes). |
-| `retention_hours` | `24` | How long processed PCAP files are retained before cleanup (hours). |
-| `input_dir` | `/pcap-input` | Directory where uploaded PCAPs are written for Zeek processing. In Docker, this is the `pcap-input` shared volume. |
+Not used by CE. PCAP upload and processing are Enterprise Edition features; CE has no PCAP upload page or API. The section (`max_file_size_mb`, `retention_hours`, `input_dir`) is still accepted so that existing configuration files load unchanged, and the settings API still reports it, but nothing in CE reads the values.
 
 ---
 

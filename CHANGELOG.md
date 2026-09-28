@@ -92,6 +92,15 @@ All notable changes to CipherFlag are documented in this file.
   take flags (`--bom`, `--trusted-key`, `--key`), and the positional form
   failed. The README now shows the real usage.
 
+### Removed
+- **The Upload (PCAP) page.** It was listed in the sidebar but could never
+  work in CE: PCAP upload and processing are Enterprise Edition features and
+  CE registers none of the `/api/v1/pcap/*` routes the page called. The
+  page, its sidebar entry and the PCAP settings cards are gone. The `[pcap]`
+  config section is no longer in the sample configs; existing configs that
+  contain it still load, and the settings API still reports it, but CE does
+  not use it.
+
 ### Notes
 - The estate export is assembled in memory with one lookup per asset; very
   large inventories cost memory and time proportional to their size.
