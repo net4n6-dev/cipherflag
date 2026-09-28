@@ -188,6 +188,8 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 			Dur("interval", interval).
 			Int("batch_size", cfg.Analysis.RuleSweepBatchSize).
 			Msg("scoring sweeper started")
+	} else {
+		log.Warn().Msg("scoring is disabled (analysis.scorer_enabled = false): no health reports will be written, so grades, findings and compliance stay empty")
 	}
 
 	// Layer 6.1b-4: scan scheduler goroutine.

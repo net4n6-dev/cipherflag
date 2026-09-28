@@ -46,6 +46,8 @@ Venafi is configured in `[export.venafi]` or Settings > Venafi, not in
 |-----|---------|-------------|
 | `recheck_interval_hours` | `6` | How often to re-run health scoring on existing certificates (hours). |
 | `expiry_warning_days` | `[30, 60, 90, 180]` | Thresholds for expiration warnings in the dashboard. |
+| `scorer_enabled` | `true` | Score certificates as they are ingested and re-check them every `recheck_interval_hours`. Scoring is the only writer of health reports, so with `false` the grade donut, risk cards, findings, compliance gauge and CBOM findings stay empty. `serve` logs a warning at startup when it is off. |
+| `rule_sweep_batch_size` | `1000` | Certificates re-scored per batch by the recheck sweeper. |
 
 ### `[analysis.protocol_policy]`
 

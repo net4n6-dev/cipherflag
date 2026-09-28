@@ -5,6 +5,12 @@ All notable changes to CipherFlag are documented in this file.
 ## [2.3.1] - Unreleased
 
 ### Fixed
+- **A stock install never scored anything.** `analysis.scorer_enabled`
+  defaulted to false and the shipped config did not set it, so the dashboard
+  grade donut, risk cards, health findings, compliance gauge and CBOM findings
+  stayed empty. Scoring is now on by default (set `scorer_enabled = false` to
+  opt out), the shipped configs set it explicitly, `docs/configuration.md`
+  documents it, and `serve` logs a warning when scoring is off.
 - **CipherFlag has not read Zeek logs since 2.0.0.** The 2.0.0 release
   dropped the Zeek log poller, so from 2.0.0 to 2.3.0 no certificate or TLS
   session seen by a Zeek sensor reached CipherFlag, although

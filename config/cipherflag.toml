@@ -13,6 +13,7 @@ postgres_url = "postgres://cipherflag:changeme@postgres:5432/cipherflag?sslmode=
 
 [analysis]
 recheck_interval_hours = 6
+scorer_enabled = true
 expiry_warning_days = [30, 60, 90, 180]
 
 [analysis.protocol_policy]

@@ -665,9 +665,12 @@ func validateSinkConfig(s SinkConfig, location string) error {
 //
 // This pattern is required for inverted-default booleans (a bool field
 // that should default to true, since Go's bool zero-value is false).
-// No fields currently need it; kept as the hook for the next one that does.
+// Analysis.ScorerEnabled is the one field that needs it today: scoring is the
+// only writer of health_reports, so a config that says nothing must still score.
 func newDefaultConfig() Config {
-	return Config{}
+	cfg := Config{}
+	cfg.Analysis.ScorerEnabled = true
+	return cfg
 }
 
 func Load(path string) (*Config, error) {
@@ -801,8 +804,9 @@ func Load(path string) (*Config, error) {
 	if cfg.Intake.Dedup.MaxEntries < 1000 {
 		cfg.Intake.Dedup.MaxEntries = 1000
 	}
-	// Layer 4.1 scorer defaults. ScorerEnabled defaults to false (zero
-	// value). RuleSweepBatchSize defaults to 1000.
+	// Layer 4.1 scorer defaults. ScorerEnabled defaults to true (see
+	// newDefaultConfig); operators opt out with scorer_enabled = false.
+	// RuleSweepBatchSize defaults to 1000.
 	if cfg.Analysis.RuleSweepBatchSize == 0 {
 		cfg.Analysis.RuleSweepBatchSize = 1000
 	}
