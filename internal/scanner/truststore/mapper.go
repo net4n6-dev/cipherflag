@@ -34,18 +34,23 @@ func certPEM(der []byte) string {
 }
 
 // mapBundle decodes a single bundleObservation per its Format.
-func (s *Scanner) mapBundle(b bundleObservation) ([]model.TrustStoreObservation, []model.PrivateKeyObservation) {
+// mapBundle maps one bundle. keysComplete reports whether every private key
+// in it was read; only then is the bundle authoritative for its held keys.
+// A PKCS#12 file is decoded whole or not at all, so it is complete whenever
+// it decodes.
+func (s *Scanner) mapBundle(b bundleObservation) (trust []model.TrustStoreObservation, priv []model.PrivateKeyObservation, keysComplete bool) {
 	switch b.Format {
 	case "pem":
-		return s.mapPEM(b), nil
+		return s.mapPEM(b), nil, true
 	case "der":
-		return s.mapDER(b), nil
+		return s.mapDER(b), nil, true
 	case "jks":
 		return s.mapJKS(b)
 	case "pkcs12":
-		return s.mapPKCS12(b)
+		trust, priv := s.mapPKCS12(b)
+		return trust, priv, true
 	}
-	return nil, nil
+	return nil, nil, true
 }
 
 func (s *Scanner) mapPEM(b bundleObservation) []model.TrustStoreObservation {

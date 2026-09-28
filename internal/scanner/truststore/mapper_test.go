@@ -49,7 +49,7 @@ func makePEMBundle(t *testing.T, count int) []byte {
 func TestMapPEM_ParsesEachCertBlock(t *testing.T) {
 	data := makePEMBundle(t, 3)
 	s := &Scanner{}
-	trust, priv := s.mapBundle(bundleObservation{
+	trust, priv, _ := s.mapBundle(bundleObservation{
 		Source: "os_bundle", SourceDetail: "test-bundle",
 		Format: "pem", Data: data,
 	})
@@ -80,7 +80,7 @@ func TestMapDER_SingleCert(t *testing.T) {
 	certDER, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 
 	s := &Scanner{}
-	trust, priv := s.mapBundle(bundleObservation{
+	trust, priv, _ := s.mapBundle(bundleObservation{
 		Source: "os_bundle", SourceDetail: "test",
 		Format: "der", Data: certDER,
 	})

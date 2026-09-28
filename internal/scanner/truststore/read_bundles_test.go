@@ -15,12 +15,16 @@
 package truststore
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/pavlo-v-chernykh/keystore-go/v4"
 	"github.com/stretchr/testify/require"
 	pkcs12lib "software.sslmate.com/src/go-pkcs12"
 )
@@ -61,6 +65,70 @@ func TestScan_ReadBundlesListsOnlyBundlesActuallyRead(t *testing.T) {
 		{Source: "os_bundle", SourceDetail: "/etc/ssl/empty.pem"},
 		{Source: "jvm_cacerts", SourceDetail: "/jvm/ok.p12", KeyStore: true},
 	}, result.ReadBundles)
+}
+
+// makeJKSWithKeyPasswords is a JKS locked with storePassword holding one
+// trusted CA and one private-key entry per keyPasswords element, each
+// encrypted with that password (keytool allows a key password different
+// from the store's).
+func makeJKSWithKeyPasswords(t *testing.T, storePassword string, keyPasswords ...string) []byte {
+	t.Helper()
+	ks := keystore.New()
+	now := time.Now()
+	ca, _ := testCert(t, "jks-ca", true)
+	require.NoError(t, ks.SetTrustedCertificateEntry("ca", keystore.TrustedCertificateEntry{
+		CreationTime: now, Certificate: keystore.Certificate{Type: "X.509", Content: ca.Raw},
+	}))
+	for i, pw := range keyPasswords {
+		leaf, key := testCert(t, fmt.Sprintf("jks-key-%d", i), false)
+		pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+		require.NoError(t, err)
+		require.NoError(t, ks.SetPrivateKeyEntry(fmt.Sprintf("key-%d", i), keystore.PrivateKeyEntry{
+			CreationTime: now, PrivateKey: pkcs8,
+			CertificateChain: []keystore.Certificate{{Type: "X.509", Content: leaf.Raw}},
+		}, []byte(pw)))
+	}
+	var buf bytes.Buffer
+	require.NoError(t, ks.Store(&buf, []byte(storePassword)))
+	return buf.Bytes()
+}
+
+// A keystore opens with the store password, but a private-key entry
+// encrypted with its own key password does not decode and was skipped
+// silently. The keystore still counted as read for its held keys, so the
+// holding recorded for that entry by an earlier scan was removed although
+// the key is still there. A keystore is now authoritative for its held keys
+// only when every private-key entry in it was read; its trusted CAs are
+// still reconciled.
+func TestScan_KeystoreWithAnUnreadableKeyEntryIsNotAuthoritativeForKeys(t *testing.T) {
+	bundles := []bundleObservation{
+		// Trusted CA readable, the only key entry not.
+		{Path: "/opt/a.jks", Source: "jvm_cacerts", SourceDetail: "/opt/a.jks", Format: "jks",
+			Data: makeJKSWithKeyPasswords(t, "changeit", "other-key-password")},
+		// One key entry readable, one not.
+		{Path: "/opt/b.jks", Source: "jvm_cacerts", SourceDetail: "/opt/b.jks", Format: "jks",
+			Data: makeJKSWithKeyPasswords(t, "changeit", "changeit", "other-key-password")},
+		// Every key entry readable: authoritative, as before.
+		{Path: "/opt/c.jks", Source: "jvm_cacerts", SourceDetail: "/opt/c.jks", Format: "jks",
+			Data: makeJKSWithKeyPasswords(t, "changeit", "changeit")},
+	}
+	s := &Scanner{jvmPasswords: []string{"changeit"}}
+	s.discoverers = []discoverer{{Name: "fixture", Run: func(context.Context, *Scanner) ([]bundleObservation, error) {
+		return bundles, nil
+	}}}
+
+	result, err := s.Scan(context.Background())
+	require.NoError(t, err)
+	require.ElementsMatch(t, []BundleRef{
+		{Source: "jvm_cacerts", SourceDetail: "/opt/a.jks"},
+		{Source: "jvm_cacerts", SourceDetail: "/opt/b.jks"},
+		{Source: "jvm_cacerts", SourceDetail: "/opt/c.jks", KeyStore: true},
+	}, result.ReadBundles)
+	keys := map[string]int{}
+	for _, k := range result.PrivateKey {
+		keys[k.SourceDetail]++
+	}
+	require.Equal(t, map[string]int{"/opt/b.jks": 1, "/opt/c.jks": 1}, keys, "the readable key entries are still reported")
 }
 
 func TestReadAppConfigBundles_ReportsTheBundlesItRead(t *testing.T) {

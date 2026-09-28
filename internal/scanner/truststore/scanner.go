@@ -87,8 +87,9 @@ type ScanResult struct {
 
 // BundleRef names one trust bundle as its observations do: Source and
 // SourceDetail. KeyStore is set for a keystore (JKS or PKCS#12) read this
-// scan, whose private-key holdings (source "truststore", the same
-// SourceDetail) it is also authoritative for.
+// scan with every private-key entry in it readable, whose private-key
+// holdings (source "truststore", the same SourceDetail) it is then also
+// authoritative for.
 type BundleRef struct {
 	Source       string
 	SourceDetail string
@@ -174,14 +175,14 @@ func (s *Scanner) Scan(ctx context.Context) (ScanResult, error) {
 	}
 
 	for _, b := range allBundles {
-		trust, key := s.mapBundle(b)
+		trust, key, keysComplete := s.mapBundle(b)
 		out.TrustStore = append(out.TrustStore, trust...)
 		out.PrivateKey = append(out.PrivateKey, key...)
 		if bundleRead(b, len(trust), len(key)) {
 			out.ReadBundles = append(out.ReadBundles, BundleRef{
 				Source:       b.Source,
 				SourceDetail: b.SourceDetail,
-				KeyStore:     b.Format == "jks" || b.Format == "pkcs12",
+				KeyStore:     (b.Format == "jks" || b.Format == "pkcs12") && keysComplete,
 			})
 		}
 	}

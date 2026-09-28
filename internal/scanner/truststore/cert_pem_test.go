@@ -89,14 +89,14 @@ func testCert(t *testing.T, cn string, isCA bool) (*x509.Certificate, *rsa.Priva
 
 func TestObservationsCarryCertificatePEM_PEMBundle(t *testing.T) {
 	s := &Scanner{}
-	trust, _ := s.mapBundle(bundleObservation{Source: "os_bundle", SourceDetail: "bundle.pem", Format: "pem", Data: makePEMBundle(t, 3)})
+	trust, _, _ := s.mapBundle(bundleObservation{Source: "os_bundle", SourceDetail: "bundle.pem", Format: "pem", Data: makePEMBundle(t, 3)})
 	requireTrustPEMs(t, "pem bundle", trust, 3)
 }
 
 func TestObservationsCarryCertificatePEM_DER(t *testing.T) {
 	c, _ := testCert(t, "der-ca", true)
 	s := &Scanner{}
-	trust, _ := s.mapBundle(bundleObservation{Source: "os_bundle", SourceDetail: "ca.der", Format: "der", Data: c.Raw})
+	trust, _, _ := s.mapBundle(bundleObservation{Source: "os_bundle", SourceDetail: "ca.der", Format: "der", Data: c.Raw})
 	requireTrustPEMs(t, "der", trust, 1)
 }
 
@@ -108,13 +108,13 @@ func TestObservationsCarryCertificatePEM_PKCS12(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &Scanner{jvmPasswords: []string{"changeit"}}
-	trust, _ := s.mapBundle(bundleObservation{Source: "jvm_cacerts", SourceDetail: "store.p12", Format: "pkcs12", Data: data})
+	trust, _, _ := s.mapBundle(bundleObservation{Source: "jvm_cacerts", SourceDetail: "store.p12", Format: "pkcs12", Data: data})
 	requireTrustPEMs(t, "pkcs12", trust, 2)
 }
 
 func TestObservationsCarryCertificatePEM_JKS(t *testing.T) {
 	s := &Scanner{jvmPasswords: []string{"changeit"}}
-	trust, priv := s.mapJKS(bundleObservation{Source: "jvm_cacerts", SourceDetail: "test.jks", Format: "jks", Data: makeJKSFixture(t, "changeit")})
+	trust, priv, _ := s.mapJKS(bundleObservation{Source: "jvm_cacerts", SourceDetail: "test.jks", Format: "jks", Data: makeJKSFixture(t, "changeit")})
 	requireTrustPEMs(t, "jks", trust, 2)
 	if len(priv) != 1 {
 		t.Fatalf("jks: %d private-key observations, want 1", len(priv))

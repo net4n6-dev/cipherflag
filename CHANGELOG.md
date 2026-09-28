@@ -102,8 +102,10 @@ All notable changes to CipherFlag are documented in this file.
   permission problem, a locked keychain), cannot be decoded (a keystore
   password that does not match) or was not probed in this run is left
   exactly as it was, as is a bundle with a row the scan could not write. A
-  bundle that is deleted outright keeps its rows; only removals from a
-  bundle that is still readable are reconciled.
+  keystore with a private-key entry that the keystore password does not
+  open keeps its held keys (its CAs are still reconciled). A bundle that is
+  deleted outright keeps its rows; only removals from a bundle that is
+  still readable are reconciled.
 - **One unwritable trust-store or private-key row lost the whole scan's
   rows.** The rows were written as one batch, which the database runs as a
   single transaction, so one failure aborted every row after it and rolled
