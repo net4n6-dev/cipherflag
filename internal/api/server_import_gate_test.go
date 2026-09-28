@@ -34,8 +34,8 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
-// authGateStore answers only what the auth middleware asks: users exist, and
-// one known agent token. Anything else falls through to the nil embedded
+// authGateStore answers only what the auth middleware asks: agent-token
+// lookups for one known agent token. Anything else falls through to the nil embedded
 // CryptoStore and would panic, which is intended: these tests must be rejected
 // or rejected-by-handler before reaching the store.
 type authGateStore struct {
@@ -43,7 +43,6 @@ type authGateStore struct {
 	agentHash string
 }
 
-func (s *authGateStore) HasUsers(context.Context) (bool, error) { return true, nil }
 func (s *authGateStore) GetAgentToken(_ context.Context, hash string) (*model.AgentToken, error) {
 	if hash == s.agentHash {
 		return &model.AgentToken{ID: "agent-1"}, nil
@@ -61,7 +60,7 @@ func TestRouter_ImportCBOM_AdminOnly(t *testing.T) {
 	secret := []byte("test-secret")
 	sum := sha256.Sum256([]byte("agent-secret"))
 	st := &authGateStore{agentHash: hex.EncodeToString(sum[:])}
-	router := NewRouter(st, &config.Config{}, "", "", secret,
+	router := NewRouter(st, &config.Config{}, "", "", secret, "",
 		observcache.NewNoop(), scoring.NewNoopScorer(), sse.NewHub(),
 		venafi.NewLiveConfig(config.VenafiExportConfig{}), cbom.NewGenerator())
 

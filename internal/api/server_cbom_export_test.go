@@ -50,7 +50,7 @@ func TestRouter_CBOMExportRoutes_AuthenticatedButNotAdminOnly(t *testing.T) {
 	secret := []byte("test-secret")
 	sum := sha256.Sum256([]byte("agent-secret"))
 	st := &exportGateStore{authGateStore{agentHash: hex.EncodeToString(sum[:])}}
-	router := NewRouter(st, &config.Config{}, "", "", secret,
+	router := NewRouter(st, &config.Config{}, "", "", secret, "",
 		observcache.NewNoop(), scoring.NewNoopScorer(), sse.NewHub(),
 		venafi.NewLiveConfig(config.VenafiExportConfig{}), cbom.NewGenerator())
 
