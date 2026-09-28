@@ -61,6 +61,9 @@ All notable changes to CipherFlag are documented in this file.
   repaired. Nothing needs to be re-sent. A stored PEM that does not parse,
   or belongs to a different certificate, is left as it is and counted as
   skipped in the same log line.
+- **`host_ip_sightings` grew without limit.** Ingest records a sighting
+  for every host and IP it observes, and nothing deleted them. `serve` now
+  deletes sightings not seen for 7 days, once at startup and then daily.
 - **`asset_count` overstated BOM contents.** It now equals the number of
   asset components in the BOM. When health reports were dropped because
   their asset no longer exists, `assets_omitted` and `assets_omitted_types`

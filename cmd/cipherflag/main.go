@@ -45,6 +45,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/ingest/tanium"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/cachegc"
 	scanscheduler "github.com/net4n6-dev/cipherflag/internal/scanner/scheduler"
+	"github.com/net4n6-dev/cipherflag/internal/sightingsprune"
 	"github.com/net4n6-dev/cipherflag/internal/sse"
 	"github.com/net4n6-dev/cipherflag/internal/store"
 )
@@ -211,6 +212,18 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		gc := &cachegc.Sweeper{Store: st, RuleVersion: "v3", PromptContentHash: ""}
 		go gc.Run(cacheGCCtx)
 		log.Info().Msg("cache GC running")
+	}
+
+	// Retention for host_ip_sightings, which ingest writes on every
+	// observation and nothing else deletes. Prunes once now (so a restart
+	// after a long outage cannot leave the table over its bound), then
+	// daily; 7-day retention.
+	{
+		pruneCtx, pruneCancel := context.WithCancel(ctx)
+		defer pruneCancel()
+		go sightingsprune.NewRunner(st, 24*time.Hour).Run(pruneCtx)
+		log.Info().Int("retain_days", sightingsprune.DefaultRetainDays).
+			Msg("host_ip_sightings prune runner started (24h interval)")
 	}
 
 	// Start CBOM runtime goroutines (after scorer is wired).
