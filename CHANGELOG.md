@@ -77,6 +77,12 @@ All notable changes to CipherFlag are documented in this file.
   CipherFlag CE before 2.3.0 cannot load the new files: its `verify-cbom`
   reports a trust mismatch on a new `.pub` and its signer rejects a new
   `.key`. Use 2.3.0 or later wherever a new key is used.
+- **Releases are gated on the full CI suite.** The release workflow used to
+  publish images on any `v*` tag without running tests. It now runs the
+  CI workflow (Go, integration and frontend jobs) and checks that the tag
+  matches `Version` in `cmd/cipherflag/main.go` before building images. A
+  prerelease tag (for example `v2.3.0-rc1`) no longer moves `:latest` and is
+  marked as a prerelease on GitHub.
 - The README documented `verify-cbom <file>` and `sign-cbom <file>`; both
   take flags (`--bom`, `--trusted-key`, `--key`), and the positional form
   failed. The README now shows the real usage.
