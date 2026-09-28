@@ -16,8 +16,9 @@ name=cf-zeek-sensor-test-$$
 
 cleanup() {
     docker container rm -f "$name" >/dev/null 2>&1 || true
-    chmod -R u+w "$work" 2>/dev/null || true
-    rm -r "$work"
+    # On Linux the container writes the logs as root, so they may not be
+    # removable here; that must not fail a passing run.
+    rm -r "$work" 2>/dev/null || true
 }
 trap cleanup EXIT
 
