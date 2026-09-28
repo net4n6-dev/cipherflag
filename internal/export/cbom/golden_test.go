@@ -71,9 +71,7 @@ func runGoldenAssert(t *testing.T, scrubbed []byte, goldenName string) {
 func emitSignedScrubbed(t *testing.T, bom *cdx.BOM) []byte {
 	t.Helper()
 
-	signer, err := NewFileSigner(filepath.Join(goldenDir, "fixture-signing.key"))
-	require.NoError(t, err, "emitSignedScrubbed: NewFileSigner")
-	require.NoError(t, SignBOM(bom, signer), "emitSignedScrubbed: SignBOM")
+	require.NoError(t, SignBOM(bom, goldenFixtureSigner()), "emitSignedScrubbed: SignBOM")
 
 	raw, err := MarshalSignedBOM(bom)
 	require.NoError(t, err, "emitSignedScrubbed: MarshalSignedBOM")

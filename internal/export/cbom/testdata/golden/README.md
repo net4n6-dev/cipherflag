@@ -68,12 +68,13 @@ fail the diff — only the per-run signature bytes are opaque.
 
 ## Fixture signing key
 
-`fixture-signing.key` (raw 64-byte Ed25519 in PEM, NOT PKCS#8) is
-checked in so the JSF signature *shape* is byte-stable. The PEM body
-is the literal `ed25519.PrivateKey` (seed || public key), the raw
-encoding `NewFileSigner` in `../../signer_file.go` still accepts
-alongside PKCS#8 (`parseEd25519PrivateKey` in `../../ed25519keys.go`). See `fixture-signing.key.README` for the
-derivation seed and constraints. NOT FOR PRODUCTION USE.
+The goldens are signed with a fixed Ed25519 key so the JSF signature
+*shape*, including its `publicKey`, is byte-stable. No private key is
+committed: `goldenFixtureSigner` (`../../golden_signer_test.go`)
+derives it at test time from a public seed,
+`ed25519.NewKeyFromSeed(SHA-256("cipherflag-golden-cbom-fixture-v1"))`
+(public key `145ecff4...d99d18b9`). Changing the seed changes every
+golden's `publicKey`. It has no purpose outside these tests.
 
 ## Property tests
 

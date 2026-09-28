@@ -17,7 +17,6 @@
 package cbom
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -223,9 +222,7 @@ func TestProperty_CanonicaliseIsIdempotent(t *testing.T) {
 	})
 	require.NoError(t, err, "TestProperty_CanonicaliseIsIdempotent: Generate")
 
-	signer, err := NewFileSigner(filepath.Join(goldenDir, "fixture-signing.key"))
-	require.NoError(t, err, "TestProperty_CanonicaliseIsIdempotent: NewFileSigner")
-	require.NoError(t, SignBOM(bom, signer), "TestProperty_CanonicaliseIsIdempotent: SignBOM")
+	require.NoError(t, SignBOM(bom, goldenFixtureSigner()), "TestProperty_CanonicaliseIsIdempotent: SignBOM")
 
 	raw, err := MarshalSignedBOM(bom)
 	require.NoError(t, err, "TestProperty_CanonicaliseIsIdempotent: MarshalSignedBOM")
