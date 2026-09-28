@@ -70,6 +70,12 @@ All notable changes to CipherFlag are documented in this file.
   metadata, provenance on the scanned host, and scoring), and then the rows.
   As a result, CA certificates from scanned trust stores now appear in the
   certificate inventory, and in findings, like any other certificate.
+- The CBOM signing key is read once, at startup, and that one key signs
+  every emitted and downloaded CBOM. It used to be read up to four times
+  during startup, so a key file replaced or briefly empty at that moment
+  could crash `serve` after the startup check had passed, or have the
+  runtime and the download handlers sign with different keys. As before, a
+  new key takes effect on restart.
 - **A CA or private key removed from a host stayed in the inventory
   forever.** `scan-truststore` only added and refreshed rows. It now also
   removes, for each trust-store source it fully scanned, the entries it no

@@ -48,27 +48,24 @@ func NewGeneratorWithSigning(signingCfg config.CBOMSigningConfig) (*Generator, e
 	if err != nil {
 		return nil, fmt.Errorf("cbom: signing: %w", err)
 	}
-	g := NewGenerator()
-	g.signer = signer
-	return g, nil
+	return NewGeneratorFromSigner(signer), nil
 }
 
-// NewRuntime constructs a Runtime from a store and CBOMConfig.
-// Call Start(ctx) to begin background emission goroutines.
-// Panics if signing is enabled but the key cannot be loaded. serve checks
-// the key with LoadSigner first and exits cleanly on an error
-// (checkCBOMSigning in cmd/cipherflag), so the panic is only a backstop.
-func NewRuntime(st store.CryptoStore, cfg *config.CBOMConfig) *Runtime {
-	gen, err := NewGeneratorWithSigning(cfg.Signing)
-	if err != nil {
-		// Backstop only: never emit unsigned BOMs while signing is enabled.
-		panic("cbom: NewRuntime: " + err.Error())
-	}
+// NewGeneratorFromSigner returns a Generator that signs with signer, or an
+// unsigned one when signer is nil. serve loads the key once (LoadSigner, in
+// its startup check) and hands the one Generator to the CBOM runtime and
+// every CBOM download handler, so all of them sign with the key it logged
+// and none reads the key file again. A Generator is safe for concurrent use.
+func NewGeneratorFromSigner(signer Signer) *Generator {
+	g := NewGenerator()
+	g.signer = signer
+	return g
+}
 
-	// The signing-key fingerprint is logged by serve's startup check
-	// (checkCBOMSigning), which runs whenever signing is enabled; logging it
-	// here too would miss configs without the runtime and double it with.
-
+// NewRuntime constructs a Runtime from a store, CBOMConfig and the Generator
+// every emitted BOM is built (and signed) with. Call Start(ctx) to begin
+// background emission goroutines.
+func NewRuntime(st store.CryptoStore, cfg *config.CBOMConfig, gen *Generator) *Runtime {
 	scopes := ScopesFromConfig(cfg.Scopes)
 	byName := make(map[string]*Scope, len(scopes))
 	for i := range scopes {

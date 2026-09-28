@@ -21,7 +21,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/store"
 )
@@ -40,19 +39,10 @@ type RepoCBOMHandler struct {
 	gen   *cbom.Generator
 }
 
-// NewRepoCBOMHandler constructs the handler. When signingCfg.Enabled is true,
-// each repo CBOM download is signed with the configured key.
-func NewRepoCBOMHandler(s RepoCBOMStore, signingCfg ...config.CBOMSigningConfig) *RepoCBOMHandler {
-	var cfg config.CBOMSigningConfig
-	if len(signingCfg) > 0 {
-		cfg = signingCfg[0]
-	}
-	gen, err := cbom.NewGeneratorWithSigning(cfg)
-	if err != nil {
-		// Backstop only: serve checks the key first and exits with a clear
-		// message (checkCBOMSigning).
-		panic("repo cbom handler: " + err.Error())
-	}
+// NewRepoCBOMHandler constructs the handler. Each repo CBOM download is built
+// with gen, which signs when serve loaded a signing key
+// (cbom.NewGeneratorFromSigner).
+func NewRepoCBOMHandler(s RepoCBOMStore, gen *cbom.Generator) *RepoCBOMHandler {
 	return &RepoCBOMHandler{store: s, gen: gen}
 }
 

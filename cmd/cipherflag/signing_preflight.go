@@ -24,13 +24,14 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 )
 
-// checkCBOMSigning exits the process when [cbom.signing] is enabled but its
-// key cannot be loaded. The CBOM runtime and the CBOM download handlers load
-// the key while they are constructed and panic if it fails; without this
-// check a bad key got serve past startup and then panicked in whichever
-// constructor ran first, which crash-loops a container under
-// `restart: unless-stopped`. Called before the database is touched, so the
-// operator gets one line naming the key and the way out.
+// checkCBOMSigning loads the [cbom.signing] key, the only place serve reads
+// it, and returns the signer (nil when signing is disabled). serve builds one
+// Generator from it for the CBOM runtime and every CBOM download handler, so
+// all of them sign with the key logged here. When signing is enabled but the
+// key cannot be loaded it exits the process with one line naming the key and
+// the way out, before the database is touched (a bad key used to get serve
+// past startup and panic in a constructor, which crash-loops a container
+// under `restart: unless-stopped`).
 //
 // With a loadable key it logs the public key's fingerprint for operators to
 // compare against their out-of-band record. It is logged here because this
@@ -38,13 +39,13 @@ import (
 // [cbom] enabled is true, but the API download handlers sign regardless.
 //
 // Ported from CipherFlag EE (rm:0795).
-func checkCBOMSigning(cfg config.CBOMSigningConfig) {
+func checkCBOMSigning(cfg config.CBOMSigningConfig) cbom.Signer {
 	signer, err := cbom.LoadSigner(cfg)
 	if err != nil {
 		log.Fatal().Err(err).Msg("[cbom.signing] is enabled but its key cannot be loaded; fix the key or set [cbom.signing] enabled = false")
 	}
 	if signer == nil {
-		return
+		return nil
 	}
 	pub, err := signer.PublicKey()
 	if err != nil {
@@ -55,4 +56,5 @@ func checkCBOMSigning(cfg config.CBOMSigningConfig) {
 		Str("algorithm", signer.Algorithm()).
 		Str("public_key_sha256", hex.EncodeToString(sum[:])).
 		Msg("CBOM signing enabled; compare public_key_sha256 against your trusted copy")
+	return signer
 }

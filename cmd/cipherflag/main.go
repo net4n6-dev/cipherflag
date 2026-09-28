@@ -125,7 +125,9 @@ func main() {
 }
 
 func runServe(ctx context.Context, cfg *config.Config, configPath string) {
-	checkCBOMSigning(cfg.CBOM.Signing)
+	// The signing key is read here and nowhere else: one Generator signs for
+	// the CBOM runtime and every CBOM download handler.
+	cbomGen := cbom.NewGeneratorFromSigner(checkCBOMSigning(cfg.CBOM.Signing))
 
 	st, err := store.NewPostgresStore(ctx, cfg.Storage.PostgresURL)
 	if err != nil {
@@ -157,7 +159,7 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	// can reference it.
 	var cbomRuntime *cbom.Runtime
 	if cfg.CBOM.Enabled {
-		cbomRuntime = cbom.NewRuntime(st, &cfg.CBOM)
+		cbomRuntime = cbom.NewRuntime(st, &cfg.CBOM, cbomGen)
 		log.Info().
 			Int("scopes", len(cfg.CBOM.Scopes)).
 			Bool("event_push", cfg.CBOM.EventPushEnabled).
@@ -457,7 +459,7 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	go sse.StartListener(sseCtx, cfg.Storage.PostgresURL, sseHub, log.Logger)
 	log.Info().Msg("SSE hub started")
 
-	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer, sseHub, venafiLive)
+	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer, sseHub, venafiLive, cbomGen)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Listen,

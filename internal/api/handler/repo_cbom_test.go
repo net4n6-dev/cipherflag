@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 
 	"github.com/net4n6-dev/cipherflag/internal/store"
 )
@@ -38,7 +39,7 @@ func (f *fakeRepoCBOMStore) ListRepositoryFindings(ctx context.Context, q store.
 }
 
 func TestRepoCBOMHandler_RequiresRepoID(t *testing.T) {
-	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{})
+	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{}, cbom.NewGenerator())
 	req := httptest.NewRequest("GET", "/api/v1/repo/exports/cbom", nil)
 	rr := httptest.NewRecorder()
 	h.Download(rr, req)
@@ -48,7 +49,7 @@ func TestRepoCBOMHandler_RequiresRepoID(t *testing.T) {
 }
 
 func TestRepoCBOMHandler_RejectsInvalidUUID(t *testing.T) {
-	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{})
+	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{}, cbom.NewGenerator())
 	req := httptest.NewRequest("GET", "/api/v1/repo/exports/cbom?repo_id=not-a-uuid", nil)
 	rr := httptest.NewRecorder()
 	h.Download(rr, req)
@@ -58,7 +59,7 @@ func TestRepoCBOMHandler_RejectsInvalidUUID(t *testing.T) {
 }
 
 func TestRepoCBOMHandler_Success_EmptyRepo(t *testing.T) {
-	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{rows: nil})
+	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{rows: nil}, cbom.NewGenerator())
 	req := httptest.NewRequest("GET", "/api/v1/repo/exports/cbom?repo_id=11111111-1111-1111-1111-111111111111", nil)
 	rr := httptest.NewRecorder()
 	h.Download(rr, req)
@@ -82,7 +83,7 @@ func TestRepoCBOMHandler_Success_EmptyRepo(t *testing.T) {
 // a DB error that would contain a password if it were real); it must be
 // logged server-side and reported to the client as a generic message.
 func TestRepoCBOMHandler_GenerationErrorDoesNotLeakDetail(t *testing.T) {
-	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{err: fmt.Errorf("pq: password authentication failed for user %q", "cipherflag")})
+	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{err: fmt.Errorf("pq: password authentication failed for user %q", "cipherflag")}, cbom.NewGenerator())
 	req := httptest.NewRequest("GET", "/api/v1/repo/exports/cbom?repo_id=33333333-3333-3333-3333-333333333333", nil)
 	rr := httptest.NewRecorder()
 	h.Download(rr, req)
@@ -96,7 +97,7 @@ func TestRepoCBOMHandler_GenerationErrorDoesNotLeakDetail(t *testing.T) {
 }
 
 func TestRepoCBOMHandler_ContentDispositionFilename(t *testing.T) {
-	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{rows: nil})
+	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{rows: nil}, cbom.NewGenerator())
 	repoID := "22222222-2222-2222-2222-222222222222"
 	req := httptest.NewRequest("GET", "/api/v1/repo/exports/cbom?repo_id="+repoID, nil)
 	rr := httptest.NewRecorder()

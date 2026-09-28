@@ -26,6 +26,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/api/handler"
 	"github.com/net4n6-dev/cipherflag/internal/api/middleware"
 	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
 	cbomimport "github.com/net4n6-dev/cipherflag/internal/import/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
@@ -61,6 +62,10 @@ func NewRouter(
 	// handler and the always-on Pusher goroutine. Pass venafi.NewLiveConfig
 	// from main before starting the pusher.
 	venafiLive *venafi.LiveConfig,
+	// cbomGen builds (and, when serve loaded a signing key, signs) every
+	// on-demand CBOM download. serve loads the key once and passes the same
+	// Generator to the CBOM runtime.
+	cbomGen *cbom.Generator,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -85,7 +90,7 @@ func NewRouter(
 	ingestH := handler.NewIngestHandler(unifiedIngester)
 	osqueryAdapter := osquery.NewAdapter(unifiedIngester)
 	cbomImporter := cbomimport.NewImporter(unifiedIngester)
-	cbomH := handler.NewCBOMHandler(st, &cfg.CBOM, cbomImporter)
+	cbomH := handler.NewCBOMHandler(st, &cfg.CBOM, cbomGen, cbomImporter)
 	providersH := handler.NewProvidersHandler(st)
 	reposMgmtH := handler.NewRepositoriesHandler(st)
 	// CE-flavor: deterministic-only scan submission. AIRuntime is left
@@ -93,7 +98,7 @@ func NewRouter(
 	// AI-gate path. Pricing table is unused in CE.
 	scansH := handler.NewScansHandler(st, handler.AIRuntime{}, nil)
 	findingsH := handler.NewFindingsHandler(st)
-	repoCBOMH := handler.NewRepoCBOMHandler(st, cfg.CBOM.Signing)
+	repoCBOMH := handler.NewRepoCBOMHandler(st, cbomGen)
 	sshKeyH := handler.NewSSHKeyHandler(st)
 	cryptoLibH := handler.NewCryptoLibraryHandler(st)
 	cryptoConfigH := handler.NewCryptoConfigHandler(st)

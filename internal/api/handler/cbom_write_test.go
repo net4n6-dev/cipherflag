@@ -39,7 +39,7 @@ func TestCBOMHandler_Download_SignedBOMKeepsSignature(t *testing.T) {
 }
 
 func TestRepoCBOMHandler_SignedDownloadKeepsSignature(t *testing.T) {
-	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{}, cbomtest.SigningConfig(t))
+	h := NewRepoCBOMHandler(&fakeRepoCBOMStore{}, signingGenerator(t))
 
 	rr := httptest.NewRecorder()
 	h.Download(rr, httptest.NewRequest(http.MethodGet,

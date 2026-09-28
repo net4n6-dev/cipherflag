@@ -59,15 +59,9 @@ type CBOMHandler struct {
 
 // NewCBOMHandler constructs the handler. Importer may be nil if the
 // import endpoint is not wired (the Download handler works standalone).
-// When cfg.Signing.Enabled is true, each on-demand CBOM download is signed.
-func NewCBOMHandler(st store.CryptoStore, cfg *config.CBOMConfig, importer cbomImporterIface) *CBOMHandler {
-	gen, err := cbom.NewGeneratorWithSigning(cfg.Signing)
-	if err != nil {
-		// Backstop only: serve checks the key first and exits with a clear
-		// message (checkCBOMSigning). Never serve unsigned BOMs while
-		// signing is enabled.
-		panic("cbom handler: " + err.Error())
-	}
+// Each on-demand CBOM download is built with gen, which signs when serve
+// loaded a signing key (cbom.NewGeneratorFromSigner).
+func NewCBOMHandler(st store.CryptoStore, cfg *config.CBOMConfig, gen *cbom.Generator, importer cbomImporterIface) *CBOMHandler {
 	return &CBOMHandler{
 		store:    st,
 		gen:      gen,

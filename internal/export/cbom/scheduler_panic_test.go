@@ -46,7 +46,7 @@ func TestRuntime_EmitScope_SinkPanicIsContained(t *testing.T) {
 		Enabled: true,
 		Scopes:  []config.ScopeConfig{{Name: "prod", Sinks: []config.SinkConfig{fileSink, fileSink}}},
 	}
-	rt := NewRuntime(&fakeSchedStore{}, cfg)
+	rt := NewRuntime(&fakeSchedStore{}, cfg, testGenerator(t, cfg))
 	rt.generator = &fakeGenForScheduler{bom: cdx.NewBOM()}
 	snk := &panicOnceSink{}
 	rt.sinkOverride = snk
@@ -79,7 +79,7 @@ func TestRuntime_EmitScope_GeneratePanicIsContained(t *testing.T) {
 			{Type: "file", File: &config.FileSinkConfig{PathTemplate: "/tmp/x.json"}},
 		}}},
 	}
-	rt := NewRuntime(&fakeSchedStore{}, cfg)
+	rt := NewRuntime(&fakeSchedStore{}, cfg, testGenerator(t, cfg))
 	rt.generator = &panicGen{}
 	snk := &fakeSinkForScheduler{}
 	rt.sinkOverride = snk
@@ -118,7 +118,7 @@ func TestRuntime_NotifyWorker_PanicIsContained(t *testing.T) {
 		EventPushEnabled: true,
 		Scopes:           []config.ScopeConfig{{Name: "prod", HostIDs: []string{"h1"}}},
 	}
-	rt := NewRuntime(&panicOnceProvStore{}, cfg)
+	rt := NewRuntime(&panicOnceProvStore{}, cfg, testGenerator(t, cfg))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

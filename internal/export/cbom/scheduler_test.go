@@ -77,7 +77,7 @@ func TestRuntime_NotifyAssetScored_NonBlocking(t *testing.T) {
 			{Name: "prod", HostIDs: []string{"h1"}},
 		},
 	}
-	rt := NewRuntime(&fakeSchedStore{}, cfg)
+	rt := NewRuntime(&fakeSchedStore{}, cfg, testGenerator(t, cfg))
 	// Fill the channel to capacity and beyond — must never block
 	for i := 0; i < cap(rt.notifyCh)+10; i++ {
 		rt.NotifyAssetScored("certificate", "fp1")
@@ -96,7 +96,7 @@ func TestRuntime_EmitScope_CallsGenerateAndSink(t *testing.T) {
 			Sinks: []config.SinkConfig{fakeSinkCfg},
 		}},
 	}
-	rt := NewRuntime(&fakeSchedStore{}, cfg)
+	rt := NewRuntime(&fakeSchedStore{}, cfg, testGenerator(t, cfg))
 	rt.generator = gen
 
 	scope := &rt.scopes[0]
@@ -120,7 +120,7 @@ func TestRuntime_EmitScope_GenerateErrorSkipsSink(t *testing.T) {
 		Enabled: true,
 		Scopes:  []config.ScopeConfig{{Name: "prod", Sinks: []config.SinkConfig{{Type: "file", File: &config.FileSinkConfig{PathTemplate: "/tmp/x.json"}}}}},
 	}
-	rt := NewRuntime(&fakeSchedStore{}, cfg)
+	rt := NewRuntime(&fakeSchedStore{}, cfg, testGenerator(t, cfg))
 	rt.generator = gen
 	rt.sinkOverride = snk
 
@@ -137,7 +137,7 @@ func TestRuntime_EmitScope_NoSinksSkipsGenerate(t *testing.T) {
 		Enabled: true,
 		Scopes:  []config.ScopeConfig{{Name: "dmz"}}, // no sinks
 	}
-	rt := NewRuntime(&fakeSchedStore{}, cfg)
+	rt := NewRuntime(&fakeSchedStore{}, cfg, testGenerator(t, cfg))
 	rt.generator = gen
 
 	rt.emitScope(context.Background(), &rt.scopes[0])
@@ -158,7 +158,7 @@ func TestDirtySet_IntegrationWithDrainLoop(t *testing.T) {
 	gen := &fakeGenForScheduler{bom: cdx.NewBOM()}
 	snk := &fakeSinkForScheduler{}
 
-	rt := NewRuntime(&fakeSchedStore{}, cfg)
+	rt := NewRuntime(&fakeSchedStore{}, cfg, testGenerator(t, cfg))
 	rt.generator = gen
 	rt.sinkOverride = snk
 
@@ -181,7 +181,7 @@ func TestRuntime_ScopeByName(t *testing.T) {
 			{Name: "a"}, {Name: "b"},
 		},
 	}
-	rt := NewRuntime(&fakeSchedStore{}, cfg)
+	rt := NewRuntime(&fakeSchedStore{}, cfg, testGenerator(t, cfg))
 	if rt.scopeByName["a"] == nil || rt.scopeByName["b"] == nil {
 		t.Error("scopeByName should index both scopes")
 	}
