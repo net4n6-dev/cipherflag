@@ -95,6 +95,7 @@ func IngestAppConfigBundles(refs []TrustBundleRef) ([]model.TrustStoreObservatio
 				CAFingerprint: cert.FingerprintSHA256,
 				Source:        "app_config",
 				SourceDetail:  sourceDetail,
+				CAPEM:         certPEM(block.Bytes),
 			})
 		}
 	}

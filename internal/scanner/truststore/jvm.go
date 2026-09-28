@@ -78,6 +78,7 @@ func (s *Scanner) mapJKS(b bundleObservation) ([]model.TrustStoreObservation, []
 				CAFingerprint: hex.EncodeToString(sum[:]),
 				Source:        b.Source,
 				SourceDetail:  b.SourceDetail,
+				CAPEM:         certPEM(tce.Certificate.Content),
 			})
 			continue
 		}
@@ -89,6 +90,7 @@ func (s *Scanner) mapJKS(b bundleObservation) ([]model.TrustStoreObservation, []
 					Evidence:        "jks_private_key_entry",
 					Source:          "truststore",
 					SourceDetail:    b.SourceDetail,
+					CertPEM:         certPEM(cert.Content),
 				})
 			}
 		}

@@ -61,6 +61,15 @@ All notable changes to CipherFlag are documented in this file.
   repaired. Nothing needs to be re-sent. A stored PEM that does not parse,
   or belongs to a different certificate, is left as it is and counted as
   skipped in the same log line.
+- **`scan-truststore` stored almost nothing and still reported success.**
+  Trust-store and private-key rows reference certificates by fingerprint,
+  but the command never stored the certificates it found, so every row for
+  a certificate CipherFlag had not already seen failed and was dropped with
+  a warning. A scan of a macOS host found 414 trust-store entries and stored
+  none. The command now stores each certificate it finds first (with its
+  metadata, provenance on the scanned host, and scoring), and then the rows.
+  As a result, CA certificates from scanned trust stores now appear in the
+  certificate inventory, and in findings, like any other certificate.
 - **`host_ip_sightings` grew without limit.** Ingest records a sighting
   for every host and IP it observes, and nothing deleted them. `serve` now
   deletes sightings not seen for 7 days, once at startup and then daily.

@@ -26,6 +26,13 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
+// certPEM encodes a DER certificate as a PEM CERTIFICATE block, carried on
+// observations so the caller can store the certificate before the trust or
+// private-key row that references it.
+func certPEM(der []byte) string {
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+
 // mapBundle decodes a single bundleObservation per its Format.
 func (s *Scanner) mapBundle(b bundleObservation) ([]model.TrustStoreObservation, []model.PrivateKeyObservation) {
 	switch b.Format {
@@ -62,6 +69,7 @@ func (s *Scanner) mapPEM(b bundleObservation) []model.TrustStoreObservation {
 			CAFingerprint: cert.FingerprintSHA256,
 			Source:        b.Source,
 			SourceDetail:  b.SourceDetail,
+			CAPEM:         certPEM(block.Bytes),
 		})
 	}
 	return out
@@ -77,6 +85,7 @@ func (s *Scanner) mapDER(b bundleObservation) []model.TrustStoreObservation {
 		CAFingerprint: cert.FingerprintSHA256,
 		Source:        b.Source,
 		SourceDetail:  b.SourceDetail,
+		CAPEM:         certPEM(b.Data),
 	}}
 }
 
@@ -100,6 +109,7 @@ func (s *Scanner) mapPKCS12(b bundleObservation) ([]model.TrustStoreObservation,
 				trust = append(trust, model.TrustStoreObservation{
 					CAFingerprint: hex.EncodeToString(sum[:]),
 					Source:        b.Source, SourceDetail: b.SourceDetail,
+					CAPEM: certPEM(cert.Raw),
 				})
 			}
 			for _, c := range caCerts {
@@ -107,6 +117,7 @@ func (s *Scanner) mapPKCS12(b bundleObservation) ([]model.TrustStoreObservation,
 				trust = append(trust, model.TrustStoreObservation{
 					CAFingerprint: hex.EncodeToString(sum[:]),
 					Source:        b.Source, SourceDetail: b.SourceDetail,
+					CAPEM: certPEM(c.Raw),
 				})
 			}
 		} else {
@@ -117,6 +128,7 @@ func (s *Scanner) mapPKCS12(b bundleObservation) ([]model.TrustStoreObservation,
 					Evidence:        "pkcs12_entry",
 					Source:          "truststore",
 					SourceDetail:    b.SourceDetail,
+					CertPEM:         certPEM(cert.Raw),
 				})
 			}
 			// caCerts from key-bundles intentionally not written to trust store.

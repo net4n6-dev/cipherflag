@@ -28,10 +28,15 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/net4n6-dev/cipherflag/internal/analysis/scoring"
 	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/ingest"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/dedup"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/configs"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/executil"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/truststore"
@@ -96,11 +101,13 @@ func runScanTruststore(ctx context.Context, cfg *config.Config, args []string) {
 		result.PrivateKey[i].HostID = *hostID
 	}
 
-	if err := st.UpsertTrustStoreObservations(ctx, result.TrustStore); err != nil {
-		log.Fatal().Err(err).Msg("scan-truststore: write trust store observations")
+	var scorer scoring.Scorer = scoring.NewNoopScorer()
+	if cfg.Analysis.ScorerEnabled {
+		scorer = scoring.NewDispatcher(st)
 	}
-	if err := st.UpsertPrivateKeyHoldings(ctx, result.PrivateKey); err != nil {
-		log.Fatal().Err(err).Msg("scan-truststore: write private-key holdings")
+	ing := ingest.NewUnifiedIngester(st, ingest.WithScorer(scorer))
+	if err := persistTrustStoreScan(ctx, st, ing, *hostID, result); err != nil {
+		log.Fatal().Err(err).Msg("scan-truststore: persist scan")
 	}
 
 	// Warn for any discoverer that reported a non-empty error string so
@@ -121,4 +128,67 @@ func runScanTruststore(ctx context.Context, cfg *config.Config, args []string) {
 		Int("trust_store_observations", len(result.TrustStore)).
 		Int("private_key_observations", len(result.PrivateKey)).
 		Msg("scan-truststore: complete")
+}
+
+// certIngester is the part of ingest.UnifiedIngester persistTrustStoreScan uses.
+type certIngester interface {
+	Ingest(ctx context.Context, result *ingest.DiscoveryResult) (*ingest.IngestionSummary, error)
+}
+
+// persistTrustStoreScan writes one scan's results for hostID. host_trust_store
+// and cert_private_key_holding reference certificates by fingerprint, so the
+// scanned certificates are stored first, through the normal ingest path
+// (metadata filled from the PEM, provenance on the scanned host, scoring).
+// Without that, every row for a certificate CipherFlag had not already seen
+// failed its foreign key and was dropped: on a fresh install, all of them.
+func persistTrustStoreScan(ctx context.Context, st *store.PostgresStore, ing certIngester, hostID string, result truststore.ScanResult) error {
+	if certs := scannedCertificates(result); len(certs) > 0 {
+		if _, err := ing.Ingest(ctx, &ingest.DiscoveryResult{
+			Source:             "truststore",
+			SourceHostID:       hostID,
+			SkipHostResolution: true,
+			Timestamp:          time.Now().UTC(),
+			Certificates:       certs,
+		}); err != nil {
+			return fmt.Errorf("store scanned certificates: %w", err)
+		}
+	}
+	if err := st.UpsertTrustStoreObservations(ctx, result.TrustStore); err != nil {
+		return fmt.Errorf("write trust store observations: %w", err)
+	}
+	if err := st.UpsertPrivateKeyHoldings(ctx, result.PrivateKey); err != nil {
+		return fmt.Errorf("write private-key holdings: %w", err)
+	}
+	return nil
+}
+
+// scannedCertificates is one discovery per certificate and place it was found
+// (a CA in two trust stores is one certificate with two provenance rows).
+// Observations without a PEM are skipped; their rows then land only if the
+// certificate is already known.
+func scannedCertificates(result truststore.ScanResult) []dedup.CertDiscovery {
+	type place struct{ fingerprint, storeType, path string }
+	seen := map[place]bool{}
+	var out []dedup.CertDiscovery
+	add := func(fingerprint, pemText, storeType, path string) {
+		p := place{fingerprint, storeType, path}
+		if pemText == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, dedup.CertDiscovery{
+			FingerprintSHA256: fingerprint,
+			RawPEM:            pemText,
+			Source:            "truststore",
+			StoreType:         storeType,
+			FilePath:          path,
+		})
+	}
+	for _, o := range result.TrustStore {
+		add(o.CAFingerprint, o.CAPEM, o.Source, o.SourceDetail)
+	}
+	for _, o := range result.PrivateKey {
+		add(o.CertFingerprint, o.CertPEM, o.Source, o.SourceDetail)
+	}
+	return out
 }
