@@ -34,6 +34,11 @@ All notable changes to CipherFlag are documented in this file.
 - CBOM export handlers no longer time out at the server's 30-second write
   limit, no longer discard generation errors silently, and return a real
   `500` if serialisation fails instead of a truncated `200`.
+- The PKI Constellation's "View full detail" link and its search fallback
+  went to `/assets/certificate/…`, a route CE does not have, and showed the
+  not-found page. They now open the certificate detail page. A frontend test
+  now fails the build when any in-app link names a route that does not
+  exist.
 - **`verify-cbom` reported a trust mismatch for a genuine BOM when
   `--trusted-key` was a standard SPKI public key** (from OpenSSL, or from
   CipherFlag EE 4.11's `generate-signing-key`). It read the PEM body as a

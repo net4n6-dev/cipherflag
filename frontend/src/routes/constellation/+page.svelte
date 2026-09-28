@@ -226,7 +226,7 @@
   function handleNavigateCert(fp: string) {
     const target = nodes.find(n => n.id === fp);
     if (target) selectedNode = target;
-    else goto(`/assets/certificate/${fp}`);
+    else goto(`/certificates/${fp}`);
   }
 
   function nodeOpacity(node: Node3D): number {
@@ -407,7 +407,7 @@
             <span class="detail-key">Fingerprint</span>
             <span class="detail-val mono fp">{selectedNode.id}</span>
           </div>
-          <a href="/assets/certificate/{selectedNode.id}" class="full-detail-link">View full detail &rarr;</a>
+          <a href="/certificates/{selectedNode.id}" class="full-detail-link">View full detail &rarr;</a>
         </div>
       </div>
     {/if}
