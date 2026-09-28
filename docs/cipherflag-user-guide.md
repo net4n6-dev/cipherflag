@@ -12,12 +12,12 @@ This guide walks you through installation, configuration, and daily use.
 
 1. [Prerequisites](#1-prerequisites)
 2. [Installation](#2-installation)
-3. [The Setup Wizard](#3-the-setup-wizard)
+3. [First Run](#3-first-run)
 4. [Manual Configuration](#4-manual-configuration)
 5. [Verifying Your Deployment](#5-verifying-your-deployment)
 6. [Authentication](#6-authentication)
 7. [Network Capture](#7-network-capture)
-8. [Uploading PCAP Files](#8-uploading-pcap-files)
+8. [Processing PCAP Files](#8-processing-pcap-files)
 9. [The Dashboard](#9-the-dashboard)
 10. [PKI Explorer](#10-pki-explorer)
 11. [Analytics](#11-analytics)
@@ -40,7 +40,7 @@ This guide walks you through installation, configuration, and daily use.
 | Software | Minimum Version | Purpose |
 |----------|----------------|---------|
 | Docker | 20.10+ | Runs the CipherFlag containers |
-| Docker Compose | v2+ | Orchestrates the three services |
+| Docker Compose | v2+ | Orchestrates the services (two, three with the Zeek sensor) |
 | A web browser | Any modern browser | Access the CipherFlag dashboard |
 
 **Installing Docker:** Follow the official guide for your OS:
@@ -51,10 +51,13 @@ This guide walks you through installation, configuration, and daily use.
 ### Network Requirements
 
 - **Port 8443** must be accessible from your browser
-- For live capture: **two network interfaces** are required:
+- For live capture: a **Linux** host with **two network interfaces**:
   - **Management NIC** — SSH access, web UI (:8443), Venafi push (standard IP, routable)
   - **Capture NIC** — Receives mirrored/tapped traffic (connected to SPAN port, TAP, or cloud traffic mirror)
-- For PCAP-only analysis: single NIC, no special network access needed
+
+  On Docker Desktop (macOS, Windows) the sensor's host network is the
+  Docker VM's, so it cannot capture the machine's traffic.
+- For PCAP-only analysis: single NIC, no special network access needed, any platform
 
 ### Deployment Platforms
 
@@ -63,8 +66,8 @@ This guide walks you through installation, configuration, and daily use.
 | **On-prem** | SPAN port / network TAP | Dual NIC, Zeek on capture interface |
 | **AWS** | VPC Traffic Mirroring | EC2 with 2 ENIs, mirror target on capture ENI |
 | **Azure** | Virtual Network TAP | VM with 2 NICs, TAP destination on capture NIC |
-| **Azure (fallback)** | Network Watcher | PCAP capture to storage, upload to CipherFlag |
-| **PCAP-only** | Any | Upload .pcap files through the web UI |
+| **Azure (fallback)** | Network Watcher | PCAP capture to storage, copied into `./pcap-input/` |
+| **PCAP-only** | Any | Copy `.pcap` files into `./pcap-input/<job>/` |
 
 See the [How-To Deployment Guide](https://cipherflag.com/howto.html#deployment) for step-by-step platform instructions.
 
@@ -80,100 +83,50 @@ See the [How-To Deployment Guide](https://cipherflag.com/howto.html#deployment) 
 
 ## 2. Installation
 
-### Option A: Install Script (Recommended)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/net4n6-dev/cipherflag/main/scripts/install.sh | sh
-```
-
-This downloads the `cipherflag` CLI binary for your platform (Linux or macOS, amd64 or arm64) and installs it to `/usr/local/bin`.
-
-Then run the setup wizard:
-
-```bash
-cipherflag setup
-```
-
-### Option B: Clone and Build
-
 ```bash
 git clone https://github.com/net4n6-dev/cipherflag.git
 cd cipherflag
-docker-compose up -d
+cp .env.example .env              # see section 4
+docker compose up -d              # CipherFlag and Postgres
+docker compose --profile zeek up -d   # add the Zeek network sensor
 ```
+
+The [Quick Start Guide](quickstart.md) covers the same steps with a test
+PCAP.
 
 ---
 
-## 3. The Setup Wizard
+## 3. First Run
 
-The setup wizard (`cipherflag setup`) is the easiest way to get started. It walks through four steps:
+CE has no interactive setup wizard; it is configured through `.env`,
+`config/cipherflag.toml` and the web UI's Settings (`cipherflag setup` only
+prints a short summary).
 
-### Step 1: Installation Directory
-
-Choose where CipherFlag writes its configuration files. Default: `./cipherflag`.
-
-```
-Step 1/4: Installation Directory
-Directory [./cipherflag]:
-```
-
-### Step 2: Network Interface
-
-The wizard lists available network interfaces with their IP addresses. Select the one connected to your SPAN port or mirror.
-
-```
-Step 2/4: Network Capture
-Available interfaces:
-  1. eth0        10.0.1.5       up
-  2. ens192      172.16.0.10    up
-  3. lo          127.0.0.1      up (loopback)
-Select interface [1]: 2
-```
-
-### Step 3: Venafi Integration
-
-Choose your Venafi platform or skip for now.
-
-```
-Step 3/4: Venafi Integration
-  1. Venafi Cloud (SaaS)
-  2. Venafi TPP (on-prem)
-  3. Skip (configure later)
-```
-
-For Venafi Cloud, you'll need your API key (from Venafi Cloud > Preferences > API Keys). For TPP, you'll need the server URL, OAuth2 client ID, and refresh token. The wizard validates your credentials before proceeding.
-
-### Step 4: Deploy
-
-The wizard generates configuration files, pulls Docker images, and optionally starts the services.
-
-```
-Start services now? [Y/n]: Y
-✓ Services started
-
-══════════════════════════════════════
-Dashboard:  http://10.0.1.5:8443
-Venafi:     Cloud (us) — push every 60 min
-Interface:  ens192 (172.16.0.10)
-══════════════════════════════════════
-```
+1. Open `http://<your-ip>:8443`. The first visit shows the **Create Admin
+   Account** page (see [section 6](#6-authentication)).
+2. Choose discovery sources: the Zeek sensor (sections 7 and 8), the osquery
+   webhook, the scanners, and the connectors in `config/cipherflag.toml`.
+3. Optionally connect Venafi in **Settings > Venafi** (section 16).
 
 ---
 
 ## 4. Manual Configuration
 
-If you prefer manual setup, CipherFlag uses two configuration files:
+CipherFlag uses two configuration files:
 
 ### `.env` — Docker Compose variables
 
 ```bash
-NETWORK_INTERFACE=ens192
-POSTGRES_PASSWORD=your-secure-password
-VENAFI_ENABLED=true
-VENAFI_PLATFORM=cloud
-VENAFI_API_KEY=your-api-key
-VENAFI_REGION=us
+NETWORK_INTERFACE=ens192        # interface the Zeek sensor captures on; empty = PCAP files only
+ZEEK_PCAP_DIR=./pcap-input      # where the sensor takes PCAP files from (default)
+POSTGRES_PASSWORD=changeme      # see below
 ```
+
+`.env` configures the containers only; CipherFlag itself reads no
+environment variables. If you change `POSTGRES_PASSWORD`, change the
+password in `[storage] postgres_url` in `config/cipherflag.toml` to match,
+or CipherFlag cannot connect to the database. Venafi is configured in
+`config/cipherflag.toml` or Settings, not in `.env`.
 
 ### `config/cipherflag.toml` — Application settings
 
@@ -183,9 +136,9 @@ Key sections:
 - `[server]` — listen address
 - `[storage]` — PostgreSQL connection
 - `[analysis]` — health scoring rules and thresholds
-- `[sources.zeek_file]` — Zeek log polling
+- `[sources.zeek_file]`: Zeek log polling (`log_dir` is where the Compose
+  sensor's logs are mounted, `/var/log/zeek/current`)
 - `[export.venafi]` — Venafi Cloud or TPP integration
-- `[pcap]` — PCAP upload limits
 
 ---
 
@@ -197,10 +150,10 @@ After starting services, verify everything is running:
 docker compose ps
 ```
 
-All three services should show "Up":
+These services should show "Up":
 - `postgres` — database
-- `zeek` — network sensor
 - `cipherflag` — API server and dashboard
+- `zeek`: network sensor (only when started with `--profile zeek`)
 
 Check the Venafi push status:
 
@@ -248,48 +201,83 @@ If no users have been created, CipherFlag runs without authentication — all en
 
 CipherFlag uses Zeek to passively extract certificates from TLS handshakes. No traffic is modified or interrupted.
 
+### Starting the Sensor
+
+The Zeek sensor is an opt-in Compose service. Set the capture interface in
+`.env` and start it with the `zeek` profile:
+
+```bash
+echo 'NETWORK_INTERFACE=ens192' >> .env
+docker compose --profile zeek up -d
+```
+
+The sensor uses the host's network (and the `NET_RAW`/`NET_ADMIN`
+capabilities) to capture, so live capture needs a Linux host. It writes JSON
+logs to the `zeek-logs` volume, rotated hourly; CipherFlag reads them from
+`[sources.zeek_file] log_dir`, polling every 30 seconds by default.
+
+The **network interface** field in Settings > Sources is saved to
+`config/cipherflag.toml` but does not choose the capture interface; the
+Compose sensor captures on `NETWORK_INTERFACE`.
+
+Any other Zeek sensor works too, as long as it writes JSON logs with the
+certificates in them (`@load policy/tuning/json-logs` and
+`@load policy/protocols/ssl/log-certs-base64`) to a directory CipherFlag can
+read; point `log_dir` at it.
+
 ### Setting Up a SPAN Port
 
 Connect the capture interface to a SPAN/mirror port on your switch or a network TAP. CipherFlag sees a copy of all traffic on that segment and extracts TLS certificates from the handshakes.
 
 ### What Gets Captured
 
-For each TLS connection, CipherFlag records:
-- The complete X.509 certificate chain (leaf + intermediates + root)
+For each TLS connection whose certificates Zeek can see, CipherFlag records:
+- The certificate chain the server sent (leaf, intermediates, and a root if sent), each stored in full
 - Server hostname (SNI), IP address, and port
 - Negotiated TLS version and cipher suite
 - JA3/JA3S fingerprints
 
+Zeek sees certificates in TLS 1.2 and earlier handshakes. TLS 1.3 encrypts
+the server's certificate, so TLS 1.3 sessions yield no certificate.
+
 ### Monitoring Capture Activity
 
-Watch the logs for certificate discovery:
+After each poll that found something, CipherFlag logs what it ingested:
 
 ```bash
-docker compose logs -f cipherflag | grep -i "cert\|ingest"
+docker compose logs -f cipherflag | grep 'zeek:'
+# zeek: ingested logs certificates=12 observations=40 observations_unknown_cert=0 ...
 ```
+
+`observations_unknown_cert` counts sessions whose certificate was not in
+the logs read so far; `unparseable_lines` counts log lines that were not
+valid Zeek JSON.
 
 ---
 
-## 8. Uploading PCAP Files
+## 8. Processing PCAP Files
 
-For offline analysis, upload packet captures via the **Upload** page or API.
-
-### Via the UI
-
-Navigate to the **Upload** tab in the dashboard. Drag and drop a `.pcap` or `.pcapng` file (up to 500 MB by default).
-
-### Via the API
+For offline analysis, hand packet captures to the Zeek sensor through a
+directory (there is no upload page or API in CE). With the `zeek` profile
+running, give each capture its own job directory under `./pcap-input/` (or
+`ZEEK_PCAP_DIR`):
 
 ```bash
-curl -X POST http://localhost:8443/api/v1/pcap/upload \
-  -F "file=@capture.pcap"
+mkdir -p pcap-input/branch-office-2026-09
+cp capture.pcap pcap-input/branch-office-2026-09/
 ```
 
-Check job status:
+The sensor checks for new files every 5 seconds, runs Zeek over each, and
+marks the job:
 
 ```bash
-curl http://localhost:8443/api/v1/pcap/jobs
+docker compose exec zeek ls -a /zeek-logs/branch-office-2026-09
+# .done     processed: CipherFlag reads the job's logs on its next poll
+# .failed   Zeek could not process it (the reason is in: docker compose logs zeek)
 ```
+
+A job is processed once. To process a capture again, copy it into a new job
+directory; certificates already stored are updated, not duplicated.
 
 ---
 
@@ -455,9 +443,8 @@ Manage user accounts: create, delete, and toggle roles between admin and viewer.
 ### Sources
 
 Configure certificate discovery sources:
-- **Zeek File Poller** — enable/disable, log directory, poll interval (5-300 seconds), network interface selector (dropdown populated from host interfaces showing name, IP, MAC, and status)
+- **Zeek File Poller**: enable/disable, log directory, poll interval (5-300 seconds), and a network interface field. The interface list shows the interfaces of the machine CipherFlag runs on (inside Docker, its container's); the saved value is not used for capture, which the sensor's `NETWORK_INTERFACE` controls.
 - **Corelight** — enable/disable, API URL, API token
-- **PCAP Upload** — max file size (1-5000 MB), retention (1-720 hours)
 
 ### Venafi
 
@@ -485,7 +472,7 @@ CipherFlag pushes discovered certificates to Venafi automatically. See the [Vena
 
 ### How It Works
 
-1. CipherFlag discovers certificates via Zeek or PCAP upload
+1. CipherFlag discovers certificates via Zeek (live or from PCAP files) or any other source
 2. The push scheduler runs every 60 minutes (configurable)
 3. New/updated certificates are batched (up to 100 per API call) and pushed to Venafi
 4. Per-certificate failure tracking with exponential backoff prevents hammering Venafi with consistently failing certs
@@ -664,9 +651,10 @@ docker compose exec postgres psql -U cipherflag -c \
 
 ### No certificates appearing
 
-- Verify Zeek is running: `docker compose logs zeek`
-- Confirm the network interface is correct and receiving traffic
-- For PCAP uploads, check job status: `curl http://localhost:8443/api/v1/pcap/jobs`
+- Verify Zeek is running: `docker compose --profile zeek ps` and `docker compose logs zeek`
+- Confirm `NETWORK_INTERFACE` is correct and receiving traffic (TLS 1.3-only traffic yields no certificates)
+- For PCAP files, check the job's marker: `docker compose exec zeek ls -a /zeek-logs/<job>` (`.done` or `.failed`)
+- Check that CipherFlag reads the logs: `docker compose logs cipherflag | grep 'zeek:'` shows what each poll ingested, or warns that `log_dir` does not exist
 
 ### Venafi push not working
 
@@ -686,5 +674,5 @@ docker compose exec postgres psql -U cipherflag -c \
 ### High memory usage
 
 - Check PostgreSQL: `docker compose exec postgres psql -U cipherflag -c "SELECT pg_size_pretty(pg_database_size('cipherflag'));"`
-- Zeek logs accumulate — adjust retention in the Zeek container
-- PCAP files are retained for 24 hours by default (configurable in `cipherflag.toml`)
+- Zeek logs accumulate: the sensor rotates them hourly but does not delete old ones. Remove rotated logs (`<log>.<time>.log`) and finished job directories from the `zeek-logs` volume once CipherFlag has read them
+- PCAP files in `./pcap-input/` are not removed after processing; delete them when no longer needed

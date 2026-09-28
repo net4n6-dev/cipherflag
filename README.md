@@ -32,6 +32,17 @@ calls home, no telemetry, and no commercial license required.
 - Script-output parser auto-classifies output into the unified asset
   model
 
+**Passive network discovery (Zeek)**
+- A Zeek sensor (`docker/zeek`, Zeek 9, published as
+  `ghcr.io/net4n6-dev/cipherflag-ce-zeek`) captures live traffic on a
+  mirrored interface or processes PCAP files, and logs every certificate it
+  sees in a TLS handshake (TLS 1.2 and earlier; TLS 1.3 encrypts it)
+- CipherFlag reads the sensor's logs (`[sources.zeek_file]`): each
+  certificate is stored in full from its PEM, and each TLS session is
+  recorded as an observation (server IP, port, SNI, TLS version, cipher,
+  JA3/JA3S)
+- Opt-in in Docker Compose: `docker compose --profile zeek up -d`
+
 **Layer 2 — native scanners**
 - SSH key scanner (system + user `~/.ssh/`)
 - Crypto-library scanner (OpenSSL, libgcrypt, BoringSSL, mbedTLS,
@@ -213,45 +224,48 @@ Contact CipherFlag for EE access.
 ```bash
 git clone https://github.com/net4n6-dev/cipherflag.git
 cd cipherflag
-docker-compose up -d
+docker compose up -d                    # CipherFlag and Postgres
+docker compose --profile zeek up -d     # the same, plus the Zeek network sensor
 ```
 
-The HTTP API comes up on `http://localhost:8080`; Postgres on
-`localhost:5432`.
+The web UI and API come up on `http://localhost:8443` (Postgres on
+`localhost:5433`). The first visit to the web UI creates the admin account.
+[`docs/quickstart.md`](docs/quickstart.md) walks through live capture and
+processing a PCAP file.
 
-Initialize an admin user:
+The same from the command line: create the admin account (which also logs
+you in), then export a CBOM:
 
 ```bash
-curl -sS -X POST http://localhost:8080/api/v1/auth/setup-admin \
+curl -sS -c cookies.txt -X POST http://localhost:8443/api/v1/auth/setup-admin \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@example.com","password":"changeme","display_name":"Admin"}'
-```
+  -d '{"email":"admin@example.com","password":"<choose a password>","display_name":"Admin"}'
 
-Then send an osquery webhook ingest:
-
-```bash
-curl -sS -X POST http://localhost:8080/api/v1/ingest/osquery \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer <agent-token-from-setup>' \
-  -d @discovery-packs/osquery/example-payload.json
-```
-
-Export a CBOM:
-
-```bash
-curl -sS http://localhost:8080/api/v1/export/cbom | jq '.bomFormat, .specVersion'
+curl -sS -b cookies.txt http://localhost:8443/api/v1/export/cbom | jq '.bomFormat, .specVersion'
 # "CycloneDX"
 # "1.6"
 ```
+
+Endpoints push discoveries with an agent token, which an admin creates:
+
+```bash
+curl -sS -b cookies.txt -X POST http://localhost:8443/api/v1/auth/agent-tokens \
+  -H 'Content-Type: application/json' -d '{"name":"osquery"}'
+# {"token":"<shown once>", ...}
+```
+
+osquery sends its results to `POST /api/v1/ingest/osquery` with
+`Authorization: Bearer <token>`; the query pack is in
+`discovery-packs/osquery/`.
 
 ### From source (Go 1.25+)
 
 ```bash
 git clone https://github.com/net4n6-dev/cipherflag.git
 cd cipherflag
-go build ./...
-cp config/cipherflag.toml.example config/cipherflag.toml
-# edit config/cipherflag.toml — set [storage] postgres_url
+go build -o cipherflag ./cmd/cipherflag
+# edit config/cipherflag.toml: set [storage] postgres_url, and
+# [sources.zeek_file] log_dir if a Zeek sensor writes logs on this host
 ./cipherflag migrate
 ./cipherflag serve
 ```
@@ -290,8 +304,9 @@ uses its own codes, listed above.
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  Discovery sources                                               │
-│   • osquery webhook        • Layer 2 native scanners             │
-│   • CBOM import endpoint   • Git repo scanner (deterministic)    │
+│   • Zeek sensor logs       • osquery webhook                     │
+│   • Layer 2 native scanners • Git repo scanner (deterministic)   │
+│   • CBOM import endpoint   • CT logs, endpoint connectors        │
 └────────────────┬─────────────────────────────────────────────────┘
                  ▼
 ┌──────────────────────────────────────────────────────────────────┐
@@ -364,6 +379,7 @@ tree-sitter language bindings, and others).
 | CBOM hardening: `verify-cbom` validation, admin-only import, push-scheduler panic containment | shipped v2.2.2–v2.2.3 (CE) |
 | Fresh-install schema fixes (migration `v2.2.4_schema_parity.sql`) + integration tests in CI | shipped v2.2.4 (CE) |
 | Certificate Transparency multi-provider (`ct_crtsh`/`ct_static`/`ct_certspotter`/`ct_multi`) | shipped v2.3 (CE, off by default, config-only) |
+| Zeek passive discovery (sensor + log ingest, Compose `zeek` profile) | v1; missing from v2.0.0 to v2.3.0; restored v2.3.1 (CE) |
 | Risk prioritization + blast-radius (host-dependency) | **EE-only** |
 | Optional LLM-assisted repo enrichment (off by default; local or BYO-key model) | **EE-only** |
 | Container image scanning | **EE-only** |

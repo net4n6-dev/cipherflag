@@ -2,58 +2,57 @@
 
 ## Container Topology
 
-CipherFlag deploys as three Docker containers orchestrated by Docker Compose:
+`docker compose up -d` starts two containers, `postgres` and `cipherflag`.
+The Zeek network sensor is a third, opt-in container:
+`docker compose --profile zeek up -d`.
 
 ```
-┌───────────────────────────────────────────────────────────────┐
-│  docker-compose up                                            │
-│                                                               │
-│  ┌──────────────────┐                                         │
-│  │  zeek-sensor      │                                        │
-│  │                   │  writes to                              │
-│  │  - Live capture   │──────────┐                             │
-│  │    (SPAN/tap)     │          │                              │
-│  │  - PCAP watcher   │          v                              │
-│  │                   │   ┌─────────────┐   ┌──────────────┐   │
-│  └──────────────────┘   │ zeek-logs   │   │ pcap-input   │   │
-│                          │ (volume)    │   │ (volume)     │   │
-│           reads from     │ x509.log   │   │              │   │
-│          ┌───────────────│ ssl.log    │   │  writes to   │   │
-│          │               │ conn.log   │   │──────────────│   │
-│          v               └─────────────┘   └──────────────┘   │
-│  ┌──────────────────┐          ^                  ^           │
-│  │  cipherflag       │          │                  │           │
-│  │                   │──────────┘                  │           │
-│  │  - Go API server  │  reads logs         writes PCAPs       │
-│  │  - SvelteKit UI   │                            │           │
-│  │  - Zeek poller    │────────────────────────────┘           │
-│  │  - Venafi export  │                                        │
-│  │                   │                                        │
-│  │  :8443            │                                        │
-│  └────────┬─────────┘                                        │
-│           │                                                   │
-│           v                                                   │
-│  ┌──────────────────┐                                         │
-│  │  postgresql       │                                        │
-│  │                   │                                        │
-│  │  pg-data (volume) │                                        │
-│  └──────────────────┘                                         │
-└───────────────────────────────────────────────────────────────┘
+  live traffic (NETWORK_INTERFACE)      ./pcap-input/<job>/*.pcap
+                 │                                  │
+                 v                                  v
+  ┌──────────────────────────────────────────────────────────┐
+  │  zeek  (profile "zeek"; host network, NET_RAW/NET_ADMIN) │
+  └────────────────────────────┬─────────────────────────────┘
+                               │ writes JSON logs
+                               v
+  ┌──────────────────────────────────────────────────────────┐
+  │  zeek-logs volume                                        │
+  │    x509.log, ssl.log, ...       live logs                │
+  │    x509.<time>.log, ...         rotated hourly           │
+  │    <job>/ ... .done | .failed   one directory per PCAP   │
+  └────────────────────────────┬─────────────────────────────┘
+                               │ mounted read-only at /var/log/zeek/current
+                               v
+  ┌──────────────────────────────────────────────────────────┐
+  │  cipherflag  (:8443)                                     │
+  │    Go API server + SvelteKit UI                          │
+  │    Zeek log poller  ([sources.zeek_file])                │
+  │    scanners, connectors, CBOM export, Venafi push        │
+  └────────────────────────────┬─────────────────────────────┘
+                               v
+  ┌──────────────────────────────────────────────────────────┐
+  │  postgres  (pg-data volume)                              │
+  └──────────────────────────────────────────────────────────┘
 ```
 
-**Shared volumes:**
+**Volumes and directories:**
 
-| Volume | Writer | Reader | Content |
-|--------|--------|--------|---------|
-| `zeek-logs` | zeek-sensor | cipherflag | Zeek log output (x509.log, ssl.log, conn.log) |
-| `pcap-input` | cipherflag | zeek-sensor | PCAP files uploaded for offline analysis |
-| `pg-data` | postgresql | postgresql | Database persistence |
+| Name | Writer | Reader | Content |
+|------|--------|--------|---------|
+| `zeek-logs` (volume) | zeek | cipherflag (read-only, at `/var/log/zeek/current`) | Zeek JSON logs: live, rotated, and one directory per PCAP job |
+| `./pcap-input` (host directory) | you | zeek | PCAP files to process offline, one subdirectory per job |
+| `pg-data` (volume) | postgres | postgres | Database persistence |
 
-**Why three containers:**
+Why the sensor is a separate, opt-in container:
 
-- Users can point CipherFlag at an existing PostgreSQL instance
-- Corelight customers (v1.1) drop the Zeek container and run only CipherFlag + PostgreSQL
-- The shared volume boundary (`/zeek-logs/`) makes CipherFlag sensor-agnostic
+- It needs host networking and the `NET_RAW`/`NET_ADMIN` capabilities to
+  capture live traffic; a default install should not have them.
+- The shared log directory is the whole interface, so any Zeek sensor that
+  writes JSON logs (with `policy/protocols/ssl/log-certs-base64`) to a
+  directory CipherFlag can read works without this container.
+- Live capture needs a Linux host: on Docker Desktop (macOS, Windows) the
+  host network is the Docker VM's, not the machine's. PCAP processing
+  works everywhere.
 
 ---
 
@@ -65,54 +64,60 @@ Certificates flow from network traffic to the database through this pipeline:
 Network traffic / PCAP file
     |
     v
-Zeek sensor
-    | writes JSON logs (x509.log, ssl.log, conn.log)
+Zeek sensor (docker/zeek, Zeek 9)
+    | writes JSON logs; x509.log carries each certificate (log-certs-base64)
     v
-File poller (internal/ingest/poller.go)
-    | watches /zeek-logs/, tracks byte position per file via ingestion_state table
+Zeek log poller (internal/ingest/zeekfile/)
+    | reads x509 logs, then ssl logs, from [sources.zeek_file] log_dir
+    | tracks each file by identity (device and inode), so rotation is followed
     v
 Log parser (internal/ingest/zeek/)
-    | deserializes Zeek JSON records into Go structs
+    | deserializes Zeek JSON records
     v
-Certificate builder
-    | maps Zeek fields to CipherFlag Certificate model
-    | parses PEM when available (internal/certparse/)
-    v
-Deduplicator
-    | batch upsert by SHA256 fingerprint, updates last_seen timestamp
-    v
-Health scorer (internal/analysis/scorer.go)
-    | runs 16 rules, assigns grade A+ through F
+Unified ingester (internal/ingest/)
+    | builds each certificate from its PEM, dedups by SHA-256 fingerprint,
+    | fills only empty columns, records provenance, scores it
     v
 Observation recorder
-    | creates TLS observations and endpoint profiles from ssl.log/conn.log
+    | one observation per certificate in each ssl.log session's chain
     v
 PostgreSQL
 ```
 
 **Key design decisions:**
 
-- **Cursor-based polling:** The `ingestion_state` table tracks the byte position per log file. On restart, CipherFlag resumes where it left off with no data loss or reprocessing.
-- **Batch upserts:** Certificates are accumulated and flushed in batches (100 records or 5 seconds, whichever comes first) using multi-row `INSERT ... ON CONFLICT`.
-- **JSON log format:** Zeek is configured to output JSON, which is simpler to parse than Zeek's default TSV format.
+- **One cursor row per log directory:** `ingestion_state` holds a JSON map
+  from file identity to byte offset, saved after every batch of lines.
+  Entries for files that no longer exist are dropped. On restart the poller
+  resumes where it left off; a batch interrupted before its cursor was saved
+  is read again, which is harmless because ingest is idempotent.
+- **Complete lines only:** a line Zeek is still writing is left for the next
+  poll, so no record is cut in half.
+- **Rotation and truncation:** a rotated file keeps its identity and is
+  finished from its offset; the new live file starts at zero. A file smaller
+  than its offset is read again from the start.
+- **Certificates before sessions:** observations reference certificates, so
+  x509 logs are read first. A session whose certificate is not stored is
+  skipped and counted in the poller's log line.
+- **JSON log format:** Zeek is configured to output JSON, which is simpler
+  to parse than Zeek's default TSV format.
 
-### PCAP Upload Flow
+### Offline PCAP Flow
+
+There is no upload endpoint in CE. PCAP files are handed to the sensor
+through a directory:
 
 ```
-User uploads .pcap via UI or API
+Copy capture.pcap to ./pcap-input/<job>/ (ZEEK_PCAP_DIR)
     |
     v
-POST /api/v1/pcap/upload
-    | writes file to /pcap-input/ volume, creates pcap_jobs row
+Zeek container's PCAP watcher finds it (every 5 seconds)
+    | runs: zeek -r /pcap-input/<job>/capture.pcap
+    | writes logs to zeek-logs/<job>/
+    | then marks the job .done, or .failed if Zeek could not process it
     v
-Zeek container's file watcher detects new .pcap
-    | runs: zeek -r /pcap-input/<file>.pcap
-    | writes logs to /zeek-logs/<job-id>/
-    v
-CipherFlag poller picks up logs from job subdirectory
-    | normal ingestion pipeline (parse, dedupe, score, store)
-    v
-Job status updated to complete with summary (certs found, new vs. known)
+CipherFlag's poller reads a job's logs once it is .done
+    | normal ingestion pipeline; a .failed job is never read
 ```
 
 ---
@@ -161,7 +166,7 @@ The scoring engine (`internal/analysis/scorer.go`) evaluates each certificate ag
 | is_ca | BOOLEAN | CA flag from basic constraints |
 | san_dns_names | TEXT[] | Subject alternative names (DNS) |
 | raw_pem | TEXT | Raw PEM data (when available) |
-| source | TEXT | Discovery source (zeek_passive, pcap_upload) |
+| source | TEXT | Discovery source that first saw it (e.g. zeek_passive, for live capture and PCAP files alike) |
 | first_seen / last_seen | TIMESTAMPTZ | Discovery timestamps |
 
 **observations** -- TLS connections where a certificate was observed.
@@ -193,18 +198,9 @@ The scoring engine (`internal/analysis/scorer.go`) evaluates each certificate ag
 | server_name | TEXT | SNI hostname |
 | has_weak_ciphers | BOOLEAN | Endpoint uses weak cipher suites |
 
-**pcap_jobs** -- PCAP upload processing status.
+**ingestion_state** -- Cursors for polling sources.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| id | UUID (PK) | Job identifier |
-| filename | TEXT | Original filename |
-| status | TEXT | queued, processing, complete, error |
-| certs_found / certs_new | INTEGER | Discovery counts |
-
-**ingestion_state** -- Cursor tracking for Zeek log polling.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| file_path | TEXT (PK) | Log file path |
-| byte_offset | BIGINT | Last processed byte position |
+| source_name | TEXT (PK) | The source; the Zeek poller uses `zeek_file:<log_dir>` |
+| cursor | TEXT | Source-specific; for Zeek, a JSON map from file identity to `{path, offset}` |

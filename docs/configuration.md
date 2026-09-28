@@ -9,20 +9,19 @@ CipherFlag is configured through two files:
 
 ## Environment Variables (`.env`)
 
-These variables are used by `docker-compose.yml` and passed to containers at runtime.
+These variables are read by `docker-compose.yml` and configure the
+containers. The CipherFlag binary itself reads no environment variables
+(except `CIPHERFLAG_CONFIG`, the config file path, which Compose sets);
+everything it does is set in `config/cipherflag.toml` or Settings.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NETWORK_INTERFACE` | *(empty)* | Network interface for Zeek live capture (e.g., `eth0`, `en0`). Leave empty for PCAP-only mode. |
-| `POSTGRES_PASSWORD` | `changeme` | PostgreSQL password. Change for non-local deployments. |
-| `VENAFI_ENABLED` | `false` | Enable automated push to Venafi. |
-| `VENAFI_PLATFORM` | `cloud` | Venafi platform: `cloud` (TLS Protect Cloud) or `tpp` (on-prem TPP). |
-| `VENAFI_API_KEY` | *(empty)* | Venafi Cloud API key (Cloud only). |
-| `VENAFI_REGION` | `us` | Venafi Cloud region: `us` or `eu` (Cloud only). |
-| `VENAFI_BASE_URL` | *(empty)* | Venafi TPP server URL, e.g., `https://tpp.example.com` (TPP only). |
-| `VENAFI_CLIENT_ID` | *(empty)* | Venafi TPP OAuth2 client ID (TPP only). |
-| `VENAFI_REFRESH_TOKEN` | *(empty)* | Venafi TPP OAuth2 refresh token (TPP only). |
-| `VENAFI_FOLDER` | `\VED\Policy\Discovered\CipherFlag` | Target policy folder (TPP only). |
+| `NETWORK_INTERFACE` | *(empty)* | Interface the Zeek sensor (profile `zeek`) captures on, e.g. `eth0`. Empty: the sensor only processes PCAP files. Live capture needs a Linux host. |
+| `ZEEK_PCAP_DIR` | `./pcap-input` | Host directory the Zeek sensor takes PCAP files from, one subdirectory per job. |
+| `POSTGRES_PASSWORD` | `changeme` | The `postgres` container's password. If you change it, change the password in `[storage] postgres_url` in `config/cipherflag.toml` to match, or CipherFlag cannot connect. |
+
+Venafi is configured in `[export.venafi]` or Settings > Venafi, not in
+`.env`; see [venafi-export.md](venafi-export.md).
 
 ---
 
@@ -39,7 +38,7 @@ These variables are used by `docker-compose.yml` and passed to containers at run
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `postgres_url` | `postgres://cipherflag:dev@localhost:5432/cipherflag?sslmode=disable` | PostgreSQL connection string. In Docker, this is overridden to point to the `postgres` service. |
+| `postgres_url` | *(none)* | PostgreSQL connection string. The shipped `config/cipherflag.toml` points at the Compose `postgres` service (`postgres://cipherflag:changeme@postgres:5432/cipherflag?sslmode=disable`); keep its password in step with `POSTGRES_PASSWORD`. |
 
 ### `[analysis]`
 
@@ -61,13 +60,22 @@ Controls the protocol compliance checks applied to TLS observations.
 
 ### `[sources.zeek_file]`
 
-Controls the Zeek log file poller.
+Controls the Zeek log poller, which reads a Zeek sensor's JSON logs:
+`x509` logs (certificates, stored in full when the sensor logs them with
+`log-certs-base64`) and `ssl` logs (TLS sessions, recorded as observations).
+It reads the live logs, the files Zeek's rotation renames them to
+(`x509.<time>.log`), and each PCAP job directory `<job>/` once the sensor
+has marked it `.done`.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `enabled` | `true` | Enable Zeek log file ingestion. |
-| `log_dir` | `/var/log/zeek/current` | Directory to watch for Zeek log files. In Docker, this is the `zeek-logs` shared volume. |
-| `poll_interval_seconds` | `30` | How often to check for new log entries (seconds). |
+| `enabled` | `true` | Enable Zeek log ingestion. With no sensor writing to `log_dir`, CipherFlag warns once at startup and reads nothing. |
+| `log_dir` | `/var/log/zeek/current` | Directory the sensor writes its logs to. In Docker Compose, the `zeek-logs` volume is mounted here (read-only) when the `zeek` profile runs. |
+| `poll_interval_seconds` | `30` | How often to check for new log lines (seconds). |
+| `network_interface` | *(empty)* | Shown and saved by Settings > Sources, but not used: the Compose sensor captures on `NETWORK_INTERFACE`. |
+
+The poller's position in each file is kept in the `ingestion_state` table,
+so a restart resumes where it left off.
 
 ### `[sources.corelight]`
 
@@ -175,7 +183,7 @@ Before 2.3.0, `verify-cbom` had no code `3`: it exited `0` for `-h`, `1` for an 
 
 ### `[pcap]`
 
-Not used by CE. PCAP upload and processing are Enterprise Edition features; CE has no PCAP upload page or API. The section (`max_file_size_mb`, `retention_hours`, `input_dir`) is still accepted so that existing configuration files load unchanged, and the settings API still reports it, but nothing in CE reads the values.
+Not used by CE. PCAP upload is an Enterprise Edition feature; CE has no PCAP upload page or API, and processes PCAP files through the Zeek sensor instead (copy them into `./pcap-input/<job>/`; see `[sources.zeek_file]`). The section (`max_file_size_mb`, `retention_hours`, `input_dir`) is still accepted so that existing configuration files load unchanged, and the settings API still reports it, but nothing in CE reads the values.
 
 ---
 

@@ -2,6 +2,67 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [2.3.1] - Unreleased
+
+### Fixed
+- **CipherFlag has not read Zeek logs since 2.0.0.** The 2.0.0 release
+  dropped the Zeek log poller, so from 2.0.0 to 2.3.0 no certificate or TLS
+  session seen by a Zeek sensor reached CipherFlag, although
+  `[sources.zeek_file]`, its Settings tab, the sensor image and the docs all
+  remained. A new poller reads the sensor's `x509` and `ssl` logs from
+  `log_dir`:
+  - It covers live logs, the files Zeek's hourly rotation renames them to,
+    and each offline PCAP job once the sensor has finished it.
+  - Certificates are stored in full from the PEM the sensor now logs;
+    sessions become observations (server, SNI, TLS version, cipher, JA3).
+  - Files are followed across rotation, only complete lines are read, and
+    the position is kept in `ingestion_state`, so a restart resumes where it
+    left off.
+- **The Zeek sensor image failed at startup.** `cipherflag-ce-zeek` was
+  built on `zeek/zeek:latest`, which moved to Zeek 9, and Zeek 9 removed the
+  `extract-certs-pem` policy the sensor loaded. The images published for
+  2.3.0 (and `latest`) have this bug:
+  - Live capture exits at once.
+  - Every PCAP job is marked done with no logs.
+
+  The fixed image:
+  - pins Zeek 9.0.0 by digest;
+  - logs each certificate in `x509.log` (`log-certs-base64`);
+  - ignores the invalid TCP checksums that NIC offloading produces, which
+    otherwise made Zeek drop all TLS traffic;
+  - marks a PCAP job Zeek cannot process `.failed` instead of `.done`.
+- **Docker Compose no longer ran the Zeek sensor.** The `zeek` service was
+  removed in 2.0.0. It is back as an opt-in profile,
+  `docker compose --profile zeek up -d`:
+  - It captures on `NETWORK_INTERFACE` (Linux hosts) and processes PCAP
+    files copied into `./pcap-input/<job>/`.
+  - `cipherflag` reads its logs read-only at the configured `log_dir`.
+  - A plain `docker compose up` is unchanged.
+- **Documentation described things CE does not do.** The README,
+  quickstart, user guide, configuration reference and Venafi guide
+  described:
+  - `VENAFI_*` environment variables (CipherFlag reads none);
+  - a PCAP upload page;
+  - an install script and interactive setup wizard;
+  - the API on port 8080 (it is 8443);
+  - an agent token issued at setup.
+
+  They also said to change `POSTGRES_PASSWORD` without the matching change
+  to `postgres_url`, which leaves CipherFlag unable to connect. All of
+  these are corrected.
+
+### Changed
+- CI (and so the release workflow) builds the Zeek sensor image and runs it
+  over a fixture PCAP before anything is published.
+
+### Notes
+- On upgrade, installs with `[sources.zeek_file] enabled = true` (the
+  default) start reading `log_dir`. That includes any logs already there,
+  worked through 16 MB per file per poll. If nothing writes to `log_dir`,
+  CipherFlag logs one warning and carries on.
+- Zeek sees a server's certificate only in TLS 1.2 and earlier handshakes;
+  TLS 1.3 encrypts it.
+
 ## [2.3.0] - 2026-09-27
 
 ### Security

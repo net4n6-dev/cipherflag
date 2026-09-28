@@ -27,20 +27,15 @@ region = "us"                   # "us" or "eu"
 push_interval_minutes = 60
 ```
 
-Or use environment variables:
-
-```bash
-VENAFI_ENABLED=true
-VENAFI_PLATFORM=cloud
-VENAFI_API_KEY=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
-VENAFI_REGION=us
-```
-
 Restart CipherFlag:
 
 ```bash
-docker-compose restart cipherflag
+docker compose restart cipherflag
 ```
+
+Or enter the same settings in **Settings > Venafi** in the web UI, which
+takes effect without a restart. (CipherFlag reads no `VENAFI_*`
+environment variables; earlier versions of this guide listed some.)
 
 ### Step 3: Verify
 
@@ -120,22 +115,14 @@ folder = "\\VED\\Policy\\Discovered\\CipherFlag"
 push_interval_minutes = 60
 ```
 
-Or use environment variables:
-
-```bash
-VENAFI_ENABLED=true
-VENAFI_PLATFORM=tpp
-VENAFI_BASE_URL=https://tpp.example.com
-VENAFI_CLIENT_ID=your-client-id
-VENAFI_REFRESH_TOKEN=your-refresh-token
-VENAFI_FOLDER=\VED\Policy\Discovered\CipherFlag
-```
-
 Restart CipherFlag:
 
 ```bash
-docker-compose restart cipherflag
+docker compose restart cipherflag
 ```
+
+Or enter the same settings in **Settings > Venafi** in the web UI, which
+takes effect without a restart.
 
 ### Step 3: Verify
 
@@ -229,7 +216,7 @@ The **Export** button on the certificates page in the UI provides the same funct
 
 **Certificates not appearing**
 - Check the push status endpoint: `curl http://localhost:8443/api/v1/venafi/status`
-- Look for push errors in logs: `docker-compose logs cipherflag | grep venafi`
+- Look for push errors in logs: `docker compose logs cipherflag | grep venafi`
 - Certificates appear in Venafi Cloud under **Inventory** > **Certificates** with source "USER_IMPORTED"
 
 ### Venafi TPP
@@ -237,7 +224,7 @@ The **Export** button on the certificates page in the UI provides the same funct
 **"connection refused" or timeout errors**
 - Verify `base_url` is correct and reachable from the Docker network:
   ```bash
-  docker-compose exec cipherflag wget -q -O- https://tpp.example.com/vedsdk/ || echo "unreachable"
+  docker compose exec cipherflag wget -q -O- https://tpp.example.com/vedsdk/ || echo "unreachable"
   ```
 - If TPP is on an internal network, ensure the Docker host has network access
 
@@ -249,7 +236,7 @@ The **Export** button on the certificates page in the UI provides the same funct
 **Certificates not appearing in Venafi**
 - Verify the target folder exists in Venafi: `\VED\Policy\Discovered\CipherFlag`
 - The service account needs Create permission on the target folder
-- Check CipherFlag logs: `docker-compose logs cipherflag | grep venafi`
+- Check CipherFlag logs: `docker compose logs cipherflag | grep venafi`
 
 ### General
 
