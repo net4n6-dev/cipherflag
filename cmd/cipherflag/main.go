@@ -43,6 +43,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/sentinelone"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/tanium"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/zeekfile"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/cachegc"
 	scanscheduler "github.com/net4n6-dev/cipherflag/internal/scanner/scheduler"
 	"github.com/net4n6-dev/cipherflag/internal/sightingsprune"
@@ -354,6 +355,19 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		}
 		go absPoller.Run(absCtx)
 		log.Info().Str("console_url", cfg.Sources.Absolute.ConsoleURL).Msg("absolute poller started")
+	}
+
+	// Zeek sensor logs (x509.log, ssl.log) from [sources.zeek_file].log_dir.
+	if cfg.Sources.ZeekFile.Enabled {
+		zeekCtx, zeekCancel := context.WithCancel(ctx)
+		defer zeekCancel()
+		zeekIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		zeekPoller := zeekfile.New(zeekfile.Config{
+			LogDir:   cfg.Sources.ZeekFile.LogDir,
+			Interval: time.Duration(cfg.Sources.ZeekFile.PollIntervalSeconds) * time.Second,
+		}, st, zeekIngester)
+		go zeekPoller.Run(zeekCtx)
+		log.Info().Str("log_dir", cfg.Sources.ZeekFile.LogDir).Msg("zeek log poller started")
 	}
 
 	// Certificate Transparency: crt.sh (off by default).

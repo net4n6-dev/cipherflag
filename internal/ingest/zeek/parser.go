@@ -15,34 +15,40 @@
 package zeek
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"strings"
 	"time"
 )
 
 // X509Record represents a parsed Zeek x509.log entry.
 type X509Record struct {
-	Timestamp     time.Time
-	FileID        string
-	Fingerprint   string
-	SubjectCN     string
-	SubjectOrg    string
-	SubjectFull   string
-	IssuerCN      string
-	IssuerOrg     string
-	IssuerFull    string
-	Serial        string
+	Timestamp      time.Time
+	FileID         string
+	Fingerprint    string
+	SubjectCN      string
+	SubjectOrg     string
+	SubjectFull    string
+	IssuerCN       string
+	IssuerOrg      string
+	IssuerFull     string
+	Serial         string
 	NotValidBefore time.Time
 	NotValidAfter  time.Time
-	KeyAlg        string
-	KeyType       string
-	KeyLength     int
-	SigAlg        string
-	SANsDNS       []string
-	SANsIP        []string
-	SANsEmail     []string
-	IsCA          bool
-	Version       int
+	KeyAlg         string
+	KeyType        string
+	KeyLength      int
+	SigAlg         string
+	SANsDNS        []string
+	SANsIP         []string
+	SANsEmail      []string
+	IsCA           bool
+	Version        int
+	// CertPEM is the certificate itself, from the "cert" field that Zeek's
+	// log-certs-base64 policy adds (base64 DER). Empty when the sensor does
+	// not log certificates or the field does not decode.
+	CertPEM string
 }
 
 // SSLRecord represents a parsed Zeek ssl.log entry.
@@ -96,6 +102,7 @@ type rawX509 struct {
 	SANsEmail      []string `json:"san.email"`
 	IsCA           bool     `json:"basic_constraints.ca"`
 	Fingerprint    string   `json:"fingerprint"`
+	Cert           string   `json:"cert"`
 }
 
 // rawSSL maps Zeek's dotted JSON key names for ssl.log entries.
@@ -162,7 +169,22 @@ func ParseX509Record(data []byte) (*X509Record, error) {
 		SANsEmail:      raw.SANsEmail,
 		IsCA:           raw.IsCA,
 		Version:        raw.Version,
+		CertPEM:        certPEMFromBase64(raw.Cert),
 	}, nil
+}
+
+// certPEMFromBase64 turns x509.log's base64 DER "cert" field into PEM, or
+// "" when it is absent or not base64. Whether the DER is a valid
+// certificate is left to ingest, which parses it.
+func certPEMFromBase64(b64 string) string {
+	if b64 == "" {
+		return ""
+	}
+	der, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil || len(der) == 0 {
+		return ""
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
 
 // ParseSSLRecord parses a Zeek ssl.log JSON line into an SSLRecord.
