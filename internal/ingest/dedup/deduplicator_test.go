@@ -18,6 +18,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/net4n6-dev/cipherflag/internal/model"
 	"github.com/net4n6-dev/cipherflag/internal/store"
@@ -116,6 +117,36 @@ func TestDedupCertificate_Existing(t *testing.T) {
 	}
 	if isNew {
 		t.Error("expected isNew = false for existing cert")
+	}
+}
+
+// A re-observed certificate used to be written back with the last_seen it
+// was read with, so last_seen never moved after the first ingest: reports
+// showed stale dates and the Venafi push (last_seen > venafi_pushed_at)
+// never picked a re-observed certificate up again.
+func TestDedupCertificate_ExistingAdvancesLastSeen(t *testing.T) {
+	st := newMockStore()
+	firstSeen := time.Now().Add(-48 * time.Hour)
+	st.certs["aabb1122"] = &model.Certificate{
+		FingerprintSHA256: "aabb1122",
+		FirstSeen:         firstSeen,
+		LastSeen:          time.Now().Add(-24 * time.Hour),
+	}
+	before := time.Now()
+
+	_, isNew, err := NewDeduplicator(st).DedupCertificate(context.Background(), "host-1", &CertDiscovery{FingerprintSHA256: "AABB1122"})
+	if err != nil {
+		t.Fatalf("DedupCertificate: %v", err)
+	}
+	if isNew {
+		t.Fatal("expected isNew = false for existing cert")
+	}
+	got := st.certs["aabb1122"]
+	if got.LastSeen.Before(before) {
+		t.Errorf("LastSeen = %v, want at or after %v (the re-observation)", got.LastSeen, before)
+	}
+	if !got.FirstSeen.Equal(firstSeen) {
+		t.Errorf("FirstSeen = %v, want unchanged %v", got.FirstSeen, firstSeen)
 	}
 }
 

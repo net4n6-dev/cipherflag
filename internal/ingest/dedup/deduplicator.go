@@ -129,7 +129,10 @@ func (d *Deduplicator) DedupCertificate(ctx context.Context, hostID string, disc
 	}
 
 	if existing != nil {
-		// Existing: upsert to update last_seen and discovery_status
+		// Existing: record the re-observation. UpsertCertificate writes
+		// last_seen from the row it is given, so stamp it; writing back the
+		// row as read left last_seen at the first ingest forever.
+		existing.LastSeen = time.Now()
 		if err := d.store.UpsertCertificate(ctx, existing); err != nil {
 			return "", false, fmt.Errorf("update existing cert: %w", err)
 		}

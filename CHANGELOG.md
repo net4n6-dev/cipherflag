@@ -42,6 +42,12 @@ All notable changes to CipherFlag are documented in this file.
   are kept. A fingerprint that does not match the PEM is now rejected (the
   certificate is skipped with a warning) instead of stored. Built-in
   sources were not affected.
+- **A certificate's "last seen" never moved after its first ingest.** A
+  re-observed certificate was written back with the `last_seen` it was
+  read with, so reports showed the first-seen date as last seen and the
+  Venafi push, which re-sends certificates seen since their last push,
+  never picked a re-observed certificate up again. Re-observations now
+  update `last_seen`.
 - **`asset_count` overstated BOM contents.** It now equals the number of
   asset components in the BOM. When health reports were dropped because
   their asset no longer exists, `assets_omitted` and `assets_omitted_types`
