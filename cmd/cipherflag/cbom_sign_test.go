@@ -18,13 +18,14 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
-	"encoding/pem"
 	"os"
 	"path/filepath"
 	"testing"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/stretchr/testify/require"
+
+	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 )
 
 func TestGenerateSigningKey_WritesValidKeypair(t *testing.T) {
@@ -39,21 +40,16 @@ func TestGenerateSigningKey_WritesValidKeypair(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0600), info.Mode().Perm())
 
-	// Verify the keypair is consistent (signature with priv verifies with pub).
-	privPEM, err := os.ReadFile(prefix + ".key")
+	// The keypair loads through CipherFlag's own readers and is consistent:
+	// a signature from the private key verifies under the public key.
+	signer, err := cbom.NewFileSigner(prefix + ".key")
 	require.NoError(t, err)
-	privBlock, _ := pem.Decode(privPEM)
-	require.NotNil(t, privBlock)
-	priv := ed25519.PrivateKey(privBlock.Bytes)
-
-	pubPEM, err := os.ReadFile(prefix + ".pub")
+	trusted, err := cbom.LoadTrustedKeys([]string{prefix + ".pub"})
 	require.NoError(t, err)
-	pubBlock, _ := pem.Decode(pubPEM)
-	require.NotNil(t, pubBlock)
-	pub := ed25519.PublicKey(pubBlock.Bytes)
 
-	sig := ed25519.Sign(priv, []byte("test"))
-	require.True(t, ed25519.Verify(pub, []byte("test"), sig))
+	sig, err := signer.Sign([]byte("test"))
+	require.NoError(t, err)
+	require.True(t, ed25519.Verify(trusted[0], []byte("test"), sig))
 }
 
 func TestSignAndVerifyCBOM_RoundTrip(t *testing.T) {

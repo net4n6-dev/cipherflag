@@ -70,9 +70,9 @@ fail the diff — only the per-run signature bytes are opaque.
 
 `fixture-signing.key` (raw 64-byte Ed25519 in PEM, NOT PKCS#8) is
 checked in so the JSF signature *shape* is byte-stable. The PEM body
-is the literal `ed25519.PrivateKey` (seed || public key), which is
-the format `NewFileSigner` in `../../signer_file.go` reads directly
-from `block.Bytes`. See `fixture-signing.key.README` for the
+is the literal `ed25519.PrivateKey` (seed || public key), the raw
+encoding `NewFileSigner` in `../../signer_file.go` still accepts
+alongside PKCS#8 (`parseEd25519PrivateKey` in `../../ed25519keys.go`). See `fixture-signing.key.README` for the
 derivation seed and constraints. NOT FOR PRODUCTION USE.
 
 ## Property tests

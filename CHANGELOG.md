@@ -65,6 +65,14 @@ All notable changes to CipherFlag are documented in this file.
   so a run that cannot finish the trust check no longer prints "Signature
   valid" first. Scripts that treated `1` as "wrong key" for an unreadable
   key file should treat `3` as a failure to run.
+- **`generate-signing-key` writes standard PKCS#8 and SPKI key files.** It
+  wrote Go's raw key bytes under the PKCS#8/SPKI PEM labels, which OpenSSL
+  and other tools could not read. The printed fingerprint is still the
+  SHA-256 of the raw 32-byte public key, so fingerprints recorded for older
+  keys stay valid, and raw keys made by earlier versions keep working.
+  CipherFlag CE before 2.3.0 cannot load the new files: its `verify-cbom`
+  reports a trust mismatch on a new `.pub` and its signer rejects a new
+  `.key`. Use 2.3.0 or later wherever a new key is used.
 - The README documented `verify-cbom <file>` and `sign-cbom <file>`; both
   take flags (`--bom`, `--trusted-key`, `--key`), and the positional form
   failed. The README now shows the real usage.

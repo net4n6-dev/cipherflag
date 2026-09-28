@@ -35,6 +35,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -61,19 +62,31 @@ type verifySignatureBlock struct {
 }
 
 // runGenerateSigningKey generates a fresh Ed25519 keypair and writes:
-//   - outPrefix+".key"  — private key, PEM type "PRIVATE KEY", mode 0600
-//   - outPrefix+".pub"  — public key,  PEM type "PUBLIC KEY",  mode 0644
+//   - outPrefix+".key": PKCS#8 private key, PEM type "PRIVATE KEY", mode 0600
+//   - outPrefix+".pub": SPKI public key, PEM type "PUBLIC KEY", mode 0644
 //
-// A SHA-256 fingerprint of the public key is printed so operators can record
-// it in an out-of-band trust registry.
+// The SHA-256 fingerprint of the raw 32-byte public key is printed so
+// operators can record it in an out-of-band trust registry; it is the same
+// fingerprint earlier versions printed for their raw-encoded keys.
 func runGenerateSigningKey(_ context.Context, outPrefix string) error {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return fmt.Errorf("generate keypair: %w", err)
 	}
 
-	privPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: priv})
-	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pub})
+	// Standard encodings, readable by OpenSSL, HSM and KMS tooling. Every
+	// CipherFlag reader also still accepts the raw form earlier versions
+	// wrote (cbom.ParseEd25519PublicKey). Ported from EE (rm:0797).
+	privDER, err := x509.MarshalPKCS8PrivateKey(priv)
+	if err != nil {
+		return fmt.Errorf("encode private key: %w", err)
+	}
+	pubDER, err := x509.MarshalPKIXPublicKey(pub)
+	if err != nil {
+		return fmt.Errorf("encode public key: %w", err)
+	}
+	privPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privDER})
+	pubPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})
 
 	if err := os.WriteFile(outPrefix+".key", privPEM, 0600); err != nil {
 		return fmt.Errorf("write private key: %w", err)
