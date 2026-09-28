@@ -35,25 +35,15 @@ func TestRunVerifyCBOM_ReturnsCouldNotVerify(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "does-not-exist")
-	rawKey, rawPub, _, _ := ed25519KeyFiles(t, dir)
+	rawKey, _, _, _ := ed25519KeyFiles(t, dir)
 	bomPath := writeUnsignedBOM(t, dir)
 	require.NoError(t, runSignCBOM(ctx, bomPath, "", rawKey))
-
-	// A signed BOM carrying a number JSON accepts but JCS cannot
-	// canonicalise (it overflows float64): the verifier cannot compute the
-	// bytes the signature covers, so nothing is checked.
-	signed, err := os.ReadFile(bomPath)
-	require.NoError(t, err)
-	uncanonical := filepath.Join(dir, "uncanonical.json")
-	require.NoError(t, os.WriteFile(uncanonical,
-		bytes.Replace(signed, []byte(`"version"`), []byte(`"x": 1e400, "version"`), 1), 0644))
 
 	cases := []struct {
 		name, bom, trusted, wantErr string
 	}{
 		{"unreadable BOM", missing, "", "read BOM"},
 		{"unreadable trusted key", bomPath, missing, missing},
-		{"BOM that cannot be canonicalised", uncanonical, rawPub, "canonicalize"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -62,6 +52,31 @@ func TestRunVerifyCBOM_ReturnsCouldNotVerify(t *testing.T) {
 			require.Contains(t, err.Error(), tc.wantErr)
 			require.Equal(t, 3, code, "could not verify")
 		})
+	}
+}
+
+// A signed BOM edited to carry a number JSON accepts but RFC 8785 cannot
+// canonicalise (it overflows float64) has no canonical form, so no valid
+// signature can cover it: the signer canonicalises with the same code. It is
+// invalid (2), not a failure to run (3); otherwise an attacker could turn
+// "reject this tampered BOM" into "the tool could not run" at will.
+func TestRunVerifyCBOM_UncanonicalisableBOMIsInvalid(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	rawKey, rawPub, _, _ := ed25519KeyFiles(t, dir)
+	bomPath := writeUnsignedBOM(t, dir)
+	require.NoError(t, runSignCBOM(ctx, bomPath, "", rawKey))
+
+	signed := mustReadFile(t, bomPath)
+	uncanonical := filepath.Join(dir, "uncanonical.json")
+	edited := bytes.Replace(signed, []byte(`"version"`), []byte(`"x": 1e400, "version"`), 1)
+	require.NotEqual(t, signed, edited, "edit must change the BOM")
+	require.NoError(t, os.WriteFile(uncanonical, edited, 0644))
+
+	for _, trusted := range []string{"", rawPub} {
+		code, err := runVerifyCBOM(ctx, uncanonical, trusted)
+		require.NoError(t, err)
+		require.Equal(t, 2, code, "trusted key %q", trusted)
 	}
 }
 

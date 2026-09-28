@@ -25,7 +25,8 @@ import (
 // EnvSigner implements Signer by reading an Ed25519 private key from an
 // environment variable. Two encodings are accepted:
 //
-//   - PEM: the env var value starts with "-----BEGIN"; delegated to newFileSignerFromPEM.
+//   - PEM: the env var value starts with "-----BEGIN"; parsed like a key file
+//     (parseEd25519PrivateKeyPEM).
 //   - Base64 (StdEncoding): any other non-empty value is decoded as standard
 //     base64 and must decode to a PKCS#8 or raw 64-byte Ed25519 key
 //     (parseEd25519PrivateKey).
@@ -35,30 +36,27 @@ type EnvSigner struct {
 
 // NewEnvSigner constructs an EnvSigner from the environment variable named by
 // envVar. Returns an error if the variable is unset, empty, or contains an
-// invalid key.
+// invalid key. Every error names envVar once.
 func NewEnvSigner(envVar string) (*EnvSigner, error) {
-	raw := os.Getenv(envVar)
-	if raw == "" {
-		return nil, fmt.Errorf("env signer: %s is empty or unset", envVar)
-	}
-	// PEM path: value starts with "-----BEGIN".
-	if strings.HasPrefix(raw, "-----BEGIN") {
-		fs, err := newFileSignerFromPEM([]byte(raw))
-		if err != nil {
-			return nil, fmt.Errorf("env signer: %w", err)
-		}
-		return &EnvSigner{priv: fs.priv}, nil
-	}
-	// Base64 fallback.
-	privBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(raw))
+	priv, err := envSigningKey(os.Getenv(envVar))
 	if err != nil {
-		return nil, fmt.Errorf("env signer: invalid base64: %w", err)
-	}
-	priv, err := parseEd25519PrivateKey(privBytes)
-	if err != nil {
-		return nil, fmt.Errorf("env signer: %w", err)
+		return nil, fmt.Errorf("env signer %s: %w", envVar, err)
 	}
 	return &EnvSigner{priv: priv}, nil
+}
+
+func envSigningKey(raw string) (ed25519.PrivateKey, error) {
+	if raw == "" {
+		return nil, fmt.Errorf("empty or unset")
+	}
+	if strings.HasPrefix(raw, "-----BEGIN") {
+		return parseEd25519PrivateKeyPEM([]byte(raw))
+	}
+	privBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(raw))
+	if err != nil {
+		return nil, fmt.Errorf("invalid base64: %w", err)
+	}
+	return parseEd25519PrivateKey(privBytes)
 }
 
 // Algorithm implements Signer.

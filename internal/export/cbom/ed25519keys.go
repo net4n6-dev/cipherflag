@@ -81,7 +81,8 @@ func ParseEd25519PublicKey(der []byte) (ed25519.PublicKey, error) {
 }
 
 // LoadTrustedKeys reads each PEM file into an ed25519.PublicKey. The block
-// must be a "PUBLIC KEY" holding an SPKI or raw 32-byte Ed25519 key
+// must be a "PUBLIC KEY" (or "ED25519 PUBLIC KEY", pairing the signer's
+// "ED25519 PRIVATE KEY") holding an SPKI or raw 32-byte Ed25519 key
 // (ParseEd25519PublicKey). Fails fast on the first unreadable or undecodable
 // key, naming its file, so a misconfiguration is reported rather than
 // compared against garbage bytes.
@@ -96,7 +97,7 @@ func LoadTrustedKeys(paths []string) ([]ed25519.PublicKey, error) {
 		if block == nil {
 			return nil, fmt.Errorf("trusted key %q: no PEM block", p)
 		}
-		if block.Type != "PUBLIC KEY" {
+		if block.Type != "PUBLIC KEY" && block.Type != "ED25519 PUBLIC KEY" {
 			return nil, fmt.Errorf("trusted key %q: expected PUBLIC KEY PEM, got %q", p, block.Type)
 		}
 		pub, err := ParseEd25519PublicKey(block.Bytes)

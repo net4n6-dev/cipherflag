@@ -15,6 +15,9 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+
 	"github.com/rs/zerolog/log"
 
 	"github.com/net4n6-dev/cipherflag/internal/config"
@@ -29,9 +32,27 @@ import (
 // `restart: unless-stopped`. Called before the database is touched, so the
 // operator gets one line naming the key and the way out.
 //
+// With a loadable key it logs the public key's fingerprint for operators to
+// compare against their out-of-band record. It is logged here because this
+// runs whenever signing is enabled; the CBOM runtime is built only when
+// [cbom] enabled is true, but the API download handlers sign regardless.
+//
 // Ported from CipherFlag EE (rm:0795).
 func checkCBOMSigning(cfg config.CBOMSigningConfig) {
-	if _, err := cbom.LoadSigner(cfg); err != nil {
+	signer, err := cbom.LoadSigner(cfg)
+	if err != nil {
 		log.Fatal().Err(err).Msg("[cbom.signing] is enabled but its key cannot be loaded; fix the key or set [cbom.signing] enabled = false")
 	}
+	if signer == nil {
+		return
+	}
+	pub, err := signer.PublicKey()
+	if err != nil {
+		log.Fatal().Err(err).Msg("[cbom.signing] is enabled but its public key cannot be derived")
+	}
+	sum := sha256.Sum256(pub)
+	log.Info().
+		Str("algorithm", signer.Algorithm()).
+		Str("public_key_sha256", hex.EncodeToString(sum[:])).
+		Msg("CBOM signing enabled; compare public_key_sha256 against your trusted copy")
 }

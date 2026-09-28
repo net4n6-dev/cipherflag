@@ -18,14 +18,11 @@
 package cbom
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 
 	"github.com/net4n6-dev/cipherflag/internal/analysis/scoring"
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/store"
-	"github.com/rs/zerolog/log"
 )
 
 // cbomVersion is embedded in BOM metadata. Set via ldflags in release builds:
@@ -68,18 +65,9 @@ func NewRuntime(st store.CryptoStore, cfg *config.CBOMConfig) *Runtime {
 		panic("cbom: NewRuntime: " + err.Error())
 	}
 
-	// Startup logging: when signing is enabled, emit the public-key SHA-256
-	// fingerprint so operators can verify it against their out-of-band copy.
-	// Spec ref: docs/superpowers/plans/2026-05-16-l4-d-cbom-depth-pass.md §Task 13 Step 6.
-	if gen.signer != nil {
-		if pubKey, pkErr := gen.signer.PublicKey(); pkErr == nil {
-			sum := sha256.Sum256(pubKey)
-			log.Info().
-				Str("algorithm", gen.signer.Algorithm()).
-				Str("public_key_sha256", hex.EncodeToString(sum[:])).
-				Msg("CBOM signing enabled — compare public_key_sha256 against your trusted copy")
-		}
-	}
+	// The signing-key fingerprint is logged by serve's startup check
+	// (checkCBOMSigning), which runs whenever signing is enabled; logging it
+	// here too would miss configs without the runtime and double it with.
 
 	scopes := ScopesFromConfig(cfg.Scopes)
 	byName := make(map[string]*Scope, len(scopes))

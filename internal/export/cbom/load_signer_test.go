@@ -20,7 +20,9 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/base64"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -59,6 +61,8 @@ func signingCases(t *testing.T) []signingCase {
 	writePEMFile(t, ecPath, "PRIVATE KEY", mustPKCS8(t, ecKey))
 
 	missingPath := filepath.Join(dir, "does-not-exist.pem")
+	notPEMPath := filepath.Join(dir, "not-pem.key")
+	require.NoError(t, os.WriteFile(notPEMPath, []byte("not a key"), 0600))
 
 	envPub, envPriv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -82,6 +86,11 @@ func signingCases(t *testing.T) []signingCase {
 			name:    "file signer with a key the loader rejects names the path",
 			cfg:     config.CBOMSigningConfig{Enabled: true, Signer: "file", Path: ecPath},
 			wantErr: []string{ecPath, "Ed25519"},
+		},
+		{
+			name:    "file signer with a file that is not PEM names the path",
+			cfg:     config.CBOMSigningConfig{Enabled: true, Signer: "file", Path: notPEMPath},
+			wantErr: []string{notPEMPath, "no PEM block"},
 		},
 		{
 			name:    "file signer with a missing key names the path",
@@ -147,8 +156,11 @@ func TestLoadSigner(t *testing.T) {
 			if len(tc.wantErr) > 0 {
 				require.Error(t, err)
 				require.Nil(t, s)
+				// Exactly once: this error is the whole startup fatal line,
+				// and a path or variable repeated by each layer buries the
+				// reason.
 				for _, want := range tc.wantErr {
-					require.Contains(t, err.Error(), want)
+					require.Equal(t, 1, strings.Count(err.Error(), want), "%q in %q", want, err.Error())
 				}
 				return
 			}

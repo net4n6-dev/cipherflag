@@ -199,6 +199,11 @@ func TestLoadTrustedKeys(t *testing.T) {
 	writePEMFile(t, spki, "PUBLIC KEY", mustSPKI(t, pub))
 	raw := filepath.Join(dir, "raw.pub")
 	writePEMFile(t, raw, "PUBLIC KEY", pub)
+	// The label the signer's "ED25519 PRIVATE KEY" pairs with. verify-cbom
+	// accepted any label before LoadTrustedKeys, so refusing this one would
+	// break a working setup on upgrade.
+	edLabel := filepath.Join(dir, "ed25519-label.pub")
+	writePEMFile(t, edLabel, "ED25519 PUBLIC KEY", pub)
 	ecPub := filepath.Join(dir, "ec.pub")
 	writePEMFile(t, ecPub, "PUBLIC KEY", mustSPKI(t, &ecKey.PublicKey))
 	privateKey := filepath.Join(dir, "signing.key")
@@ -207,9 +212,9 @@ func TestLoadTrustedKeys(t *testing.T) {
 	require.NoError(t, os.WriteFile(notPEM, []byte("not a key"), 0600))
 	missing := filepath.Join(dir, "missing.pub")
 
-	keys, err := LoadTrustedKeys([]string{spki, raw})
+	keys, err := LoadTrustedKeys([]string{spki, raw, edLabel})
 	require.NoError(t, err)
-	require.Equal(t, []ed25519.PublicKey{pub, pub}, keys)
+	require.Equal(t, []ed25519.PublicKey{pub, pub, pub}, keys)
 
 	// Every failure names the file so the operator knows which key to fix.
 	for name, tc := range map[string]struct{ path, wantErr string }{

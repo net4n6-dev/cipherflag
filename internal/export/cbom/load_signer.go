@@ -22,8 +22,9 @@ import (
 
 // LoadSigner is the one place [cbom.signing] key material is loaded. It
 // returns (nil, nil) when signing is disabled, the signer when the key
-// loads, and otherwise an error naming the key file, environment variable
-// or signer type the operator has to fix. NewGeneratorWithSigning reaches
+// loads, and otherwise an error naming, once, the key file, environment
+// variable or signer type the operator has to fix (the signers name their
+// own source, so LoadSigner does not add it again). NewGeneratorWithSigning reaches
 // its verdict through it, and serve calls it once at startup so a bad key
 // stops the process before the database is touched.
 //
@@ -36,13 +37,13 @@ func LoadSigner(cfg config.CBOMSigningConfig) (Signer, error) {
 	case "file":
 		s, err := NewFileSigner(cfg.Path)
 		if err != nil {
-			return nil, fmt.Errorf("key file %q: %w", cfg.Path, err)
+			return nil, err
 		}
 		return s, nil
 	case "env":
 		s, err := NewEnvSigner(cfg.EnvVar)
 		if err != nil {
-			return nil, fmt.Errorf("environment variable %s: %w", cfg.EnvVar, err)
+			return nil, err
 		}
 		return s, nil
 	default:

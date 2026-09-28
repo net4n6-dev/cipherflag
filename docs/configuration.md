@@ -141,7 +141,7 @@ This writes `signing.key` (private, mode 0600) and `signing.pub` (public) and pr
 
 #### Key formats
 
-The signer (`signer = "file"`, and `signer = "env"` with a PEM value) reads a `PRIVATE KEY` (or `ED25519 PRIVATE KEY`) PEM block; `verify-cbom --trusted-key` reads a `PUBLIC KEY` PEM block. Each accepts two encodings of an Ed25519 key:
+The signer (`signer = "file"`, and `signer = "env"` with a PEM value) reads a `PRIVATE KEY` (or `ED25519 PRIVATE KEY`) PEM block; `verify-cbom --trusted-key` reads a `PUBLIC KEY` (or `ED25519 PUBLIC KEY`) PEM block. Each accepts two encodings of an Ed25519 key:
 
 - **Standard**: a PKCS#8 private key and an SPKI public key, as written by `cipherflag generate-signing-key` (2.3.0 and later), OpenSSL, an HSM or a cloud KMS export, and CipherFlag EE 4.11 and later. To make the pair with OpenSSL instead:
 
@@ -166,8 +166,8 @@ Exit codes:
 
 - `0`: the signature is valid and the embedded key matches `--trusted-key`.
 - `1`: the signature is valid but the embedded key does not match: someone else signed this BOM. Not necessarily a forgery, but not from the expected signer.
-- `2`: the signature is invalid: the BOM was changed after signing, or its `signature` block is absent or malformed, or the BOM is not valid JSON.
-- `3`: could not verify; nothing was checked. A usage error (for example a missing `--bom`, an unknown flag or an extra argument), `-h`, an unreadable BOM file, an unloadable `--trusted-key`, or a BOM that cannot be canonicalised. The reason is printed on stderr. Treat `3` as a failure to run, never as a verdict.
+- `2`: the signature is invalid: the BOM was changed after signing, or its `signature` block is absent or malformed, or the BOM is not valid JSON or has no RFC 8785 canonical form.
+- `3`: could not verify; nothing was checked. A usage error (for example a missing `--bom`, an unknown flag or an extra argument), `-h`, an unreadable BOM file, or an unloadable `--trusted-key`. The reason is printed on stderr. Treat `3` as a failure to run, never as a verdict.
 
 Without `--trusted-key`, the exit codes are `0` (valid), `2` (invalid) or `3` (could not verify); the `1` case does not apply.
 

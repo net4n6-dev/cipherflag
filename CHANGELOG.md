@@ -40,8 +40,10 @@ All notable changes to CipherFlag are documented in this file.
   raw key, which never matched, and exited `1`. Every signing-key reader
   (the file and env signers and `--trusted-key`) now accepts standard
   PKCS#8/SPKI keys as well as the raw keys CE has always written. A
-  trusted key that is not an Ed25519 public key is now reported as an
-  error naming the file instead of as a trust mismatch. A raw private key
+  trusted key that is not an Ed25519 public key (including a PEM block
+  labelled other than `PUBLIC KEY` or `ED25519 PUBLIC KEY`, such as a
+  private key) is now reported as an error naming the file instead of as
+  a trust mismatch. A raw private key
   whose public half does not match its seed, which signed BOMs no verifier
   accepts, is now rejected when loaded. See "Key formats" in
   `docs/configuration.md`.
@@ -57,14 +59,16 @@ All notable changes to CipherFlag are documented in this file.
 - **`verify-cbom` exits `3` when it could not verify (breaking for
   scripts).** Its documented codes are `0` (valid), `1` (valid, signed by a
   different key) and `2` (invalid), but runs that checked nothing exited
-  with those codes too: `-h` and a stray extra argument exited `0`, a missing
-  `--bom` and an unloadable `--trusted-key` exited `1`, and an unreadable BOM
-  or an unknown flag exited `2`. All of these now exit `3`, as does a BOM
-  that cannot be canonicalised. Malformed, unsigned and tampered BOMs still
-  exit `2`. The trusted key is now loaded before the signature is checked,
-  so a run that cannot finish the trust check no longer prints "Signature
-  valid" first. Scripts that treated `1` as "wrong key" for an unreadable
-  key file should treat `3` as a failure to run.
+  with those codes too: `-h` exited `0`, a missing `--bom` and an unloadable
+  `--trusted-key` exited `1`, and an unreadable BOM or an unknown flag
+  exited `2`. A stray extra argument was ignored and `--bom` verified as
+  usual. All of these now exit `3`. Malformed, unsigned and tampered BOMs
+  still exit `2`, as does a BOM with no RFC 8785 canonical form (no valid
+  signature can cover one). The trusted key is now loaded before the
+  signature is checked, so a run that cannot finish the trust check no
+  longer prints "Signature valid" first. Scripts that treated `1` as
+  "wrong key" for an unreadable key file should treat `3` as a failure to
+  run.
 - **`generate-signing-key` writes standard PKCS#8 and SPKI key files.** It
   wrote Go's raw key bytes under the PKCS#8/SPKI PEM labels, which OpenSSL
   and other tools could not read. The printed fingerprint is still the

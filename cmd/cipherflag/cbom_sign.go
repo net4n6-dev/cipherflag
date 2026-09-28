@@ -273,8 +273,12 @@ func runVerifyCBOM(_ context.Context, bomPath, trustedKeyPath string) (int, erro
 	}
 	canonical, err := cbom.Canonicalize(stripped)
 	if err != nil {
-		// No canonical form means no bytes to check the signature against.
-		return exitCouldNotVerify, fmt.Errorf("canonicalize BOM: %w", err)
+		// Invalid, not "could not verify": the signer canonicalises with the
+		// same code, so no valid signature can cover a BOM without a
+		// canonical form. Reporting 3 would let whoever edits a BOM turn a
+		// rejection into a failure to run.
+		fmt.Fprintf(os.Stderr, "verify-cbom: BOM has no canonical form (RFC 8785): %v\n", err)
+		return 2, nil
 	}
 
 	embeddedPub := ed25519.PublicKey(pubBytes)
@@ -290,10 +294,9 @@ func runVerifyCBOM(_ context.Context, bomPath, trustedKeyPath string) (int, erro
 		return 0, nil
 	}
 
-	// Trust check: compare the embedded public key bytes against the operator's
-	// trusted public key from trustedKeyPath (SPKI or raw 32-byte).
-
-	if !ed25519KeyEqual(trustedPub, embeddedPub) {
+	// Trust check: compare the embedded public key against the operator's
+	// trusted key from trustedKeyPath.
+	if !trustedPub.Equal(embeddedPub) {
 		trustedSum := sha256.Sum256(trustedPub)
 		fmt.Fprintf(os.Stderr,
 			"Trust mismatch: BOM was signed with a different key than --trusted-key.\n  Trusted key SHA-256:  %s\n  Embedded key SHA-256: %s\n",
@@ -305,20 +308,6 @@ func runVerifyCBOM(_ context.Context, bomPath, trustedKeyPath string) (int, erro
 
 	fmt.Println("Trust verified: embedded key matches --trusted-key.")
 	return 0, nil
-}
-
-// ed25519KeyEqual returns true when a and b are byte-for-byte identical.
-// Avoids importing bytes.Equal to keep the dependency surface minimal.
-func ed25519KeyEqual(a, b ed25519.PublicKey) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 // cliGenerateSigningKey is the entry point for `cipherflag generate-signing-key`.

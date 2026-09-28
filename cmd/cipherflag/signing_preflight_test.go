@@ -20,7 +20,9 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -151,6 +153,7 @@ func TestSigningPreflight(t *testing.T) {
 	t.Run("serve stops before the database on an unset key variable", func(t *testing.T) {
 		dir := t.TempDir()
 		const envVar = "CF_TEST_PREFLIGHT_UNSET_KEY"
+		t.Setenv(envVar, "") // restores any prior value after the test
 		require.NoError(t, os.Unsetenv(envVar))
 		block := fmt.Sprintf("[cbom.signing]\nenabled = true\nsigner = \"env\"\nenv_var = %q\n", envVar)
 
@@ -162,13 +165,20 @@ func TestSigningPreflight(t *testing.T) {
 	// above; these require a loadable key to get through to the database.
 	t.Run("serve gets past the preflight with a raw key", func(t *testing.T) {
 		dir := t.TempDir()
-		_, priv, err := ed25519.GenerateKey(rand.Reader)
+		pub, priv, err := ed25519.GenerateKey(rand.Reader)
 		require.NoError(t, err)
 		key := filepath.Join(dir, "signing.key")
 		writeKeyPEM(t, key, "PRIVATE KEY", priv)
 
 		out, _ := runCipherflag(t, bin, writePreflightConfig(t, dir, fileSigningBlock(key)), "serve")
 		requireReachedDatabase(t, out)
+
+		// The fingerprint operators compare against their out-of-band record
+		// is logged whenever signing is enabled, not only when the [cbom]
+		// runtime is (this config leaves [cbom] enabled off, and the API
+		// download handlers still sign).
+		sum := sha256.Sum256(pub)
+		require.Contains(t, out, "public_key_sha256="+hex.EncodeToString(sum[:]))
 	})
 
 	t.Run("serve gets past the preflight with a standard PKCS#8 key", func(t *testing.T) {
