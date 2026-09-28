@@ -133,6 +133,7 @@ func (d *Deduplicator) DedupCertificate(ctx context.Context, hostID string, disc
 		// last_seen from the row it is given, so stamp it; writing back the
 		// row as read left last_seen at the first ingest forever.
 		existing.LastSeen = time.Now()
+		fillEmptyCertFields(existing, disc)
 		if err := d.store.UpsertCertificate(ctx, existing); err != nil {
 			return "", false, fmt.Errorf("update existing cert: %w", err)
 		}
@@ -162,6 +163,46 @@ func (d *Deduplicator) DedupCertificate(ctx context.Context, hostID string, disc
 		return "", false, fmt.Errorf("insert new cert: %w", err)
 	}
 	return fp, true, nil
+}
+
+// fillEmptyCertFields fills the fields of a stored certificate that are still
+// empty from a new observation of it, and never overwrites one that is set.
+// Certificates stored blank by earlier versions (a PEM-only discovery kept
+// only its fingerprint) are completed when seen again. A CA stays a CA.
+// UpsertCertificate applies the same fill-only rule in SQL, so concurrent
+// observations cannot blank each other out either.
+func fillEmptyCertFields(c *model.Certificate, disc *CertDiscovery) {
+	if c.Subject.CommonName == "" {
+		c.Subject.CommonName = disc.SubjectCN
+	}
+	if c.Issuer.CommonName == "" {
+		c.Issuer.CommonName = disc.IssuerCN
+	}
+	if c.SerialNumber == "" {
+		c.SerialNumber = disc.SerialNumber
+	}
+	if c.NotBefore.IsZero() {
+		c.NotBefore = disc.NotBefore
+	}
+	if c.NotAfter.IsZero() {
+		c.NotAfter = disc.NotAfter
+	}
+	if c.KeyAlgorithm == "" {
+		c.KeyAlgorithm = model.KeyAlgorithm(disc.KeyAlgorithm)
+	}
+	if c.KeySizeBits == 0 {
+		c.KeySizeBits = disc.KeySizeBits
+	}
+	if c.SignatureAlgorithm == "" {
+		c.SignatureAlgorithm = model.SignatureAlgorithm(disc.SignatureAlgorithm)
+	}
+	if len(c.SubjectAltNames) == 0 {
+		c.SubjectAltNames = disc.SubjectAltNames
+	}
+	if c.RawPEM == "" {
+		c.RawPEM = disc.RawPEM
+	}
+	c.IsCA = c.IsCA || disc.IsCA
 }
 
 func (d *Deduplicator) DedupSSHKey(ctx context.Context, hostID string, disc *SSHKeyDiscovery) (assetID string, isNew bool, err error) {

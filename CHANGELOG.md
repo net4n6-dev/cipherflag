@@ -48,6 +48,13 @@ All notable changes to CipherFlag are documented in this file.
   Venafi push, which re-sends certificates seen since their last push,
   never picked a re-observed certificate up again. Re-observations now
   update `last_seen`.
+- A certificate stored with missing details now gets them when it is seen
+  again: each empty field (names, serial, validity, key, signature, SANs,
+  key usages) is filled from the new observation, a field that is already
+  set is never overwritten, and a CA is never recorded as a non-CA.
+  `source_discovery` now keeps the source that first discovered the
+  certificate; every source that saw it is still recorded in its
+  provenance.
 - **`asset_count` overstated BOM contents.** It now equals the number of
   asset components in the BOM. When health reports were dropped because
   their asset no longer exists, `assets_omitted` and `assets_omitted_types`

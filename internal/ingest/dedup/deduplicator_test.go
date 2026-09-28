@@ -150,6 +150,59 @@ func TestDedupCertificate_ExistingAdvancesLastSeen(t *testing.T) {
 	}
 }
 
+// A certificate stored blank (earlier versions kept only the fingerprint of a
+// PEM-only discovery) is filled in when it is seen again with its metadata.
+// Filling is one-way: a field the stored row already has is never
+// overwritten, and a CA stays a CA.
+func TestDedupCertificate_ExistingFillsOnlyEmptyFields(t *testing.T) {
+	st := newMockStore()
+	notAfter := time.Now().Add(90 * 24 * time.Hour).Truncate(time.Second)
+	st.certs["aabb1122"] = &model.Certificate{
+		FingerprintSHA256: "aabb1122",
+		Subject:           model.DistinguishedName{CommonName: "stored name"},
+		IsCA:              true,
+		RawPEM:            "stored pem",
+	}
+	disc := &CertDiscovery{
+		FingerprintSHA256:  "AABB1122",
+		SubjectCN:          "new name",
+		IssuerCN:           "Example Issuing CA",
+		SerialNumber:       "1f2e",
+		NotAfter:           notAfter,
+		KeyAlgorithm:       "ECDSA",
+		KeySizeBits:        256,
+		SignatureAlgorithm: "ECDSAWithSHA256",
+		SubjectAltNames:    []string{"a.example.test"},
+		IsCA:               false,
+		RawPEM:             "new pem",
+	}
+
+	if _, _, err := NewDeduplicator(st).DedupCertificate(context.Background(), "host-1", disc); err != nil {
+		t.Fatalf("DedupCertificate: %v", err)
+	}
+	got := st.certs["aabb1122"]
+	checks := []struct {
+		name      string
+		got, want any
+	}{
+		{"subject (kept)", got.Subject.CommonName, "stored name"},
+		{"issuer (filled)", got.Issuer.CommonName, "Example Issuing CA"},
+		{"serial (filled)", got.SerialNumber, "1f2e"},
+		{"not_after (filled)", got.NotAfter.Equal(notAfter), true},
+		{"key algorithm (filled)", string(got.KeyAlgorithm), "ECDSA"},
+		{"key size (filled)", got.KeySizeBits, 256},
+		{"signature algorithm (filled)", string(got.SignatureAlgorithm), "ECDSAWithSHA256"},
+		{"SANs (filled)", strings.Join(got.SubjectAltNames, ","), "a.example.test"},
+		{"is_ca (a CA stays a CA)", got.IsCA, true},
+		{"raw PEM (kept)", got.RawPEM, "stored pem"},
+	}
+	for _, c := range checks {
+		if c.got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, c.got, c.want)
+		}
+	}
+}
+
 func TestDedupCertificate_CaseInsensitive(t *testing.T) {
 	st := newMockStore()
 	d := NewDeduplicator(st)

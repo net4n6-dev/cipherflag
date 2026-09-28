@@ -158,10 +158,37 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 		)
 		ON CONFLICT (fingerprint_sha256) DO UPDATE SET
 			last_seen = EXCLUDED.last_seen,
-			source_discovery = EXCLUDED.source_discovery,
 			raw_pem = COALESCE(NULLIF(EXCLUDED.raw_pem, ''), certificates.raw_pem),
 			authority_key_id = EXCLUDED.authority_key_id,
-			subject_key_id = EXCLUDED.subject_key_id
+			subject_key_id = EXCLUDED.subject_key_id,
+			-- Fill-only: a certificate's X.509 metadata never changes, so a
+			-- column is set from the new observation only while it is still
+			-- empty (a row stored blank by an earlier version is completed)
+			-- and never overwritten once set. first_seen and
+			-- source_discovery keep the first observation; per-source
+			-- history is in asset_provenance.
+			subject_cn          = CASE WHEN certificates.subject_cn = '' THEN EXCLUDED.subject_cn ELSE certificates.subject_cn END,
+			subject_org         = CASE WHEN certificates.subject_org = '' THEN EXCLUDED.subject_org ELSE certificates.subject_org END,
+			subject_ou          = CASE WHEN certificates.subject_ou = '' THEN EXCLUDED.subject_ou ELSE certificates.subject_ou END,
+			subject_country     = CASE WHEN certificates.subject_country = '' THEN EXCLUDED.subject_country ELSE certificates.subject_country END,
+			subject_state       = CASE WHEN certificates.subject_state = '' THEN EXCLUDED.subject_state ELSE certificates.subject_state END,
+			subject_locality    = CASE WHEN certificates.subject_locality = '' THEN EXCLUDED.subject_locality ELSE certificates.subject_locality END,
+			subject_full        = CASE WHEN certificates.subject_full = '' THEN EXCLUDED.subject_full ELSE certificates.subject_full END,
+			issuer_cn           = CASE WHEN certificates.issuer_cn = '' THEN EXCLUDED.issuer_cn ELSE certificates.issuer_cn END,
+			issuer_org          = CASE WHEN certificates.issuer_org = '' THEN EXCLUDED.issuer_org ELSE certificates.issuer_org END,
+			issuer_ou           = CASE WHEN certificates.issuer_ou = '' THEN EXCLUDED.issuer_ou ELSE certificates.issuer_ou END,
+			issuer_country      = CASE WHEN certificates.issuer_country = '' THEN EXCLUDED.issuer_country ELSE certificates.issuer_country END,
+			issuer_full         = CASE WHEN certificates.issuer_full = '' THEN EXCLUDED.issuer_full ELSE certificates.issuer_full END,
+			serial_number       = CASE WHEN certificates.serial_number = '' THEN EXCLUDED.serial_number ELSE certificates.serial_number END,
+			not_before          = CASE WHEN certificates.not_before = '0001-01-01 00:00:00+00' THEN EXCLUDED.not_before ELSE certificates.not_before END,
+			not_after           = CASE WHEN certificates.not_after = '0001-01-01 00:00:00+00' THEN EXCLUDED.not_after ELSE certificates.not_after END,
+			key_algorithm       = CASE WHEN certificates.key_algorithm IN ('', 'Unknown') THEN EXCLUDED.key_algorithm ELSE certificates.key_algorithm END,
+			key_size_bits       = CASE WHEN certificates.key_size_bits = 0 THEN EXCLUDED.key_size_bits ELSE certificates.key_size_bits END,
+			signature_algorithm = CASE WHEN certificates.signature_algorithm IN ('', 'Unknown') THEN EXCLUDED.signature_algorithm ELSE certificates.signature_algorithm END,
+			subject_alt_names   = CASE WHEN certificates.subject_alt_names IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.subject_alt_names ELSE certificates.subject_alt_names END,
+			key_usage           = CASE WHEN certificates.key_usage IS NULL OR certificates.key_usage IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.key_usage ELSE certificates.key_usage END,
+			extended_key_usage  = CASE WHEN certificates.extended_key_usage IS NULL OR certificates.extended_key_usage IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.extended_key_usage ELSE certificates.extended_key_usage END,
+			is_ca               = certificates.is_ca OR EXCLUDED.is_ca
 	`,
 		cert.FingerprintSHA256,
 		cert.Subject.CommonName, cert.Subject.Organization, cert.Subject.OrganizationalUnit,
