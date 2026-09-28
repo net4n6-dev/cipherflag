@@ -159,7 +159,6 @@ type CertStore interface {
 	UpsertCertificate(ctx context.Context, cert *model.Certificate) error
 	GetCertificate(ctx context.Context, fingerprint string) (*model.Certificate, error)
 	SearchCertificates(ctx context.Context, q CertSearchQuery) (*CertSearchResult, error)
-	BatchUpsertCertificates(ctx context.Context, certs []*model.Certificate) error
 
 	// Observations
 	RecordObservation(ctx context.Context, obs *model.CertificateObservation) error
