@@ -86,6 +86,45 @@ func NewUnifiedIngester(st store.CryptoStore, opts ...Option) *UnifiedIngester {
 // operators who want to log cache hit rates on a timer.
 func (u *UnifiedIngester) Metrics() *observcache.Metrics { return u.metrics }
 
+// fillCertFromPEM sets every field of disc that is still empty from the
+// parsed certificate; fields the discovery supplied are kept. The field
+// mapping matches the built-in adapters (internal/scanner/certfiles), so a
+// PEM-only discovery ends up with what an adapter would have sent. IsCA can
+// only be added: a discovery cannot un-CA a CA certificate.
+func fillCertFromPEM(disc *dedup.CertDiscovery, parsed *model.Certificate) {
+	if disc.FingerprintSHA256 == "" {
+		disc.FingerprintSHA256 = parsed.FingerprintSHA256
+	}
+	if disc.SubjectCN == "" {
+		disc.SubjectCN = parsed.Subject.CommonName
+	}
+	if disc.IssuerCN == "" {
+		disc.IssuerCN = parsed.Issuer.CommonName
+	}
+	if disc.SerialNumber == "" {
+		disc.SerialNumber = parsed.SerialNumber
+	}
+	if disc.NotBefore.IsZero() {
+		disc.NotBefore = parsed.NotBefore
+	}
+	if disc.NotAfter.IsZero() {
+		disc.NotAfter = parsed.NotAfter
+	}
+	if disc.KeyAlgorithm == "" {
+		disc.KeyAlgorithm = string(parsed.KeyAlgorithm)
+	}
+	if disc.KeySizeBits == 0 {
+		disc.KeySizeBits = parsed.KeySizeBits
+	}
+	if disc.SignatureAlgorithm == "" {
+		disc.SignatureAlgorithm = string(parsed.SignatureAlgorithm)
+	}
+	if len(disc.SubjectAltNames) == 0 {
+		disc.SubjectAltNames = parsed.SubjectAltNames
+	}
+	disc.IsCA = disc.IsCA || parsed.IsCA
+}
+
 // Ingest processes a DiscoveryResult: resolves host, deduplicates assets,
 // records provenance, and returns a summary.
 func (u *UnifiedIngester) Ingest(ctx context.Context, result *DiscoveryResult) (*IngestionSummary, error) {
@@ -146,19 +185,32 @@ func (u *UnifiedIngester) Ingest(ctx context.Context, result *DiscoveryResult) (
 		if disc.Source == "" {
 			disc.Source = result.Source
 		}
-		// Derive FingerprintSHA256 from RawPEM when adapter didn't pre-compute it.
-		// Adapters that set FingerprintSHA256 themselves (osquery, scanners) take
-		// the fast path. Adapters that only have RawPEM (AWS ACM, future CT) get
-		// the FP derived here at the boundary so they don't all reimplement the
-		// same SHA256 + parse dance. Empty-FP empty-RawPEM combinations are
-		// dropped (matches osquery's pre-existing convention).
-		if disc.FingerprintSHA256 == "" && disc.RawPEM != "" {
+		// A discovery that carries RawPEM gets every field it left empty filled
+		// from the certificate itself, at this boundary, so a client of the
+		// ingest API (or an adapter) that sends only the PEM is stored with
+		// its subject, issuer, CA flag, key and validity rather than a bare
+		// fingerprint. Values the discovery supplies are kept. A supplied
+		// fingerprint that names a different certificate than the PEM is a
+		// contradiction and the certificate is skipped. When the PEM does
+		// not parse, a supplied fingerprint is kept on its own word, as
+		// before; with neither, the certificate is dropped (osquery's
+		// pre-existing convention).
+		if disc.RawPEM != "" {
 			parsed, err := certparse.ParsePEM([]byte(disc.RawPEM))
-			if err != nil {
+			switch {
+			case err == nil:
+				if disc.FingerprintSHA256 != "" && !strings.EqualFold(disc.FingerprintSHA256, parsed.FingerprintSHA256) {
+					log.Warn().Str("source", result.Source).
+						Str("fingerprint", disc.FingerprintSHA256).
+						Str("pem_fingerprint", parsed.FingerprintSHA256).
+						Msg("ingest: cert fingerprint does not match its RawPEM, skipping cert")
+					continue
+				}
+				fillCertFromPEM(disc, parsed)
+			case disc.FingerprintSHA256 == "":
 				log.Warn().Err(err).Str("source", result.Source).Msg("ingest: PEM parse failed, skipping cert")
 				continue
 			}
-			disc.FingerprintSHA256 = parsed.FingerprintSHA256
 		}
 		if disc.FingerprintSHA256 == "" {
 			log.Warn().Str("source", result.Source).Msg("ingest: cert has neither FingerprintSHA256 nor parseable RawPEM, skipping")

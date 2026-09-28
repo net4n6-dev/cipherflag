@@ -42,6 +42,7 @@ type ingestMockStore struct {
 	host             *model.Host
 	sightingCalls    []*store.HostIPSighting
 	sightingErr      error
+	upsertedCerts    []*model.Certificate
 }
 
 func (m *ingestMockStore) FindHostBySourceID(ctx context.Context, source, sourceHostID string) (*model.Host, error) {
@@ -75,6 +76,7 @@ func (m *ingestMockStore) GetCertificate(ctx context.Context, fp string) (*model
 	return nil, nil
 }
 func (m *ingestMockStore) UpsertCertificate(ctx context.Context, cert *model.Certificate) error {
+	m.upsertedCerts = append(m.upsertedCerts, cert)
 	return nil
 }
 func (m *ingestMockStore) UpsertSSHKey(ctx context.Context, key *model.SSHKey) error {

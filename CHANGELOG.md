@@ -34,6 +34,14 @@ All notable changes to CipherFlag are documented in this file.
   the configuration it says so and disables Save. A contract test pins the
   response shape on both sides. If you saved this tab on 2.0.0 to 2.2.x,
   check `[sources.zeek_file]` in your config.
+- **Certificates posted to `/api/v1/ingest` with only their PEM were stored
+  blank.** The ingester derived the fingerprint from `RawPEM` but nothing
+  else, so subject, issuer, CA flag, key and validity stayed empty; such
+  certificates were scored on nothing and never appeared in the PKI graph.
+  Every empty field is now filled from the PEM, and fields the client sends
+  are kept. A fingerprint that does not match the PEM is now rejected (the
+  certificate is skipped with a warning) instead of stored. Built-in
+  sources were not affected.
 - **`asset_count` overstated BOM contents.** It now equals the number of
   asset components in the BOM. When health reports were dropped because
   their asset no longer exists, `assets_omitted` and `assets_omitted_types`
