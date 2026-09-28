@@ -158,6 +158,21 @@ With `signer = "env"`, a value that does not start with `-----BEGIN` is read as 
 
 CipherFlag CE before 2.3.0 reads only the raw encoding. Its `verify-cbom` misreads a standard `.pub` (including one from EE 4.11) and reports a trust mismatch for a genuine BOM; verify with 2.3.0 or later.
 
+#### Verifying a signed CBOM
+
+    cipherflag verify-cbom --bom /path/to/bom.json --trusted-key /etc/cipherflag/signing.pub
+
+Exit codes:
+
+- `0`: the signature is valid and the embedded key matches `--trusted-key`.
+- `1`: the signature is valid but the embedded key does not match: someone else signed this BOM. Not necessarily a forgery, but not from the expected signer.
+- `2`: the signature is invalid: the BOM was changed after signing, or its `signature` block is absent or malformed, or the BOM is not valid JSON.
+- `3`: could not verify; nothing was checked. A usage error (for example a missing `--bom`, an unknown flag or an extra argument), `-h`, an unreadable BOM file, an unloadable `--trusted-key`, or a BOM that cannot be canonicalised. The reason is printed on stderr. Treat `3` as a failure to run, never as a verdict.
+
+Without `--trusted-key`, the exit codes are `0` (valid), `2` (invalid) or `3` (could not verify); the `1` case does not apply.
+
+Before 2.3.0, `verify-cbom` had no code `3`: it exited `0` for `-h`, `1` for an unloadable `--trusted-key` and `2` for an unreadable BOM.
+
 ### `[pcap]`
 
 Controls PCAP upload and processing.

@@ -112,7 +112,8 @@ func TestVerifyCBOM_NonEd25519TrustedKeyIsAnError(t *testing.T) {
 	ecPub := filepath.Join(dir, "ec.pub")
 	writeKeyPEM(t, ecPub, "PUBLIC KEY", ecSPKI)
 
-	_, err = runVerifyCBOM(ctx, bomPath, ecPub)
+	code, err := runVerifyCBOM(ctx, bomPath, ecPub)
+	require.Equal(t, 3, code, "could not verify, not a trust-mismatch verdict")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), ecPub)
 	require.Contains(t, err.Error(), "Ed25519")

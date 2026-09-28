@@ -149,18 +149,26 @@ func runSignCBOM(_ context.Context, inPath, outPath, keyPath string) error {
 	return nil
 }
 
+// exitCouldNotVerify is the exit code verify-cbom uses when no verification
+// took place: bad usage, help, an unreadable input, an unloadable trusted
+// key, or a verifier failure. It is kept apart from 0/1/2, which are
+// verdicts on a signature, so a script can never read a broken invocation
+// as one. Ported from CipherFlag EE (rm:0798).
+const exitCouldNotVerify = 3
+
 // runVerifyCBOM verifies the JSF Ed25519 signature on the BOM at bomPath.
-// Exit-code semantics (returned as the first int, never an error unless I/O
-// or parse fails):
+// Exit-code semantics (first return value):
 //
-//	0 — signature cryptographically valid AND embedded public key matches the
-//	    trusted key at trustedKeyPath (if provided).
-//	1 — signature cryptographically valid BUT the embedded public key does NOT
-//	    match the operator's trusted key (trust mismatch).
-//	2 — signature invalid, BOM malformed, or no signature block present.
+//	0: signature cryptographically valid AND embedded public key matches the
+//	   trusted key at trustedKeyPath (if provided).
+//	1: signature cryptographically valid BUT the embedded public key does NOT
+//	   match the operator's trusted key (trust mismatch).
+//	2: signature invalid, BOM malformed, or no signature block present.
+//	3: could not verify (exitCouldNotVerify); the returned error says why.
 //
-// When trustedKeyPath is empty the function returns 0 on a valid signature
-// without a trust check (self-attest mode — the 1-case never fires).
+// An error is returned only with exitCouldNotVerify. When trustedKeyPath is
+// empty the function returns 0 on a valid signature without a trust check
+// (self-attest mode; the 1-case never fires).
 //
 // Because cdx.JSFSignature embeds *JSFSigner with json:"-", we read the
 // signature from the raw JSON map directly rather than via bom.Signature.
@@ -169,14 +177,26 @@ func runSignCBOM(_ context.Context, inPath, outPath, keyPath string) error {
 func runVerifyCBOM(_ context.Context, bomPath, trustedKeyPath string) (int, error) {
 	raw, err := os.ReadFile(bomPath)
 	if err != nil {
-		return 2, fmt.Errorf("read BOM: %w", err)
+		return exitCouldNotVerify, fmt.Errorf("read BOM: %w", err)
+	}
+
+	// Load the trusted key before checking anything, so a run that cannot
+	// complete the trust check never prints a verdict first.
+	var trustedPub ed25519.PublicKey
+	if trustedKeyPath != "" {
+		trusted, err := cbom.LoadTrustedKeys([]string{trustedKeyPath})
+		if err != nil {
+			return exitCouldNotVerify, err
+		}
+		trustedPub = trusted[0]
 	}
 
 	// Parse as a raw field map so we can extract and strip the signature key
 	// without relying on cdx.BOM's json:"-"-tagged embedded pointer.
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
-		return 2, fmt.Errorf("parse BOM JSON: %w", err)
+		fmt.Fprintf(os.Stderr, "verify-cbom: parse BOM JSON: %v\n", err)
+		return 2, nil
 	}
 
 	sigRaw, ok := fields["signature"]
@@ -236,11 +256,12 @@ func runVerifyCBOM(_ context.Context, bomPath, trustedKeyPath string) (int, erro
 	delete(fields, "signature")
 	stripped, err := json.Marshal(fields)
 	if err != nil {
-		return 2, fmt.Errorf("marshal stripped BOM: %w", err)
+		return exitCouldNotVerify, fmt.Errorf("marshal stripped BOM: %w", err)
 	}
 	canonical, err := cbom.Canonicalize(stripped)
 	if err != nil {
-		return 2, fmt.Errorf("canonicalize BOM: %w", err)
+		// No canonical form means no bytes to check the signature against.
+		return exitCouldNotVerify, fmt.Errorf("canonicalize BOM: %w", err)
 	}
 
 	embeddedPub := ed25519.PublicKey(pubBytes)
@@ -252,17 +273,12 @@ func runVerifyCBOM(_ context.Context, bomPath, trustedKeyPath string) (int, erro
 	embeddedSum := sha256.Sum256(pubBytes)
 	fmt.Printf("Signature valid. Embedded public key SHA-256: %s\n", hex.EncodeToString(embeddedSum[:]))
 
-	if trustedKeyPath == "" {
+	if trustedPub == nil {
 		return 0, nil
 	}
 
 	// Trust check: compare the embedded public key bytes against the operator's
 	// trusted public key from trustedKeyPath (SPKI or raw 32-byte).
-	trusted, err := cbom.LoadTrustedKeys([]string{trustedKeyPath})
-	if err != nil {
-		return 1, err
-	}
-	trustedPub := trusted[0]
 
 	if !ed25519KeyEqual(trustedPub, embeddedPub) {
 		trustedSum := sha256.Sum256(trustedPub)
@@ -327,17 +343,28 @@ func cliSignCBOM(ctx context.Context) {
 
 // cliVerifyCBOM is the entry point for `cipherflag verify-cbom`.
 // Parses --bom and --trusted-key flags and delegates to runVerifyCBOM.
-// Exit code mirrors the semantics documented on runVerifyCBOM (0/1/2).
+// Exit code mirrors the semantics documented on runVerifyCBOM (0/1/2/3).
+// Usage errors and -h exit exitCouldNotVerify: flag.ExitOnError would exit 2
+// (the "invalid" verdict) on a bad flag and 0 (the "valid" verdict) on -h.
 func cliVerifyCBOM(ctx context.Context) {
-	fs := flag.NewFlagSet("verify-cbom", flag.ExitOnError)
+	fs := flag.NewFlagSet("verify-cbom", flag.ContinueOnError)
 	bomPath := fs.String("bom", "", "path to the signed CycloneDX BOM JSON file (required)")
-	trustedKey := fs.String("trusted-key", "", "path to the trusted Ed25519 public key PEM file (optional; omit for self-attest mode)")
-	fs.Parse(os.Args[2:]) //nolint:errcheck // ExitOnError handles errors
+	trustedKey := fs.String("trusted-key", "", "path to the trusted Ed25519 public key PEM file, SPKI or raw (optional; omit for self-attest mode)")
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		os.Exit(exitCouldNotVerify) // fs has already printed the error or help
+	}
 
 	if *bomPath == "" {
 		fmt.Fprintln(os.Stderr, "verify-cbom: --bom is required")
 		fs.Usage()
-		os.Exit(1)
+		os.Exit(exitCouldNotVerify)
+	}
+	if fs.NArg() > 0 {
+		// A stray argument means the caller's invocation is not the one
+		// they think; do not give a verdict on --bom.
+		fmt.Fprintf(os.Stderr, "verify-cbom: unexpected argument %q\n", fs.Arg(0))
+		fs.Usage()
+		os.Exit(exitCouldNotVerify)
 	}
 
 	code, err := runVerifyCBOM(ctx, *bomPath, *trustedKey)

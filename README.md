@@ -267,9 +267,14 @@ cipherflag declared-cas <verb>     Manage the operator-declared CA registry
 cipherflag application-metadata    Manage per-application TTL metadata (HNDL)
 cipherflag ownership <verb>        Manage asset ownership sightings
 cipherflag scan-truststore         One-shot OS / JVM / runtime trust-store scan
-cipherflag generate-signing-key    Generate an Ed25519 signing key for CBOMs
-cipherflag sign-cbom <file>        Sign a CBOM JSON with the signing key
-cipherflag verify-cbom <file>      Verify a signed CBOM
+cipherflag generate-signing-key [--out <prefix>]
+                                   Generate an Ed25519 signing key for CBOMs
+cipherflag sign-cbom --bom <file> --key <key> [--out <file>]
+                                   Sign a CBOM JSON with the signing key
+cipherflag verify-cbom --bom <file> [--trusted-key <pub>]
+                                   Verify a signed CBOM (exit 0 valid,
+                                   1 other signer, 2 invalid, 3 could not
+                                   verify; see docs/configuration.md)
 cipherflag version                 Print version
 ```
 

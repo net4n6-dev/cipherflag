@@ -53,6 +53,22 @@ All notable changes to CipherFlag are documented in this file.
   line naming the key file or environment variable and the way out
   (`[cbom.signing] enabled = false`), before connecting to the database.
 
+### Changed
+- **`verify-cbom` exits `3` when it could not verify (breaking for
+  scripts).** Its documented codes are `0` (valid), `1` (valid, signed by a
+  different key) and `2` (invalid), but runs that checked nothing exited
+  with those codes too: `-h` and a stray extra argument exited `0`, a missing
+  `--bom` and an unloadable `--trusted-key` exited `1`, and an unreadable BOM
+  or an unknown flag exited `2`. All of these now exit `3`, as does a BOM
+  that cannot be canonicalised. Malformed, unsigned and tampered BOMs still
+  exit `2`. The trusted key is now loaded before the signature is checked,
+  so a run that cannot finish the trust check no longer prints "Signature
+  valid" first. Scripts that treated `1` as "wrong key" for an unreadable
+  key file should treat `3` as a failure to run.
+- The README documented `verify-cbom <file>` and `sign-cbom <file>`; both
+  take flags (`--bom`, `--trusted-key`, `--key`), and the positional form
+  failed. The README now shows the real usage.
+
 ### Notes
 - The estate export is assembled in memory with one lookup per asset; very
   large inventories cost memory and time proportional to their size.
