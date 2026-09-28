@@ -82,7 +82,7 @@
 
 	onMount(async () => {
 		currentUser = await getCurrentUser();
-		if (!currentUser || currentUser.id === 'anonymous') {
+		if (!currentUser) {
 			goto('/login');
 			return;
 		}

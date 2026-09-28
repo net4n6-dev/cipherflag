@@ -3,6 +3,10 @@
 [server]
 listen = "0.0.0.0:8443"
 frontend_url = "http://localhost:5174"
+# Per-install files. Defaults suit the Docker image (root, /var/lib/cipherflag
+# on the cipherflag-state volume); set writable paths when running from source.
+# jwt_secret_path = "/var/lib/cipherflag/jwt-secret.key"
+# setup_token_path = "/var/lib/cipherflag/setup-token"
 
 [storage]
 # PostgreSQL (primary)

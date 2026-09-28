@@ -4,7 +4,26 @@ All notable changes to CipherFlag are documented in this file.
 
 ## [2.3.1] - Unreleased
 
+### Security
+- **Session cookies are now signed with a per-install random key.** The key
+  was previously derived from configuration rather than generated at
+  random, so it was not unique to an install. It is now 32 random bytes
+  kept in `/var/lib/cipherflag/jwt-secret.key` (`[server] jwt_secret_path`),
+  on the new `cipherflag-state` Compose volume. Everyone signs in once after
+  upgrading.
+- **Creating the first admin requires a setup token.** The token is a random
+  value the server keeps in `/var/lib/cipherflag/setup-token` and prints in
+  its log while no admin exists; the setup page and `setup-admin` API take it
+  in an `X-Setup-Token` header.
+- **The API no longer serves unauthenticated requests while no admin
+  exists.** Every `/api/v1` route except `auth/login`, `auth/status`,
+  `auth/me` and `auth/setup-admin` returns 401 without a session or agent
+  token.
+
 ### Fixed
+- **The web UI did not redirect a signed-out visitor to the login page.**
+  The current-user check treated the "no user" response as a signed-in
+  user.
 - **A stock install never scored anything.** `analysis.scorer_enabled`
   defaulted to false and the shipped config did not set it, so the dashboard
   grade donut, risk cards, health findings, compliance gauge and CBOM findings

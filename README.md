@@ -230,6 +230,9 @@ docker compose --profile zeek up -d     # the same, plus the Zeek network sensor
 
 The web UI and API come up on `http://localhost:8443` (Postgres on
 `localhost:5433`). The first visit to the web UI creates the admin account.
+It asks for a setup token, which the server prints in its log at startup
+(`docker compose logs cipherflag | grep setup_token`) and keeps in
+`/var/lib/cipherflag/setup-token`.
 [`docs/quickstart.md`](docs/quickstart.md) walks through live capture and
 processing a PCAP file.
 
@@ -237,8 +240,9 @@ The same from the command line: create the admin account (which also logs
 you in), then export a CBOM:
 
 ```bash
+TOKEN=$(docker compose exec -T cipherflag cat /var/lib/cipherflag/setup-token)
 curl -sS -c cookies.txt -X POST http://localhost:8443/api/v1/auth/setup-admin \
-  -H 'Content-Type: application/json' \
+  -H 'Content-Type: application/json' -H "X-Setup-Token: $TOKEN" \
   -d '{"email":"admin@example.com","password":"<choose a password>","display_name":"Admin"}'
 
 curl -sS -b cookies.txt http://localhost:8443/api/v1/export/cbom | jq '.bomFormat, .specVersion'
