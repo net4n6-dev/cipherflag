@@ -96,7 +96,7 @@
 
       // Deep link: /constellation?select=<fingerprint> (Analytics Chain Flow).
       const selected = selectParam(window.location.search);
-      if (selected) handleNavigateCert(selected);
+      if (selected) handleNavigateCert(selected, { deepLink: true });
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load landscape';
     }
@@ -228,10 +228,10 @@
     }
   }
 
-  function handleNavigateCert(fp: string) {
-    const target = resolveCertTarget(nodes, fp);
+  function handleNavigateCert(fp: string, opts: { deepLink?: boolean } = {}) {
+    const target = resolveCertTarget(nodes, fp, opts);
     if (target.kind === 'node') selectedNode = target.node;
-    else goto(target.href);
+    else goto(target.href, { replaceState: target.replaceState });
   }
 
   function nodeOpacity(node: Node3D): number {

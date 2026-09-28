@@ -22,14 +22,35 @@ describe('constellation-select: resolveCertTarget', () => {
 	});
 
 	it('falls back to the certificate detail page when it is not', () => {
-		expect(resolveCertTarget(nodes, 'cc33')).toEqual({ kind: 'detail', href: '/certificates/cc33' });
+		expect(resolveCertTarget(nodes, 'cc33')).toEqual({
+			kind: 'detail',
+			href: '/certificates/cc33',
+			replaceState: false
+		});
 	});
 
 	it('encodes a fingerprint from the URL so it cannot change the path', () => {
 		expect(resolveCertTarget(nodes, '../settings')).toEqual({
 			kind: 'detail',
-			href: '/certificates/..%2Fsettings'
+			href: '/certificates/..%2Fsettings',
+			replaceState: false
 		});
+	});
+
+	// The deep link's fallback used to push the detail page on top of
+	// /constellation?select=<fp>, so Back returned to the deep link, which
+	// redirected forward again: the user could not go back past it. It now
+	// replaces the deep link in history. Any other navigation still pushes.
+	it('replaces the deep link in history when falling back from it', () => {
+		expect(resolveCertTarget(nodes, 'cc33', { deepLink: true })).toEqual({
+			kind: 'detail',
+			href: '/certificates/cc33',
+			replaceState: true
+		});
+	});
+
+	it('still selects the node from a deep link', () => {
+		expect(resolveCertTarget(nodes, 'aa11', { deepLink: true })).toEqual({ kind: 'node', node: nodes[0] });
 	});
 });
 
