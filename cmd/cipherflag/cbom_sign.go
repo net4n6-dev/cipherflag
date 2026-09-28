@@ -313,9 +313,9 @@ func runVerifyCBOM(_ context.Context, bomPath, trustedKeyPath string) (int, erro
 // cliGenerateSigningKey is the entry point for `cipherflag generate-signing-key`.
 // Parses --out flag and delegates to runGenerateSigningKey.
 func cliGenerateSigningKey(ctx context.Context) {
-	fs := flag.NewFlagSet("generate-signing-key", flag.ExitOnError)
+	fs := flag.NewFlagSet("generate-signing-key", flag.ContinueOnError)
 	out := fs.String("out", "cbom-signing", "output file prefix (writes <prefix>.key and <prefix>.pub)")
-	fs.Parse(os.Args[2:]) //nolint:errcheck // ExitOnError handles errors
+	parseSubcommandFlags(fs, os.Args[2:])
 	if err := runGenerateSigningKey(ctx, *out); err != nil {
 		fmt.Fprintf(os.Stderr, "generate-signing-key: %v\n", err)
 		os.Exit(1)
@@ -325,16 +325,14 @@ func cliGenerateSigningKey(ctx context.Context) {
 // cliSignCBOM is the entry point for `cipherflag sign-cbom`.
 // Parses --bom, --out, and --key flags and delegates to runSignCBOM.
 func cliSignCBOM(ctx context.Context) {
-	fs := flag.NewFlagSet("sign-cbom", flag.ExitOnError)
+	fs := flag.NewFlagSet("sign-cbom", flag.ContinueOnError)
 	bomPath := fs.String("bom", "", "path to the CycloneDX BOM JSON file to sign (required)")
 	outPath := fs.String("out", "", "output path for signed BOM (default: overwrite --bom in-place)")
 	keyPath := fs.String("key", "", "path to the Ed25519 private key PEM file (required)")
-	fs.Parse(os.Args[2:]) //nolint:errcheck // ExitOnError handles errors
+	parseSubcommandFlags(fs, os.Args[2:])
 
 	if *bomPath == "" || *keyPath == "" {
-		fmt.Fprintln(os.Stderr, "sign-cbom: --bom and --key are required")
-		fs.Usage()
-		os.Exit(1)
+		usageError(fs, "--bom and --key are required")
 	}
 
 	if err := runSignCBOM(ctx, *bomPath, *outPath, *keyPath); err != nil {

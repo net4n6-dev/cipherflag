@@ -137,31 +137,26 @@ func printOwnershipUsage() {
 // line. Triggers team-skeleton auto-create transitively via
 // UpsertOwnershipSighting (§2.9).
 func runOwnershipDeclare(ctx context.Context, cfg *config.Config, args []string) {
-	fs := flag.NewFlagSet("ownership declare", flag.ExitOnError)
+	fs := flag.NewFlagSet("ownership declare", flag.ContinueOnError)
 	assetType := fs.String("asset-type", "", "asset_type (required — one of: "+allowedOwnershipTypesCSV()+")")
 	assetID := fs.String("asset-id", "", "asset_id (required — hex fingerprint for certs, UUID for others)")
 	team := fs.String("team", "", "team slug (required)")
 	owner := fs.String("owner", "", "named owner email (optional)")
 	service := fs.String("service", "", "business service tag (optional)")
 	note := fs.String("note", "", "evidence note (optional; max 2048 bytes)")
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
-	}
+	parseSubcommandFlags(fs, args)
 
 	at := strings.TrimSpace(*assetType)
 	aid := strings.TrimSpace(*assetID)
 	tm := strings.TrimSpace(*team)
 	if at == "" || aid == "" || tm == "" {
-		fmt.Fprintln(os.Stderr, "--asset-type, --asset-id, and --team are required")
-		os.Exit(1)
+		usageError(fs, "--asset-type, --asset-id, and --team are required")
 	}
 	if _, ok := ownershipAssetTypes[at]; !ok {
-		fmt.Fprintf(os.Stderr, "unknown asset_type %q (allowed: %s)\n", at, allowedOwnershipTypesCSV())
-		os.Exit(1)
+		usageError(fs, fmt.Sprintf("unknown asset_type %q (allowed: %s)", at, allowedOwnershipTypesCSV()))
 	}
 	if len(*note) > 2048 {
-		fmt.Fprintln(os.Stderr, "--note exceeds 2048 bytes")
-		os.Exit(1)
+		usageError(fs, "--note exceeds 2048 bytes")
 	}
 
 	st, err := store.NewPostgresStore(ctx, cfg.Storage.PostgresURL)
@@ -229,14 +224,11 @@ type ownershipCSVRow struct {
 // column order so a column-reorder mistake can't silently corrupt
 // the ledger with swapped fields.
 func runOwnershipImport(ctx context.Context, cfg *config.Config, args []string) {
-	fs := flag.NewFlagSet("ownership import", flag.ExitOnError)
+	fs := flag.NewFlagSet("ownership import", flag.ContinueOnError)
 	filePath := fs.String("file", "", "CSV file (required; header: asset_type,asset_id,team,named_owner,business_svc,note)")
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
-	}
+	parseSubcommandFlags(fs, args)
 	if strings.TrimSpace(*filePath) == "" {
-		fmt.Fprintln(os.Stderr, "--file is required")
-		os.Exit(1)
+		usageError(fs, "--file is required")
 	}
 
 	rows, err := loadOwnershipCSV(*filePath)
@@ -379,14 +371,8 @@ func loadOwnershipCSV(path string) ([]ownershipCSVRow, error) {
 // user decision #2 (the plan's §6 open questions) — this CLI is the
 // only path that ever fires the backfill.
 func runOwnershipBackfill(ctx context.Context, cfg *config.Config, args []string) {
-	fs := flag.NewFlagSet("ownership backfill", flag.ExitOnError)
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
-	}
-	if fs.NArg() > 0 {
-		fmt.Fprintln(os.Stderr, "ownership backfill takes no positional arguments")
-		os.Exit(1)
-	}
+	fs := flag.NewFlagSet("ownership backfill", flag.ContinueOnError)
+	parseSubcommandFlags(fs, args)
 
 	st, err := store.NewPostgresStore(ctx, cfg.Storage.PostgresURL)
 	if err != nil {

@@ -143,20 +143,15 @@ func printDeclaredCAsUsage() {
 }
 
 func runDeclaredCAsImport(ctx context.Context, cfg *config.Config, args []string) {
-	fs := flag.NewFlagSet("declared-cas import", flag.ExitOnError)
+	fs := flag.NewFlagSet("declared-cas import", flag.ContinueOnError)
 	useStarter := fs.Bool("starter", false, "apply the baked-in public-CA starter list")
 	filePath := fs.String("file", "", "apply entries from a JSON file (array of {fingerprint_sha256, owner_team, note})")
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
-	}
+	parseSubcommandFlags(fs, args)
 	if !*useStarter && *filePath == "" {
-		fmt.Fprintln(os.Stderr, "--starter or --file is required")
-		printDeclaredCAsUsage()
-		os.Exit(1)
+		usageError(fs, "--starter or --file is required")
 	}
 	if *useStarter && *filePath != "" {
-		fmt.Fprintln(os.Stderr, "--starter and --file are mutually exclusive")
-		os.Exit(1)
+		usageError(fs, "--starter and --file are mutually exclusive")
 	}
 
 	entries, err := loadStarterEntries(*useStarter, *filePath)

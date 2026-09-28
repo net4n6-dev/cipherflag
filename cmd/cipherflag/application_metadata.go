@@ -203,27 +203,22 @@ func printPresets() {
 }
 
 func runAppMetaDeclare(ctx context.Context, cfg *config.Config, args []string) {
-	fs := flag.NewFlagSet("application-metadata declare", flag.ExitOnError)
+	fs := flag.NewFlagSet("application-metadata declare", flag.ContinueOnError)
 	tag := fs.String("tag", "", "application tag (required)")
 	preset := fs.String("preset", "", "compliance preset name (run `presets` to list)")
 	ttlYears := fs.Int("ttl-years", -1, "explicit TTL override in years (0..100)")
 	owner := fs.String("owner", "", "owner team (optional metadata)")
 	note := fs.String("note", "", "free-form note (optional metadata)")
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
-	}
+	parseSubcommandFlags(fs, args)
 
 	if strings.TrimSpace(*tag) == "" {
-		fmt.Fprintln(os.Stderr, "--tag is required")
-		os.Exit(1)
+		usageError(fs, "--tag is required")
 	}
 	if *preset == "" && *ttlYears < 0 {
-		fmt.Fprintln(os.Stderr, "--preset or --ttl-years is required")
-		os.Exit(1)
+		usageError(fs, "--preset or --ttl-years is required")
 	}
 	if *preset != "" && *ttlYears >= 0 {
-		fmt.Fprintln(os.Stderr, "--preset and --ttl-years are mutually exclusive")
-		os.Exit(1)
+		usageError(fs, "--preset and --ttl-years are mutually exclusive")
 	}
 
 	var resolvedTTL int
@@ -231,8 +226,7 @@ func runAppMetaDeclare(ctx context.Context, cfg *config.Config, args []string) {
 	if *preset != "" {
 		p := presetByName(*preset)
 		if p == nil {
-			fmt.Fprintf(os.Stderr, "unknown preset: %s (run `cipherflag application-metadata presets` to list)\n", *preset)
-			os.Exit(1)
+			usageError(fs, fmt.Sprintf("unknown preset: %s (run `cipherflag application-metadata presets` to list)", *preset))
 		}
 		resolvedTTL = p.TTLYears
 		if resolvedNote == "" {
@@ -240,8 +234,7 @@ func runAppMetaDeclare(ctx context.Context, cfg *config.Config, args []string) {
 		}
 	} else {
 		if *ttlYears < 0 || *ttlYears > 100 {
-			fmt.Fprintf(os.Stderr, "--ttl-years must be 0..100, got %d\n", *ttlYears)
-			os.Exit(1)
+			usageError(fs, fmt.Sprintf("--ttl-years must be 0..100, got %d", *ttlYears))
 		}
 		resolvedTTL = *ttlYears
 	}
@@ -267,14 +260,11 @@ func runAppMetaDeclare(ctx context.Context, cfg *config.Config, args []string) {
 }
 
 func runAppMetaImport(ctx context.Context, cfg *config.Config, args []string) {
-	fs := flag.NewFlagSet("application-metadata import", flag.ExitOnError)
+	fs := flag.NewFlagSet("application-metadata import", flag.ContinueOnError)
 	filePath := fs.String("file", "", "JSON file containing an array of entries (required)")
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
-	}
+	parseSubcommandFlags(fs, args)
 	if strings.TrimSpace(*filePath) == "" {
-		fmt.Fprintln(os.Stderr, "--file is required")
-		os.Exit(1)
+		usageError(fs, "--file is required")
 	}
 
 	entries, err := loadAppMetaEntries(*filePath)

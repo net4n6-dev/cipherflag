@@ -159,6 +159,16 @@ All notable changes to CipherFlag are documented in this file.
   matches `Version` in `cmd/cipherflag/main.go` before building images. A
   prerelease tag (for example `v2.3.0-rc1`) no longer moves `:latest` and is
   marked as a prerelease on GitHub.
+- **CLI subcommands exit `2` when invoked wrongly (breaking for scripts).**
+  `generate-signing-key`, `sign-cbom`, `scan-truststore`, `declared-cas
+  import`, `ownership declare`/`import`/`backfill` and
+  `application-metadata declare`/`import` now exit `0` when they did what
+  was asked, `1` when they tried and failed, and `2` when the invocation
+  was wrong and nothing was done. Before, `-h` exited `0` (success), a
+  missing or invalid required flag exited `1` (failure), and a stray
+  argument was ignored: `generate-signing-key foo` wrote
+  `cbom-signing.*`. Stray arguments are now rejected. `verify-cbom` keeps
+  its own `0`-`3` codes.
 - The README documented `verify-cbom <file>` and `sign-cbom <file>`; both
   take flags (`--bom`, `--trusted-key`, `--key`), and the positional form
   failed. The README now shows the real usage.

@@ -278,6 +278,11 @@ cipherflag verify-cbom --bom <file> [--trusted-key <pub>]
 cipherflag version                 Print version
 ```
 
+Subcommands exit `0` on success, `1` when they tried and failed, and `2`
+when invoked wrongly (`-h`, an unknown flag, a stray argument, a missing
+or invalid required flag); nothing is done in that case. `verify-cbom`
+uses its own codes, listed above.
+
 ---
 
 ## Architecture overview

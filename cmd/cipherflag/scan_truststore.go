@@ -47,14 +47,12 @@ import (
 // It performs a one-shot scan of the local host's trust stores and JKS
 // private-key entries, then persists the results via the store upserts.
 func runScanTruststore(ctx context.Context, cfg *config.Config, args []string) {
-	fs := flag.NewFlagSet("scan-truststore", flag.ExitOnError)
+	fs := flag.NewFlagSet("scan-truststore", flag.ContinueOnError)
 	hostID := fs.String("host-id", "", "UUID of the host this scan is attributed to (must exist in hosts table)")
-	if err := fs.Parse(args); err != nil {
-		log.Fatal().Err(err).Msg("scan-truststore: flag parse error")
-	}
+	parseSubcommandFlags(fs, args)
 
 	if *hostID == "" {
-		log.Fatal().Msg("scan-truststore: --host-id <uuid> is required")
+		usageError(fs, "--host-id <uuid> is required")
 	}
 
 	st, err := store.NewPostgresStore(ctx, cfg.Storage.PostgresURL)
