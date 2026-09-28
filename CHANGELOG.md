@@ -24,6 +24,12 @@ All notable changes to CipherFlag are documented in this file.
   - Files are followed across rotation, only complete lines are read, and
     the position is kept in `ingestion_state`, so a restart resumes where it
     left off.
+- **Re-reading a Zeek log stored its TLS sessions twice.** Observations were a
+  plain insert with no key, so any re-read (a lost cursor, a failed cursor
+  save, a batch that failed part way) duplicated them, although certificates
+  were unaffected. A session is now unique on certificate, source, time,
+  client, server and port and a repeat is ignored; the upgrade removes
+  duplicates already stored.
 - **The Zeek sensor image failed at startup.** `cipherflag-ce-zeek` was
   built on `zeek/zeek:latest`, which moved to Zeek 9, and Zeek 9 removed the
   `extract-certs-pem` policy the sensor loaded. The images published for

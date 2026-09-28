@@ -817,12 +817,16 @@ func (s *PostgresStore) GetBlastRadius(ctx context.Context, fingerprint string, 
 
 // ── Observations ────────────────────────────────────────────────────────────
 
+// RecordObservation stores one TLS session. A session already stored (same
+// certificate, source, time, client, server and port) is left as is, so a
+// source may safely replay its input.
 func (s *PostgresStore) RecordObservation(ctx context.Context, obs *model.CertificateObservation) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO observations (cert_fingerprint, server_ip, server_port, server_name, client_ip,
 			negotiated_version, negotiated_cipher, cipher_strength,
 			ja3_fingerprint, ja3s_fingerprint, source, observed_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		ON CONFLICT (cert_fingerprint, source, observed_at, client_ip, server_ip, server_port) DO NOTHING
 	`,
 		obs.CertFingerprint, obs.ServerIP, obs.ServerPort, obs.ServerName, obs.ClientIP,
 		string(obs.NegotiatedVersion), obs.NegotiatedCipher, string(obs.CipherStrength),

@@ -103,4 +103,16 @@ func TestPoller_StoresZeekCertificatesAndSessions(t *testing.T) {
 	obs, err = st.GetObservations(ctx, fixtureServerFP, 10)
 	require.NoError(t, err)
 	require.Len(t, obs, 2)
+	// A poll that has lost its cursor (a failed save, a file that dropped out
+	// of the listing for a poll) re-reads the logs from the start and must not
+	// store the sessions again.
+	conn, err := pgx.Connect(ctx, dsn)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+	_, err = conn.Exec(ctx, `DELETE FROM ingestion_state WHERE source_name = $1`, p.sourceName())
+	require.NoError(t, err)
+	require.NoError(t, p.PollOnce(ctx))
+	obs, err = st.GetObservations(ctx, fixtureServerFP, 10)
+	require.NoError(t, err)
+	require.Len(t, obs, 2, "a replay stores no session twice")
 }
