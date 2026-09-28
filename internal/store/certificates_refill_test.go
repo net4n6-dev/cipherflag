@@ -133,3 +133,82 @@ func TestUpsertCertificate_FillsOnlyEmptyColumnsOnConflict(t *testing.T) {
 	again.lastSeen, got.lastSeen = time.Time{}, time.Time{}
 	require.Equal(t, got, again, "a set column must never be overwritten")
 }
+
+type extraRow struct {
+	org, spki, ocsp, crl, scts, keyAlg, sigAlg string
+	aki, ski                                   []byte
+	pathLen                                    *int
+}
+
+func readExtraRow(t *testing.T, st *PostgresStore, fp string) extraRow {
+	t.Helper()
+	var r extraRow
+	var spki *string
+	err := st.pool.QueryRow(context.Background(), `
+		SELECT subject_org, spki_fingerprint_sha256, ocsp_responder_urls::text,
+		       crl_distribution_points::text, scts::text, key_algorithm, signature_algorithm,
+		       authority_key_id, subject_key_id, basic_constraints_path_len
+		FROM certificates WHERE fingerprint_sha256 = $1`, fp).Scan(
+		&r.org, &spki, &r.ocsp, &r.crl, &r.scts, &r.keyAlg, &r.sigAlg, &r.aki, &r.ski, &r.pathLen)
+	require.NoError(t, err)
+	if spki != nil {
+		r.spki = *spki
+	}
+	return r
+}
+
+// The rest of a certificate's metadata follows the same fill-only rule, and
+// the SPKI fingerprint is written at all (UpsertCertificate never wrote it).
+// An observation that lacks a value (one without a PEM, say) must not blank
+// out one the row already has, key IDs included, and 'Unknown' algorithms
+// (what the Zeek mapper records) count as empty.
+func TestUpsertCertificate_FillsRemainingMetadataColumns(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	fp := "refill-extra-0001"
+	t.Cleanup(func() {
+		_, _ = st.pool.Exec(ctx, `DELETE FROM certificates WHERE fingerprint_sha256 = $1`, fp)
+	})
+	now := time.Now()
+
+	// Seen first by a source that knows little: unknown algorithms, no PEM.
+	require.NoError(t, st.UpsertCertificate(ctx, &model.Certificate{
+		FingerprintSHA256: fp, KeyAlgorithm: model.KeyUnknown, SignatureAlgorithm: model.SigUnknown,
+		FirstSeen: now, LastSeen: now,
+	}))
+
+	// Then with the full certificate.
+	pathLen := 0
+	full := &model.Certificate{
+		FingerprintSHA256:       fp,
+		Subject:                 model.DistinguishedName{CommonName: "Extra CA", Organization: "Extra Org"},
+		NotAfter:                now.Add(time.Hour),
+		KeyAlgorithm:            model.KeyECDSA,
+		SignatureAlgorithm:      model.SigECDSAWithSHA256,
+		SPKIFingerprintSHA256:   "spki-hex",
+		OCSPResponderURLs:       []string{"http://ocsp.extra.test"},
+		CRLDistributionPoints:   []string{"http://crl.extra.test/ca.crl"},
+		SCTs:                    []string{"sct-1"},
+		AuthorityKeyID:          []byte{1, 2, 3},
+		SubjectKeyID:            []byte{4, 5, 6},
+		BasicConstraintsPathLen: &pathLen,
+		FirstSeen:               now, LastSeen: now,
+	}
+	require.NoError(t, st.UpsertCertificate(ctx, full))
+	got := readExtraRow(t, st, fp)
+	require.Equal(t, "Extra Org", got.org)
+	require.Equal(t, "spki-hex", got.spki)
+	require.JSONEq(t, `["http://ocsp.extra.test"]`, got.ocsp)
+	require.JSONEq(t, `["http://crl.extra.test/ca.crl"]`, got.crl)
+	require.JSONEq(t, `["sct-1"]`, got.scts)
+	require.Equal(t, string(model.KeyECDSA), got.keyAlg, "'Unknown' is filled")
+	require.Equal(t, string(model.SigECDSAWithSHA256), got.sigAlg, "'Unknown' is filled")
+	require.Equal(t, []byte{1, 2, 3}, got.aki)
+	require.Equal(t, []byte{4, 5, 6}, got.ski)
+	require.NotNil(t, got.pathLen)
+	require.Equal(t, 0, *got.pathLen)
+
+	// Seen again without any of it (no PEM): nothing is blanked.
+	require.NoError(t, st.UpsertCertificate(ctx, &model.Certificate{FingerprintSHA256: fp, FirstSeen: now, LastSeen: now}))
+	require.Equal(t, got, readExtraRow(t, st, fp), "an observation lacking values must not blank the row")
+}

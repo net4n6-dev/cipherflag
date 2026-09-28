@@ -145,7 +145,7 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 			key_usage, extended_key_usage,
 			ocsp_responder_urls, crl_distribution_points, scts,
 			source_discovery, first_seen, last_seen, raw_pem,
-			authority_key_id, subject_key_id
+			authority_key_id, subject_key_id, spki_fingerprint_sha256
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13,
@@ -154,19 +154,26 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 			$20, $21, $22,
 			$23, $24, $25, $26, $27,
 			$28, $29, $30, $31,
-			$32, $33
+			$32, $33, NULLIF($34, '')
 		)
 		ON CONFLICT (fingerprint_sha256) DO UPDATE SET
 			last_seen = EXCLUDED.last_seen,
 			raw_pem = COALESCE(NULLIF(EXCLUDED.raw_pem, ''), certificates.raw_pem),
-			authority_key_id = EXCLUDED.authority_key_id,
-			subject_key_id = EXCLUDED.subject_key_id,
 			-- Fill-only: a certificate's X.509 metadata never changes, so a
 			-- column is set from the new observation only while it is still
 			-- empty (a row stored blank by an earlier version is completed)
-			-- and never overwritten once set. first_seen and
-			-- source_discovery keep the first observation; per-source
+			-- and never overwritten once set, so an observation that lacks a
+			-- value (one without a PEM, or a row read back by GetCertificate,
+			-- which does not select the key IDs) cannot blank it. first_seen
+			-- and source_discovery keep the first observation; per-source
 			-- history is in asset_provenance.
+			authority_key_id           = COALESCE(certificates.authority_key_id, EXCLUDED.authority_key_id),
+			subject_key_id             = COALESCE(certificates.subject_key_id, EXCLUDED.subject_key_id),
+			spki_fingerprint_sha256    = COALESCE(certificates.spki_fingerprint_sha256, EXCLUDED.spki_fingerprint_sha256),
+			basic_constraints_path_len = COALESCE(certificates.basic_constraints_path_len, EXCLUDED.basic_constraints_path_len),
+			ocsp_responder_urls        = CASE WHEN certificates.ocsp_responder_urls IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.ocsp_responder_urls ELSE certificates.ocsp_responder_urls END,
+			crl_distribution_points    = CASE WHEN certificates.crl_distribution_points IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.crl_distribution_points ELSE certificates.crl_distribution_points END,
+			scts                       = CASE WHEN certificates.scts IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.scts ELSE certificates.scts END,
 			subject_cn          = CASE WHEN certificates.subject_cn = '' THEN EXCLUDED.subject_cn ELSE certificates.subject_cn END,
 			subject_org         = CASE WHEN certificates.subject_org = '' THEN EXCLUDED.subject_org ELSE certificates.subject_org END,
 			subject_ou          = CASE WHEN certificates.subject_ou = '' THEN EXCLUDED.subject_ou ELSE certificates.subject_ou END,
@@ -200,7 +207,7 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 		sans, cert.IsCA, cert.BasicConstraintsPathLen,
 		ku, eku, ocsp, crl, scts,
 		string(cert.SourceDiscovery), cert.FirstSeen, cert.LastSeen, cert.RawPEM,
-		cert.AuthorityKeyID, cert.SubjectKeyID,
+		cert.AuthorityKeyID, cert.SubjectKeyID, cert.SPKIFingerprintSHA256,
 	)
 	if err != nil {
 		return err

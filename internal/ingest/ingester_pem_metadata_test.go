@@ -46,13 +46,16 @@ func testCAPEM(t *testing.T) (string, *model.Certificate) {
 	require.NoError(t, err)
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(0x1f2e3d),
-		Subject:               pkix.Name{CommonName: "PEM Only Issuing CA"},
+		Subject:               pkix.Name{CommonName: "PEM Only Issuing CA", Organization: []string{"PEM Only Org"}},
 		NotBefore:             time.Now().Add(-time.Hour).Truncate(time.Second),
 		NotAfter:              time.Now().Add(365 * 24 * time.Hour).Truncate(time.Second),
 		BasicConstraintsValid: true,
 		IsCA:                  true,
 		KeyUsage:              x509.KeyUsageCertSign,
 		DNSNames:              []string{"ca.pem-only.test"},
+		SubjectKeyId:          []byte{1, 2, 3, 4},
+		OCSPServer:            []string{"http://ocsp.pem-only.test"},
+		CRLDistributionPoints: []string{"http://crl.pem-only.test/ca.crl"},
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	require.NoError(t, err)
@@ -92,6 +95,16 @@ func TestIngest_PEMOnlyCertificateGetsFullMetadata(t *testing.T) {
 	require.Equal(t, want.SignatureAlgorithm, got.SignatureAlgorithm)
 	require.Equal(t, []string{"ca.pem-only.test"}, got.SubjectAltNames)
 	require.True(t, got.IsCA, "a CA certificate must be stored as a CA, or it never appears in the PKI graph")
+	// Everything else in the certificate, not only the fields a
+	// CertDiscovery has.
+	require.Equal(t, "PEM Only Org", got.Subject.Organization)
+	require.Equal(t, want.KeyUsage, got.KeyUsage)
+	require.Equal(t, []byte{1, 2, 3, 4}, got.SubjectKeyID)
+	require.Equal(t, want.SPKIFingerprintSHA256, got.SPKIFingerprintSHA256)
+	require.NotEmpty(t, got.SPKIFingerprintSHA256)
+	require.Equal(t, []string{"http://ocsp.pem-only.test"}, got.OCSPResponderURLs)
+	require.Equal(t, []string{"http://crl.pem-only.test/ca.crl"}, got.CRLDistributionPoints)
+	require.Equal(t, model.DiscoverySource("api"), got.SourceDiscovery)
 }
 
 // Built-in adapters already fill these fields from the same PEM; values a

@@ -17,10 +17,12 @@ package dedup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/net4n6-dev/cipherflag/internal/certparse"
 	"github.com/net4n6-dev/cipherflag/internal/model"
 	"github.com/net4n6-dev/cipherflag/internal/store"
 )
@@ -44,7 +46,16 @@ type CertDiscovery struct {
 	FilePath           string
 	StoreType          string
 	RawMetadata        map[string]any // optional; set by import path for provenance audit
+
+	// Parsed is RawPEM already parsed, set by the ingester when it had to
+	// parse the PEM for the fingerprint, so it is not parsed twice. Never
+	// read from JSON: /api/v1/ingest decodes CertDiscovery from the client.
+	Parsed *model.Certificate `json:"-"`
 }
+
+// ErrPEMMismatch is returned by DedupCertificate when a discovery's
+// fingerprint names a different certificate than its RawPEM.
+var ErrPEMMismatch = errors.New("certificate fingerprint does not match its RawPEM")
 
 type SSHKeyDiscovery struct {
 	KeyType           string
@@ -128,81 +139,113 @@ func (d *Deduplicator) DedupCertificate(ctx context.Context, hostID string, disc
 		return "", false, fmt.Errorf("check existing cert: %w", err)
 	}
 
+	now := time.Now()
 	if existing != nil {
 		// Existing: record the re-observation. UpsertCertificate writes
 		// last_seen from the row it is given, so stamp it; writing back the
-		// row as read left last_seen at the first ingest forever.
-		existing.LastSeen = time.Now()
-		fillEmptyCertFields(existing, disc)
-		if err := d.store.UpsertCertificate(ctx, existing); err != nil {
+		// row as read left last_seen at the first ingest forever. A stored
+		// row still missing metadata is offered the full certificate;
+		// UpsertCertificate fills only the columns that are empty, so
+		// nothing already set is overwritten. A complete row is written
+		// back as read, without parsing the PEM again.
+		if !incompleteCert(existing, disc) {
+			existing.LastSeen = now
+			if err := d.store.UpsertCertificate(ctx, existing); err != nil {
+				return "", false, fmt.Errorf("update existing cert: %w", err)
+			}
+			return fp, false, nil
+		}
+		cert, err := candidateFromDiscovery(disc, fp)
+		if err != nil {
+			return "", false, err
+		}
+		cert.FirstSeen, cert.LastSeen = existing.FirstSeen, now
+		if err := d.store.UpsertCertificate(ctx, cert); err != nil {
 			return "", false, fmt.Errorf("update existing cert: %w", err)
 		}
 		return fp, false, nil
 	}
 
-	// New certificate
-	cert := &model.Certificate{
-		FingerprintSHA256:  fp,
-		Subject:            model.DistinguishedName{CommonName: disc.SubjectCN},
-		Issuer:             model.DistinguishedName{CommonName: disc.IssuerCN},
-		SerialNumber:       disc.SerialNumber,
-		NotBefore:          disc.NotBefore,
-		NotAfter:           disc.NotAfter,
-		KeyAlgorithm:       model.KeyAlgorithm(disc.KeyAlgorithm),
-		KeySizeBits:        disc.KeySizeBits,
-		SignatureAlgorithm: model.SignatureAlgorithm(disc.SignatureAlgorithm),
-		SubjectAltNames:    disc.SubjectAltNames,
-		IsCA:               disc.IsCA,
-		RawPEM:             disc.RawPEM,
-		SourceDiscovery:    model.DiscoverySource(disc.Source),
-		FirstSeen:          time.Now(),
-		LastSeen:           time.Now(),
+	cert, err := candidateFromDiscovery(disc, fp)
+	if err != nil {
+		return "", false, err
 	}
-
+	cert.FirstSeen, cert.LastSeen = now, now
 	if err := d.store.UpsertCertificate(ctx, cert); err != nil {
 		return "", false, fmt.Errorf("insert new cert: %w", err)
 	}
 	return fp, true, nil
 }
 
-// fillEmptyCertFields fills the fields of a stored certificate that are still
-// empty from a new observation of it, and never overwrites one that is set.
-// Certificates stored blank by earlier versions (a PEM-only discovery kept
-// only its fingerprint) are completed when seen again. A CA stays a CA.
-// UpsertCertificate applies the same fill-only rule in SQL, so concurrent
-// observations cannot blank each other out either.
-func fillEmptyCertFields(c *model.Certificate, disc *CertDiscovery) {
-	if c.Subject.CommonName == "" {
-		c.Subject.CommonName = disc.SubjectCN
+// incompleteCert reports whether a stored certificate is missing metadata a
+// new observation could supply: a core field that is empty (or an
+// 'Unknown' algorithm), or no PEM when the discovery has one.
+func incompleteCert(c *model.Certificate, disc *CertDiscovery) bool {
+	return c.Subject.CommonName == "" || c.NotAfter.IsZero() || c.KeySizeBits == 0 ||
+		unknownAlg(string(c.KeyAlgorithm)) || unknownAlg(string(c.SignatureAlgorithm)) ||
+		(c.RawPEM == "" && disc.RawPEM != "")
+}
+
+func unknownAlg(alg string) bool {
+	return alg == "" || alg == string(model.KeyUnknown)
+}
+
+// candidateFromDiscovery is the certificate row a discovery describes. With a
+// PEM, it starts from the parsed certificate, so every column (organization,
+// key usage, key IDs, SPKI fingerprint, OCSP and CRL locations) is filled,
+// not only the flat fields a CertDiscovery carries; the discovery's own
+// non-empty values go on top, except an 'Unknown' algorithm, and a
+// discovery cannot un-CA a CA. A PEM for a different certificate than fp
+// is ErrPEMMismatch. A PEM that does not parse leaves the discovery's
+// fields, as before.
+func candidateFromDiscovery(disc *CertDiscovery, fp string) (*model.Certificate, error) {
+	cert := disc.Parsed
+	if cert == nil && disc.RawPEM != "" {
+		if parsed, err := certparse.ParsePEM([]byte(disc.RawPEM)); err == nil {
+			cert = parsed
+		}
 	}
-	if c.Issuer.CommonName == "" {
-		c.Issuer.CommonName = disc.IssuerCN
+	if cert == nil {
+		cert = &model.Certificate{}
+	} else if !strings.EqualFold(cert.FingerprintSHA256, fp) {
+		return nil, fmt.Errorf("%w: fingerprint %s, PEM %s", ErrPEMMismatch, fp, cert.FingerprintSHA256)
+	} else {
+		c := *cert
+		cert = &c
 	}
-	if c.SerialNumber == "" {
-		c.SerialNumber = disc.SerialNumber
+
+	if disc.SubjectCN != "" {
+		cert.Subject.CommonName = disc.SubjectCN
 	}
-	if c.NotBefore.IsZero() {
-		c.NotBefore = disc.NotBefore
+	if disc.IssuerCN != "" {
+		cert.Issuer.CommonName = disc.IssuerCN
 	}
-	if c.NotAfter.IsZero() {
-		c.NotAfter = disc.NotAfter
+	if disc.SerialNumber != "" {
+		cert.SerialNumber = disc.SerialNumber
 	}
-	if c.KeyAlgorithm == "" {
-		c.KeyAlgorithm = model.KeyAlgorithm(disc.KeyAlgorithm)
+	if !disc.NotBefore.IsZero() {
+		cert.NotBefore = disc.NotBefore
 	}
-	if c.KeySizeBits == 0 {
-		c.KeySizeBits = disc.KeySizeBits
+	if !disc.NotAfter.IsZero() {
+		cert.NotAfter = disc.NotAfter
 	}
-	if c.SignatureAlgorithm == "" {
-		c.SignatureAlgorithm = model.SignatureAlgorithm(disc.SignatureAlgorithm)
+	if !unknownAlg(disc.KeyAlgorithm) || cert.KeyAlgorithm == "" {
+		cert.KeyAlgorithm = model.KeyAlgorithm(disc.KeyAlgorithm)
 	}
-	if len(c.SubjectAltNames) == 0 {
-		c.SubjectAltNames = disc.SubjectAltNames
+	if disc.KeySizeBits != 0 {
+		cert.KeySizeBits = disc.KeySizeBits
 	}
-	if c.RawPEM == "" {
-		c.RawPEM = disc.RawPEM
+	if !unknownAlg(disc.SignatureAlgorithm) || cert.SignatureAlgorithm == "" {
+		cert.SignatureAlgorithm = model.SignatureAlgorithm(disc.SignatureAlgorithm)
 	}
-	c.IsCA = c.IsCA || disc.IsCA
+	if len(disc.SubjectAltNames) > 0 {
+		cert.SubjectAltNames = disc.SubjectAltNames
+	}
+	cert.IsCA = cert.IsCA || disc.IsCA
+	cert.FingerprintSHA256 = fp
+	cert.RawPEM = disc.RawPEM
+	cert.SourceDiscovery = model.DiscoverySource(disc.Source)
+	return cert, nil
 }
 
 func (d *Deduplicator) DedupSSHKey(ctx context.Context, hostID string, disc *SSHKeyDiscovery) (assetID string, isNew bool, err error) {

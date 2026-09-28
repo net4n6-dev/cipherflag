@@ -51,10 +51,13 @@ All notable changes to CipherFlag are documented in this file.
   blank.** The ingester derived the fingerprint from `RawPEM` but nothing
   else, so subject, issuer, CA flag, key and validity stayed empty; such
   certificates were scored on nothing and never appeared in the PKI graph.
-  Every empty field is now filled from the PEM, and fields the client sends
-  are kept. A fingerprint that does not match the PEM is now rejected (the
-  certificate is skipped with a warning) instead of stored. Built-in
-  sources were not affected.
+  A certificate that arrives with its PEM, from any source, is now stored
+  with everything in it: names, organization, serial, validity, key,
+  signature, SANs, CA flag and path length, key usages, key IDs, SPKI
+  fingerprint and OCSP and CRL locations. Values a client or adapter sends
+  are kept over the PEM's, except an `Unknown` algorithm. A fingerprint
+  that does not match the PEM is now rejected (the certificate is skipped
+  with a warning) instead of stored.
 - **A certificate's "last seen" never moved after its first ingest.** A
   re-observed certificate was written back with the `last_seen` it was
   read with, so reports showed the first-seen date as last seen and the
@@ -62,12 +65,15 @@ All notable changes to CipherFlag are documented in this file.
   never picked a re-observed certificate up again. Re-observations now
   update `last_seen`.
 - A certificate stored with missing details now gets them when it is seen
-  again: each empty field (names, serial, validity, key, signature, SANs,
-  key usages) is filled from the new observation, a field that is already
-  set is never overwritten, and a CA is never recorded as a non-CA.
-  `source_discovery` now keeps the source that first discovered the
-  certificate; every source that saw it is still recorded in its
-  provenance.
+  again: each empty field (including an `Unknown` algorithm) is filled from
+  the new observation, a field that is already set is never overwritten,
+  and a CA is never recorded as a non-CA. `source_discovery` now keeps the
+  source that first discovered the certificate; every source that saw it
+  is still recorded in its provenance.
+- Re-observing a certificate no longer erases its stored authority and
+  subject key IDs (every re-observation wrote empty ones over them), and
+  the SPKI fingerprint, which was never stored, is now recorded. Nothing in
+  CE displays these yet; the data is now kept intact.
 - Certificates an earlier version stored blank (posted to `/api/v1/ingest`
   with only their PEM) are repaired automatically: at startup `serve`
   rebuilds them from their stored PEM, scores them, and logs how many it
