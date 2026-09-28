@@ -13,14 +13,20 @@ pcap_watcher() {
             job_dir=$(dirname "$pcap")
             job_id=$(basename "$job_dir")
             out_dir="$LOG_DIR/$job_id"
-            done_marker="$out_dir/.done"
-            [ -f "$done_marker" ] && continue
+            [ -f "$out_dir/.done" ] && continue
+            [ -f "$out_dir/.failed" ] && continue
             echo "Processing PCAP: $pcap (job: $job_id)"
             mkdir -p "$out_dir"
             cd "$out_dir"
-            zeek -r "$pcap" /usr/local/zeek/share/zeek/site/local.zeek 2>&1 || true
-            touch "$done_marker"
-            echo "Completed PCAP: $pcap"
+            # .done tells CipherFlag the job's logs are complete; a job Zeek
+            # could not process is marked .failed instead and not read.
+            if zeek -r "$pcap" /usr/local/zeek/share/zeek/site/local.zeek 2>&1; then
+                touch "$out_dir/.done"
+                echo "Completed PCAP: $pcap"
+            else
+                echo "exit status $?" > "$out_dir/.failed"
+                echo "FAILED PCAP: $pcap (Zeek could not process it; see the output above)"
+            fi
             cd /
         done
         sleep 5
