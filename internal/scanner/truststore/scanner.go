@@ -20,6 +20,7 @@ package truststore
 
 import (
 	"context"
+	"sort"
 	"sync"
 
 	"github.com/net4n6-dev/cipherflag/internal/model"
@@ -78,6 +79,48 @@ type ScanResult struct {
 	PrivateKey        []model.PrivateKeyObservation
 	BundlesScanned    int                          // total across all discoverers
 	DiscovererResults map[string]DiscovererOutcome // keyed by discoverer Name
+}
+
+// trustSourceDiscoverers lists, for each trust-store source, every
+// discoverer that produces it. app_config is not here: scan-truststore
+// collects it itself, outside the discoverers.
+var trustSourceDiscoverers = map[string][]string{
+	"os_bundle":    {"linux_os_bundles", "macos_keychains"},
+	"jvm_cacerts":  {"jvm_keystores"},
+	"lang_runtime": {"runtime_bundles"},
+}
+
+// CoveredSources reports what this scan fully looked at: the trust-store
+// sources whose every discoverer ran and succeeded (sorted), and whether
+// private-key holdings were covered, which needs every discoverer to have
+// succeeded because any bundle can carry a key. Only covered sources may be
+// reconciled; pruning a source that was not scanned would wipe it.
+func (r ScanResult) CoveredSources() (trust []string, privateKeys bool) {
+	ok := func(name string) bool {
+		oc, ran := r.DiscovererResults[name]
+		return ran && oc.Err == ""
+	}
+	for source, discoverers := range trustSourceDiscoverers {
+		covered := true
+		for _, d := range discoverers {
+			covered = covered && ok(d)
+		}
+		if covered {
+			trust = append(trust, source)
+		}
+	}
+	sort.Strings(trust)
+	if len(r.DiscovererResults) == 0 {
+		return trust, false
+	}
+	for _, discoverers := range trustSourceDiscoverers {
+		for _, d := range discoverers {
+			if !ok(d) {
+				return trust, false
+			}
+		}
+	}
+	return trust, true
 }
 
 // New constructs a Scanner. jvmPasswords defaults to ["changeit"] when nil.

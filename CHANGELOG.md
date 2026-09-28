@@ -70,6 +70,18 @@ All notable changes to CipherFlag are documented in this file.
   metadata, provenance on the scanned host, and scoring), and then the rows.
   As a result, CA certificates from scanned trust stores now appear in the
   certificate inventory, and in findings, like any other certificate.
+- **A CA or private key removed from a host stayed in the inventory
+  forever.** `scan-truststore` only added and refreshed rows. It now also
+  removes, for each trust-store source it fully scanned, the entries it no
+  longer found, and private-key holdings when every discoverer succeeded. A
+  source whose discoverer failed, or that had a row the scan could not
+  write, is left as it was. A bundle that exists but cannot be read in one
+  scan looks removed until the next scan that can read it.
+- **One unwritable trust-store or private-key row lost the whole scan's
+  rows.** The rows were written as one batch, which the database runs as a
+  single transaction, so one failure aborted every row after it and rolled
+  back the ones before it, which had reported success. Each row is now
+  written on its own.
 - **`host_ip_sightings` grew without limit.** Ingest records a sighting
   for every host and IP it observes, and nothing deleted them. `serve` now
   deletes sightings not seen for 7 days, once at startup and then daily.

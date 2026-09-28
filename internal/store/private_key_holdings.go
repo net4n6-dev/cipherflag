@@ -19,39 +19,37 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
 
 	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
-// UpsertPrivateKeyHoldings batches PrivateKeyObservation rows into
-// cert_private_key_holding with last_seen=NOW() on re-observation.
-func (s *PostgresStore) UpsertPrivateKeyHoldings(ctx context.Context, obs []model.PrivateKeyObservation) error {
-	if len(obs) == 0 {
-		return nil
-	}
-	batch := &pgx.Batch{}
+// UpsertPrivateKeyHoldings writes PrivateKeyObservation rows into
+// cert_private_key_holding with last_seen=NOW() on re-observation. A row
+// that cannot be written is logged and counted in failed, by source. Each
+// row is its own statement, so one failed row cannot abort or roll back the
+// others (see UpsertTrustStoreObservations).
+func (s *PostgresStore) UpsertPrivateKeyHoldings(ctx context.Context, obs []model.PrivateKeyObservation) (failed map[string]int, err error) {
+	failed = map[string]int{}
 	for _, o := range obs {
-		batch.Queue(
+		if _, err := s.pool.Exec(ctx,
 			`INSERT INTO cert_private_key_holding
 			    (host_id, cert_fingerprint, evidence, source, source_detail)
 			 VALUES ($1, $2, $3, $4, $5)
 			 ON CONFLICT (host_id, cert_fingerprint, evidence, source_detail)
 			 DO UPDATE SET last_seen = NOW()`,
 			o.HostID, o.CertFingerprint, o.Evidence, o.Source, o.SourceDetail,
-		)
-	}
-	br := s.pool.SendBatch(ctx, batch)
-	defer br.Close()
-	for i := range obs {
-		if _, err := br.Exec(); err != nil {
+		); err != nil {
+			if ctx.Err() != nil {
+				return failed, ctx.Err()
+			}
+			failed[o.Source]++
 			log.Warn().Err(err).
-				Str("host", obs[i].HostID).Str("cert", obs[i].CertFingerprint).
+				Str("host", o.HostID).Str("cert", o.CertFingerprint).
 				Msg("UpsertPrivateKeyHoldings: row failed")
 		}
 	}
-	return nil
+	return failed, nil
 }
 
 // PruneStalePrivateKeyHoldings deletes rows last-seen before watermark for

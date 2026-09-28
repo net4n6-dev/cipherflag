@@ -98,7 +98,7 @@ func TestPersistTrustStoreScan_StoresUnknownCertificatesFirst(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, persistTrustStoreScan(ctx, st, ingest.NewUnifiedIngester(st), hostID, result))
+	require.NoError(t, persistTrustStoreScan(ctx, st, ingest.NewUnifiedIngester(st), hostID, result, reconcileScope{}))
 
 	ca, err := st.GetCertificate(ctx, caFP)
 	require.NoError(t, err)
@@ -118,4 +118,89 @@ func TestPersistTrustStoreScan_StoresUnknownCertificatesFirst(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []store.CAHolderRow{{HostID: hostID, Evidence: "jks_private_key_entry"}}, holders,
 		"the private-key row must land")
+}
+
+// A trust-store CA or held key removed from a host used to stay in the
+// inventory for ever: nothing pruned the rows a scan no longer saw. Each
+// scan now removes, per source it fully covered, the rows it did not
+// refresh; a source whose discoverer failed, or that had a row it could not
+// write, is left alone.
+func TestPersistTrustStoreScan_ReconcilesCoveredSources(t *testing.T) {
+	st := integrationStore(t)
+	ctx := context.Background()
+	ing := ingest.NewUnifiedIngester(st)
+	hostID := seedHost(t, st, "truststore-reconcile.test")
+
+	type ca struct{ pem, fp string }
+	mk := func(cn string, isCA bool) ca { p, fp := scannedCert(t, cn, isCA); return ca{p, fp} }
+	osGone, osStays, osNew := mk("OS Removed CA", true), mk("OS Kept CA", true), mk("OS New CA", true)
+	jvmGone, runtimeKept, appGone := mk("JVM CA", true), mk("Runtime CA", true), mk("App Config CA", true)
+	heldKey := mk("held-key.reconcile.test", false)
+
+	trust := func(c ca, source, detail string) model.TrustStoreObservation {
+		return model.TrustStoreObservation{HostID: hostID, CAFingerprint: c.fp, Source: source, SourceDetail: detail, CAPEM: c.pem}
+	}
+	key := model.PrivateKeyObservation{HostID: hostID, CertFingerprint: heldKey.fp, Evidence: "jks_private_key_entry",
+		Source: "truststore", SourceDetail: "/opt/app/keystore.jks", CertPEM: heldKey.pem}
+	all := reconcileScope{TrustSources: []string{"app_config", "jvm_cacerts", "lang_runtime", "os_bundle"}, PrivateKeys: true}
+
+	sources := func() map[string][]string {
+		rows, err := st.ListTrustStoreHoldingsForHost(ctx, hostID)
+		require.NoError(t, err)
+		out := map[string][]string{}
+		for _, r := range rows {
+			out[r.Source] = append(out[r.Source], r.CAFingerprint)
+		}
+		return out
+	}
+	keyHeld := func() bool {
+		holders, err := st.HostsHoldingCAKey(ctx, heldKey.fp, true)
+		require.NoError(t, err)
+		return len(holders) == 1
+	}
+
+	// Scan 1: everything present and every discoverer succeeded.
+	require.NoError(t, persistTrustStoreScan(ctx, st, ing, hostID, truststore.ScanResult{
+		TrustStore: []model.TrustStoreObservation{
+			trust(osGone, "os_bundle", "/etc/ssl/certs/a.pem"),
+			trust(osStays, "os_bundle", "/etc/ssl/certs/b.pem"),
+			trust(jvmGone, "jvm_cacerts", "/usr/lib/jvm/cacerts"),
+			trust(runtimeKept, "lang_runtime", "/usr/lib/python3/certifi/cacert.pem"),
+			trust(appGone, "app_config", "nginx:/etc/nginx/nginx.conf:ssl_trusted_certificate"),
+		},
+		PrivateKey: []model.PrivateKeyObservation{key},
+	}, all))
+	require.True(t, keyHeld())
+
+	// Scan 2: one OS CA removed and one added, the JVM CA and the held key
+	// gone but the JVM discoverer failed (so neither the JVM store nor
+	// private keys were covered), the app-config bundle emptied.
+	require.NoError(t, persistTrustStoreScan(ctx, st, ing, hostID, truststore.ScanResult{
+		TrustStore: []model.TrustStoreObservation{
+			trust(osStays, "os_bundle", "/etc/ssl/certs/b.pem"),
+			trust(osNew, "os_bundle", "/etc/ssl/certs/c.pem"),
+			trust(runtimeKept, "lang_runtime", "/usr/lib/python3/certifi/cacert.pem"),
+		},
+	}, reconcileScope{TrustSources: []string{"app_config", "lang_runtime", "os_bundle"}, PrivateKeys: false}))
+
+	got := sources()
+	require.ElementsMatch(t, []string{osStays.fp, osNew.fp}, got["os_bundle"], "the removed OS CA is pruned; the others stay")
+	require.Equal(t, []string{jvmGone.fp}, got["jvm_cacerts"], "a source whose discoverer failed is not pruned")
+	require.Equal(t, []string{runtimeKept.fp}, got["lang_runtime"])
+	require.Empty(t, got["app_config"], "the emptied app-config bundle is pruned")
+	require.True(t, keyHeld(), "private keys were not covered, so the held key stays")
+
+	// Scan 3: the OS store has a row that cannot be written (a CA with no
+	// PEM that CipherFlag does not know). The source is not fully written,
+	// so it is not pruned, even though its other CAs were not seen.
+	require.NoError(t, persistTrustStoreScan(ctx, st, ing, hostID, truststore.ScanResult{
+		TrustStore: []model.TrustStoreObservation{
+			{HostID: hostID, CAFingerprint: "not-a-known-fingerprint", Source: "os_bundle", SourceDetail: "/etc/ssl/certs/x.pem"},
+		},
+	}, reconcileScope{TrustSources: []string{"os_bundle"}}))
+	require.ElementsMatch(t, []string{osStays.fp, osNew.fp}, sources()["os_bundle"], "a source with a failed row is not pruned")
+
+	// Scan 4: private keys covered and the key gone: it is pruned.
+	require.NoError(t, persistTrustStoreScan(ctx, st, ing, hostID, truststore.ScanResult{}, reconcileScope{PrivateKeys: true}))
+	require.False(t, keyHeld(), "a held key no longer found is pruned when private keys were covered")
 }
