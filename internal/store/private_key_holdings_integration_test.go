@@ -120,7 +120,7 @@ func TestPruneStalePrivateKeyHoldings_DeletesBeforeWatermark(t *testing.T) {
 	st.Pool().Exec(ctx, `UPDATE cert_private_key_holding SET last_seen = NOW() - INTERVAL '1 hour'`)
 
 	watermark := time.Now().Add(-30 * time.Minute)
-	n, err := st.PruneStalePrivateKeyHoldings(ctx, hostID, "certfiles", watermark)
+	n, err := st.PruneStalePrivateKeyHoldings(ctx, hostID, "certfiles", "/etc/ssl/key.pem", watermark)
 	if err != nil {
 		t.Fatal(err)
 	}

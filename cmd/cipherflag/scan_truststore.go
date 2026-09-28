@@ -78,13 +78,11 @@ func runScanTruststore(ctx context.Context, cfg *config.Config, args []string) {
 	cfgScanner := configs.New(runner)
 	appRefs := cfgScanner.ScanTrustBundles(ctx, truststore.TrustBundlePaths)
 	if len(appRefs) > 0 {
-		appObs, err := truststore.IngestAppConfigBundles(appRefs)
-		if err != nil {
-			// IngestAppConfigBundles always returns nil error (log-and-continue
-			// semantics), but handle defensively.
-			log.Warn().Err(err).Msg("scan-truststore: app_config bundle ingest partial error")
-		}
+		// Per-file problems are logged; only the bundles actually read are
+		// reported, so an unreadable one is not reconciled.
+		appObs, appRead := truststore.ReadAppConfigBundles(appRefs)
 		result.TrustStore = append(result.TrustStore, appObs...)
+		result.ReadBundles = append(result.ReadBundles, appRead...)
 		log.Info().
 			Int("refs", len(appRefs)).
 			Int("observations", len(appObs)).
@@ -104,14 +102,7 @@ func runScanTruststore(ctx context.Context, cfg *config.Config, args []string) {
 		scorer = scoring.NewDispatcher(st)
 	}
 	ing := ingest.NewUnifiedIngester(st, ingest.WithScorer(scorer))
-	covered, privateKeys := result.CoveredSources()
-	scope := reconcileScope{
-		// The app_config pass above always runs (its per-file problems are
-		// logged, not returned), so its source is always covered.
-		TrustSources: append(covered, "app_config"),
-		PrivateKeys:  privateKeys,
-	}
-	if err := persistTrustStoreScan(ctx, st, ing, *hostID, result, scope); err != nil {
+	if err := persistTrustStoreScan(ctx, st, ing, *hostID, result); err != nil {
 		log.Fatal().Err(err).Msg("scan-truststore: persist scan")
 	}
 
@@ -135,15 +126,6 @@ func runScanTruststore(ctx context.Context, cfg *config.Config, args []string) {
 		Msg("scan-truststore: complete")
 }
 
-// reconcileScope is what a scan fully covered, so what it may prune: the
-// trust-store sources whose discoverers all succeeded (plus app_config,
-// which scan-truststore collects itself) and whether private keys were
-// covered. The zero value prunes nothing.
-type reconcileScope struct {
-	TrustSources []string
-	PrivateKeys  bool
-}
-
 // certIngester is the part of ingest.UnifiedIngester persistTrustStoreScan uses.
 type certIngester interface {
 	Ingest(ctx context.Context, result *ingest.DiscoveryResult) (*ingest.IngestionSummary, error)
@@ -156,13 +138,16 @@ type certIngester interface {
 // Without that, every row for a certificate CipherFlag had not already seen
 // failed its foreign key and was dropped: on a fresh install, all of them.
 //
-// Then the scan is reconciled: for each source in scope, rows this scan did
-// not refresh (a CA or key that is no longer there) are removed. A source
-// with a row that could not be written is left alone, since it was not
-// fully recorded. The cutoff is the database clock read before any write,
+// Then the scan is reconciled, one bundle at a time and only for the
+// bundles it read (result.ReadBundles): the rows of a read bundle that this
+// scan did not refresh are a CA (or, for a keystore, a key) no longer in
+// it, and are removed. A bundle that was missing, unreadable, could not be
+// decoded or was not probed this time is left exactly as it was, since
+// nothing is known about its contents; so is a bundle with a row that could
+// not be written. The cutoff is the database clock read before any write,
 // the clock that stamps last_seen, so a host clock running ahead of the
 // database cannot remove rows the scan has just written.
-func persistTrustStoreScan(ctx context.Context, st *store.PostgresStore, ing certIngester, hostID string, result truststore.ScanResult, scope reconcileScope) error {
+func persistTrustStoreScan(ctx context.Context, st *store.PostgresStore, ing certIngester, hostID string, result truststore.ScanResult) error {
 	watermark, err := st.DatabaseNow(ctx)
 	if err != nil {
 		return err
@@ -187,37 +172,39 @@ func persistTrustStoreScan(ctx context.Context, st *store.PostgresStore, ing cer
 		return fmt.Errorf("write private-key holdings: %w", err)
 	}
 
-	for _, source := range scope.TrustSources {
-		if n := trustFailed[source]; n > 0 {
-			log.Warn().Str("source", source).Int("failed_rows", n).
-				Msg("scan-truststore: not removing stale rows for a source with rows that could not be written")
-			continue
-		}
-		pruned, err := st.PruneStaleTrustStoreRows(ctx, hostID, source, watermark)
-		if err != nil {
-			return fmt.Errorf("remove stale %s trust-store rows: %w", source, err)
-		}
-		if pruned > 0 {
-			log.Info().Str("source", source).Int64("removed", pruned).
-				Msg("scan-truststore: removed trust-store entries no longer present")
-		}
-	}
-	if scope.PrivateKeys {
-		// Every private-key observation from this scanner has source
-		// "truststore" (JKS and PKCS#12 entries).
-		const keySource = "truststore"
-		if n := keysFailed[keySource]; n > 0 {
-			log.Warn().Int("failed_rows", n).
-				Msg("scan-truststore: not removing stale private-key rows: some could not be written")
+	for _, b := range result.ReadBundles {
+		scope := store.BundleScope{Source: b.Source, SourceDetail: b.SourceDetail}
+		if n := trustFailed[scope]; n > 0 {
+			log.Warn().Str("source", b.Source).Str("bundle", b.SourceDetail).Int("failed_rows", n).
+				Msg("scan-truststore: not removing stale rows for a bundle with rows that could not be written")
 		} else {
-			pruned, err := st.PruneStalePrivateKeyHoldings(ctx, hostID, keySource, watermark)
+			pruned, err := st.PruneStaleTrustStoreRows(ctx, hostID, b.Source, b.SourceDetail, watermark)
 			if err != nil {
-				return fmt.Errorf("remove stale private-key rows: %w", err)
+				return fmt.Errorf("remove stale trust-store rows for %s: %w", b.SourceDetail, err)
 			}
 			if pruned > 0 {
-				log.Info().Int64("removed", pruned).
-					Msg("scan-truststore: removed private-key holdings no longer present")
+				log.Info().Str("source", b.Source).Str("bundle", b.SourceDetail).Int64("removed", pruned).
+					Msg("scan-truststore: removed trust-store entries no longer in the bundle")
 			}
+		}
+		if !b.KeyStore {
+			continue
+		}
+		// This scanner reports every private-key holding with source
+		// "truststore" and the keystore's SourceDetail.
+		keyScope := store.BundleScope{Source: "truststore", SourceDetail: b.SourceDetail}
+		if n := keysFailed[keyScope]; n > 0 {
+			log.Warn().Str("keystore", b.SourceDetail).Int("failed_rows", n).
+				Msg("scan-truststore: not removing stale private-key rows for a keystore with rows that could not be written")
+			continue
+		}
+		pruned, err := st.PruneStalePrivateKeyHoldings(ctx, hostID, keyScope.Source, keyScope.SourceDetail, watermark)
+		if err != nil {
+			return fmt.Errorf("remove stale private-key rows for %s: %w", b.SourceDetail, err)
+		}
+		if pruned > 0 {
+			log.Info().Str("keystore", b.SourceDetail).Int64("removed", pruned).
+				Msg("scan-truststore: removed private-key holdings no longer in the keystore")
 		}
 	}
 	return nil

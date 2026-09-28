@@ -96,7 +96,7 @@ func TestPruneStaleTrustStoreRows_ByHostAndSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.Pool().Exec(ctx, `UPDATE host_trust_store SET last_seen = NOW() - INTERVAL '1 hour'`)
-	n, err := st.PruneStaleTrustStoreRows(ctx, hostID, "os_bundle", time.Now().Add(-30*time.Minute))
+	n, err := st.PruneStaleTrustStoreRows(ctx, hostID, "os_bundle", "/etc/ssl/certs/ca-certificates.crt", time.Now().Add(-30*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

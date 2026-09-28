@@ -91,11 +91,13 @@ All notable changes to CipherFlag are documented in this file.
   new key takes effect on restart.
 - **A CA or private key removed from a host stayed in the inventory
   forever.** `scan-truststore` only added and refreshed rows. It now also
-  removes, for each trust-store source it fully scanned, the entries it no
-  longer found, and private-key holdings when every discoverer succeeded. A
-  source whose discoverer failed, or that had a row the scan could not
-  write, is left as it was. A bundle that exists but cannot be read in one
-  scan looks removed until the next scan that can read it.
+  removes, for each trust bundle and keystore it actually read, the CAs and
+  keys no longer in it. A bundle that is missing, cannot be read (a
+  permission problem, a locked keychain), cannot be decoded (a keystore
+  password that does not match) or was not probed in this run is left
+  exactly as it was, as is a bundle with a row the scan could not write. A
+  bundle that is deleted outright keeps its rows; only removals from a
+  bundle that is still readable are reconciled.
 - **One unwritable trust-store or private-key row lost the whole scan's
   rows.** The rows were written as one batch, which the database runs as a
   single transaction, so one failure aborted every row after it and rolled

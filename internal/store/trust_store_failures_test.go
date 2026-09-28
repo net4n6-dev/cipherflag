@@ -42,7 +42,7 @@ func TestUpsertTrustStoreObservations_ReportsFailedRowsBySource(t *testing.T) {
 		{HostID: hostID, CAFingerprint: "unknown-ca-2", Source: "jvm_cacerts", SourceDetail: "/jvm/cacerts"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, map[string]int{"jvm_cacerts": 2}, failed)
+	require.Equal(t, map[BundleScope]int{{Source: "jvm_cacerts", SourceDetail: "/jvm/cacerts"}: 2}, failed)
 
 	// A failed row must not take the rest of the batch with it: both good
 	// rows, before and after a failure, are stored.
@@ -68,7 +68,7 @@ func TestUpsertPrivateKeyHoldings_ReportsFailedRowsBySource(t *testing.T) {
 		{HostID: hostID, CertFingerprint: "known-cert-2", Evidence: "pkcs12_entry", Source: "truststore", SourceDetail: "/c.p12"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, map[string]int{"truststore": 1}, failed)
+	require.Equal(t, map[BundleScope]int{{Source: "truststore", SourceDetail: "/b.jks"}: 1}, failed)
 
 	// Both good rows, before and after the failure, are stored.
 	for _, fp := range []string{"known-cert", "known-cert-2"} {
@@ -99,7 +99,33 @@ func TestDatabaseNow_IsTheClockThatStampsLastSeen(t *testing.T) {
 	require.Len(t, rows, 1)
 	require.False(t, rows[0].LastSeen.Before(before), "a row written after DatabaseNow must not be before it")
 
-	n, err := st.PruneStaleTrustStoreRows(ctx, hostID, "os_bundle", before)
+	n, err := st.PruneStaleTrustStoreRows(ctx, hostID, "os_bundle", "/etc/ssl/certs/c.pem", before)
 	require.NoError(t, err)
 	require.Zero(t, n, "pruning at the pre-write watermark must keep the row just written")
+}
+
+// Pruning is scoped to one bundle: a scan removes stale rows only for the
+// bundles it read, never for a sibling bundle of the same source that it
+// did not read.
+func TestPruneStaleTrustStoreRows_ScopedToOneBundle(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	hostID := seedTestHost(t, st, "prune-bundle")
+	require.NoError(t, st.UpsertCertificate(ctx, minCert("bundle-ca")))
+	_, err := st.UpsertTrustStoreObservations(ctx, []model.TrustStoreObservation{
+		{HostID: hostID, CAFingerprint: "bundle-ca", Source: "os_bundle", SourceDetail: "/etc/ssl/read.pem"},
+		{HostID: hostID, CAFingerprint: "bundle-ca", Source: "os_bundle", SourceDetail: "/etc/ssl/not-read.pem"},
+	})
+	require.NoError(t, err)
+	after, err := st.DatabaseNow(ctx)
+	require.NoError(t, err)
+
+	n, err := st.PruneStaleTrustStoreRows(ctx, hostID, "os_bundle", "/etc/ssl/read.pem", after)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+
+	rows, err := st.ListTrustStoreHoldingsForHost(ctx, hostID)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "/etc/ssl/not-read.pem", rows[0].SourceDetail, "the bundle that was not read keeps its row")
 }

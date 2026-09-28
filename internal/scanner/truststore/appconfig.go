@@ -62,7 +62,16 @@ var trustDirectives = map[string]string{
 // logged at warn level and skipped so the caller always gets a partial result
 // rather than a hard failure.
 func IngestAppConfigBundles(refs []TrustBundleRef) ([]model.TrustStoreObservation, error) {
+	obs, _ := ReadAppConfigBundles(refs)
+	return obs, nil
+}
+
+// ReadAppConfigBundles is IngestAppConfigBundles that also reports which
+// bundles it read, for reconciliation: a bundle it could not read is left
+// out, so its trust-store rows are not treated as gone.
+func ReadAppConfigBundles(refs []TrustBundleRef) ([]model.TrustStoreObservation, []BundleRef) {
 	var out []model.TrustStoreObservation
+	var read []BundleRef
 	for _, ref := range refs {
 		data, err := os.ReadFile(ref.BundlePath)
 		if err != nil {
@@ -73,6 +82,7 @@ func IngestAppConfigBundles(refs []TrustBundleRef) ([]model.TrustStoreObservatio
 			continue
 		}
 		sourceDetail := fmt.Sprintf("%s:%s:%s", ref.Server, ref.ConfigPath, ref.Directive)
+		read = append(read, BundleRef{Source: "app_config", SourceDetail: sourceDetail})
 		rest := data
 		for {
 			var block *pem.Block
@@ -99,7 +109,7 @@ func IngestAppConfigBundles(refs []TrustBundleRef) ([]model.TrustStoreObservatio
 			})
 		}
 	}
-	return out, nil
+	return out, read
 }
 
 // ParseTrustBundleDirectives scans a config file for trust-bundle

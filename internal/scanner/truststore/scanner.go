@@ -20,7 +20,6 @@ package truststore
 
 import (
 	"context"
-	"sort"
 	"sync"
 
 	"github.com/net4n6-dev/cipherflag/internal/model"
@@ -79,48 +78,33 @@ type ScanResult struct {
 	PrivateKey        []model.PrivateKeyObservation
 	BundlesScanned    int                          // total across all discoverers
 	DiscovererResults map[string]DiscovererOutcome // keyed by discoverer Name
+	// ReadBundles are the bundles this scan actually read (and decoded,
+	// for a binary format), so the ones whose contents it knows. Only
+	// these may be reconciled: a bundle that was missing, unreadable, not
+	// decodable or not probed says nothing about what it holds.
+	ReadBundles []BundleRef
 }
 
-// trustSourceDiscoverers lists, for each trust-store source, every
-// discoverer that produces it. app_config is not here: scan-truststore
-// collects it itself, outside the discoverers.
-var trustSourceDiscoverers = map[string][]string{
-	"os_bundle":    {"linux_os_bundles", "macos_keychains"},
-	"jvm_cacerts":  {"jvm_keystores"},
-	"lang_runtime": {"runtime_bundles"},
+// BundleRef names one trust bundle as its observations do: Source and
+// SourceDetail. KeyStore is set for a keystore (JKS or PKCS#12) read this
+// scan, whose private-key holdings (source "truststore", the same
+// SourceDetail) it is also authoritative for.
+type BundleRef struct {
+	Source       string
+	SourceDetail string
+	KeyStore     bool
 }
 
-// CoveredSources reports what this scan fully looked at: the trust-store
-// sources whose every discoverer ran and succeeded (sorted), and whether
-// private-key holdings were covered, which needs every discoverer to have
-// succeeded because any bundle can carry a key. Only covered sources may be
-// reconciled; pruning a source that was not scanned would wipe it.
-func (r ScanResult) CoveredSources() (trust []string, privateKeys bool) {
-	ok := func(name string) bool {
-		oc, ran := r.DiscovererResults[name]
-		return ran && oc.Err == ""
+// bundleRead reports whether a mapped bundle's contents are known. A PEM
+// bundle that was read is known even with no certificates in it (every CA
+// was removed). A binary bundle that yielded nothing did not decode (wrong
+// password, corrupt) or is empty, and either way is treated as unknown so
+// nothing is removed on its account.
+func bundleRead(b bundleObservation, trust int, keys int) bool {
+	if b.Format == "pem" {
+		return true
 	}
-	for source, discoverers := range trustSourceDiscoverers {
-		covered := true
-		for _, d := range discoverers {
-			covered = covered && ok(d)
-		}
-		if covered {
-			trust = append(trust, source)
-		}
-	}
-	sort.Strings(trust)
-	if len(r.DiscovererResults) == 0 {
-		return trust, false
-	}
-	for _, discoverers := range trustSourceDiscoverers {
-		for _, d := range discoverers {
-			if !ok(d) {
-				return trust, false
-			}
-		}
-	}
-	return trust, true
+	return trust+keys > 0
 }
 
 // New constructs a Scanner. jvmPasswords defaults to ["changeit"] when nil.
@@ -193,6 +177,13 @@ func (s *Scanner) Scan(ctx context.Context) (ScanResult, error) {
 		trust, key := s.mapBundle(b)
 		out.TrustStore = append(out.TrustStore, trust...)
 		out.PrivateKey = append(out.PrivateKey, key...)
+		if bundleRead(b, len(trust), len(key)) {
+			out.ReadBundles = append(out.ReadBundles, BundleRef{
+				Source:       b.Source,
+				SourceDetail: b.SourceDetail,
+				KeyStore:     b.Format == "jks" || b.Format == "pkcs12",
+			})
+		}
 	}
 	return out, nil
 }
