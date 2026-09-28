@@ -182,6 +182,18 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 			Msg("scoring sweeper started")
 	}
 
+	// Repair certificates stored blank before 2.3.0 (a PEM-only
+	// /api/v1/ingest discovery kept only its fingerprint) from their stored
+	// PEM. With nothing blank this is one index probe.
+	if res, err := ingest.RepairBlankCertificates(ctx, st, func(ctx context.Context, fp string) error {
+		return scorer.ScoreAsset(ctx, "certificate", fp)
+	}); err != nil {
+		log.Error().Err(err).Int("repaired", res.Repaired).Msg("certificate repair failed; serving anyway")
+	} else if res.Repaired > 0 || res.Skipped > 0 {
+		log.Info().Int("repaired", res.Repaired).Int("skipped", res.Skipped).
+			Msg("repaired certificates stored without metadata by an earlier version")
+	}
+
 	// Layer 6.1b-4: scan scheduler goroutine.
 	{
 		schedCtx, schedCancel := context.WithCancel(ctx)

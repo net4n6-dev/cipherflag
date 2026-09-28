@@ -55,6 +55,12 @@ All notable changes to CipherFlag are documented in this file.
   `source_discovery` now keeps the source that first discovered the
   certificate; every source that saw it is still recorded in its
   provenance.
+- Certificates an earlier version stored blank (posted to `/api/v1/ingest`
+  with only their PEM) are repaired automatically: at startup `serve`
+  rebuilds them from their stored PEM, scores them, and logs how many it
+  repaired. Nothing needs to be re-sent. A stored PEM that does not parse,
+  or belongs to a different certificate, is left as it is and counted as
+  skipped in the same log line.
 - **`asset_count` overstated BOM contents.** It now equals the number of
   asset components in the BOM. When health reports were dropped because
   their asset no longer exists, `assets_omitted` and `assets_omitted_types`
