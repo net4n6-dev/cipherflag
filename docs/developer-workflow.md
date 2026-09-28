@@ -171,7 +171,7 @@ docker run -d --name cipherflag-test-db \
   -e POSTGRES_USER=cipherflag \
   -e POSTGRES_PASSWORD=changeme \
   -p 5434:5432 \
-  postgres:15-alpine
+  postgres:16
 
 # Create test database
 docker exec cipherflag-test-db psql -U cipherflag -c "CREATE DATABASE cipherflag_test;"
