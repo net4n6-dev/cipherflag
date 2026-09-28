@@ -30,7 +30,7 @@
 			}
 		} else {
 			const fp = nodeId.replace('fp-', '');
-			goto(`/pki?select=${fp}`);
+			goto(`/constellation?select=${encodeURIComponent(fp)}`);
 		}
 	}
 </script>

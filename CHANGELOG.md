@@ -39,6 +39,11 @@ All notable changes to CipherFlag are documented in this file.
   not-found page. They now open the certificate detail page. A frontend test
   now fails the build when any in-app link names a route that does not
   exist.
+- Clicking a CA in Analytics → Chain Flow opened the PKI Constellation with
+  nothing selected: the link went through the `/pki` redirect, which
+  dropped its `?select=` parameter. It now opens the constellation with that
+  CA selected (or its certificate page if the CA is not in the graph), and
+  old `/pki?select=` links keep working.
 - **`verify-cbom` reported a trust mismatch for a genuine BOM when
   `--trusted-key` was a standard SPKI public key** (from OpenSSL, or from
   CipherFlag EE 4.11's `generate-signing-key`). It read the PEM body as a

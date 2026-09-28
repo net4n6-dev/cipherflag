@@ -6,6 +6,7 @@
   import type { Node3D, Edge3D, ConstellationMode } from '$lib/components/constellation/constellation-types';
   import { gradeColor, nodeRadius3D } from '$lib/components/constellation/constellation-types';
   import { apiNodeToNode3D, apiEdgeToEdge3D, createSimulation3D } from '$lib/components/constellation/constellation-physics';
+  import { resolveCertTarget, selectParam } from '$lib/components/constellation/constellation-select';
   import { onAssetDiscovered, onAssetScored } from '$lib/events.svelte';
   import ConstellationScene from '$lib/components/constellation/ConstellationScene.svelte';
   import type { ConstellationSceneApi } from '$lib/components/constellation/ConstellationSceneBody.svelte';
@@ -92,6 +93,10 @@
       simulation = await createSimulation3D(nodes, edges, () => {
         tickCounter++;
       });
+
+      // Deep link: /constellation?select=<fingerprint> (Analytics Chain Flow).
+      const selected = selectParam(window.location.search);
+      if (selected) handleNavigateCert(selected);
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load landscape';
     }
@@ -224,9 +229,9 @@
   }
 
   function handleNavigateCert(fp: string) {
-    const target = nodes.find(n => n.id === fp);
-    if (target) selectedNode = target;
-    else goto(`/certificates/${fp}`);
+    const target = resolveCertTarget(nodes, fp);
+    if (target.kind === 'node') selectedNode = target.node;
+    else goto(target.href);
   }
 
   function nodeOpacity(node: Node3D): number {
