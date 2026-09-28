@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -98,6 +99,9 @@ func (s *fakeStore) GetCertificate(_ context.Context, fp string) (*model.Certifi
 func (s *fakeStore) RecordObservation(_ context.Context, o *model.CertificateObservation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.certs[o.CertFingerprint] {
+		return fmt.Errorf("observations.cert_fingerprint references no certificate: %s", o.CertFingerprint)
+	}
 	s.obs = append(s.obs, o)
 	s.events = append(s.events, "observation")
 	return nil
@@ -109,6 +113,9 @@ type fakeIngester struct {
 	st    *fakeStore
 	certs []ingestedCert
 	fail  int
+	// reject names fingerprints ingest skips without an error, as it does
+	// for a fingerprint that contradicts its PEM (dedup.ErrPEMMismatch).
+	reject map[string]bool
 }
 
 type ingestedCert struct {
@@ -128,14 +135,20 @@ func (f *fakeIngester) Ingest(_ context.Context, r *ingest.DiscoveryResult) (*in
 	}
 	f.st.mu.Lock()
 	defer f.st.mu.Unlock()
+	summary := &ingest.IngestionSummary{}
 	for _, d := range r.Certificates {
+		if f.reject[d.FingerprintSHA256] {
+			continue
+		}
+		summary.IngestedAssets = append(summary.IngestedAssets,
+			ingest.IngestedAsset{AssetType: "certificate", AssetID: d.FingerprintSHA256, IsNew: true})
 		f.certs = append(f.certs, ingestedCert{source: r.Source, disc: ingestCertFields{
 			fingerprint: d.FingerprintSHA256, pem: d.RawPEM, subjectCN: d.SubjectCN, skipHost: r.SkipHostResolution,
 		}})
 		f.st.certs[d.FingerprintSHA256] = true
 		f.st.events = append(f.st.events, "certificate")
 	}
-	return &ingest.IngestionSummary{}, nil
+	return summary, nil
 }
 
 func newTestPoller(t *testing.T, dir string, batch int) (*Poller, *fakeStore, *fakeIngester) {
@@ -367,4 +380,65 @@ func (s *secondCallFails) Ingest(ctx context.Context, r *ingest.DiscoveryResult)
 		return nil, errors.New("ingest unavailable")
 	}
 	return s.fakeIngester.Ingest(ctx, r)
+}
+
+// Ingest skips a certificate whose fingerprint contradicts its PEM without
+// returning an error, so the poller must not take it for stored: the
+// session that references it would fail its foreign key on every poll, hold
+// the ssl cursor in place, and (as PollOnce stopped at the first error)
+// starve every file after it.
+func TestPollOnce_SkipsSessionsOfACertificateIngestRefused(t *testing.T) {
+	dir := t.TempDir()
+	writeLines(t, filepath.Join(dir, "x509.log"), fixture(t, "x509.log")...)
+	writeLines(t, filepath.Join(dir, "ssl.log"), fixture(t, "ssl.log")...)
+	p, st, ing := newTestPoller(t, dir, 0)
+	ing.reject = map[string]bool{"b5341cf253692da10c93f8197a443817861e06f58bd6c691ab25a9709f25043c": true}
+
+	require.NoError(t, p.PollOnce(context.Background()))
+	require.Len(t, st.obs, 2, "the two sessions' CA-certificate observations; the refused server certificate's are skipped")
+	for _, o := range st.obs {
+		require.Equal(t, "a343cadac5724c91ba6893f38386151f997918309d0fcd308eba63c80292ae40", o.CertFingerprint)
+	}
+
+	// The ssl cursor advanced past the batch, so the next poll is quiet.
+	require.NoError(t, p.PollOnce(context.Background()))
+	require.Len(t, st.obs, 2)
+}
+
+// A file that cannot be read must not keep the files after it from being read.
+func TestPollOnce_ReadsTheRestWhenOneFileCannotBeOpened(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file permissions do not stop root")
+	}
+	dir := t.TempDir()
+	writeLines(t, filepath.Join(dir, "x509.log"), fixture(t, "x509.log")...)
+	// Rotated files sort before the live one.
+	locked := filepath.Join(dir, "ssl.2026-09-28-11-00-00.log")
+	writeLines(t, locked, fixture(t, "ssl.log")...)
+	require.NoError(t, os.Chmod(locked, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o644) })
+	writeLines(t, filepath.Join(dir, "ssl.log"), fixture(t, "ssl.log")...)
+	p, st, _ := newTestPoller(t, dir, 0)
+
+	err := p.PollOnce(context.Background())
+	require.Error(t, err, "the unreadable file is still reported")
+	require.Contains(t, err.Error(), "ssl.2026-09-28-11-00-00.log")
+	require.Len(t, st.obs, 4, "the live ssl.log after it was read")
+}
+
+// Continuing past a failed file must not lose sessions: if an x509 file
+// failed, the ssl files are left for the next poll, or their sessions would
+// count as unknown-certificate and their cursor would move past them.
+func TestPollOnce_LeavesSSLAloneWhenX509Failed(t *testing.T) {
+	dir := t.TempDir()
+	writeLines(t, filepath.Join(dir, "x509.log"), fixture(t, "x509.log")...)
+	writeLines(t, filepath.Join(dir, "ssl.log"), fixture(t, "ssl.log")...)
+	p, st, ing := newTestPoller(t, dir, 0)
+	ing.fail = 1
+
+	require.Error(t, p.PollOnce(context.Background()))
+	require.Empty(t, st.obs)
+
+	require.NoError(t, p.PollOnce(context.Background()))
+	require.Len(t, st.obs, 4, "the sessions are recorded once the certificates are")
 }

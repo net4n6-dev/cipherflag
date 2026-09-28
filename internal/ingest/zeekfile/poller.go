@@ -160,12 +160,34 @@ func (p *Poller) PollOnce(ctx context.Context) error {
 
 	var stats pollStats
 	known := map[string]bool{}
+	// A file that fails is reported after the others have been read, so one
+	// bad file does not starve the files behind it. Its cursor stays where its
+	// last good batch left it. If an x509 file failed, the ssl files wait for
+	// the next poll: their sessions reference certificates that may be
+	// missing, and reading them now would count those sessions as unknown and
+	// move the cursor past them.
+	var firstErr error
+	x509Failed := false
 	for _, f := range files {
+		if f.kind == "ssl" && x509Failed {
+			continue
+		}
 		if err := p.readFile(ctx, f, cursor, known, &stats); err != nil {
-			return err
+			if firstErr == nil {
+				firstErr = err
+			} else {
+				log.Warn().Err(err).Str("file", f.path).Msg("zeek: reading log failed")
+			}
+			if f.kind == "x509" {
+				x509Failed = true
+			}
 		}
 	}
 	if err := p.saveCursor(ctx, cursor); err != nil {
+		if firstErr != nil {
+			log.Warn().Err(err).Msg("zeek: saving cursor after a failed poll")
+			return firstErr
+		}
 		return err
 	}
 	if stats != (pollStats{}) {
@@ -174,7 +196,7 @@ func (p *Poller) PollOnce(ctx context.Context) error {
 			Int("observations_unknown_cert", stats.unknownCerts).Int("unparseable_lines", stats.badLines).
 			Msg("zeek: ingested logs")
 	}
-	return nil
+	return firstErr
 }
 
 // listFiles returns the logs to read: the top of the directory, then each
@@ -318,16 +340,23 @@ func (p *Poller) processX509(ctx context.Context, lines [][]byte, known map[stri
 	if len(discs) == 0 {
 		return nil
 	}
-	if _, err := p.ing.Ingest(ctx, &ingest.DiscoveryResult{
+	summary, err := p.ing.Ingest(ctx, &ingest.DiscoveryResult{
 		Source:             string(model.SourceZeekPassive),
 		SkipHostResolution: true,
 		Timestamp:          time.Now().UTC(),
 		Certificates:       discs,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("ingest certificates: %w", err)
 	}
-	for _, d := range discs {
-		known[d.FingerprintSHA256] = true
+	// Ingest skips, without an error, a certificate whose fingerprint
+	// contradicts its PEM, so only what it reports as stored is known. The
+	// rest (and anything its observation cache skipped as already stored) is
+	// looked up in the store when a session references it.
+	for _, a := range summary.IngestedAssets {
+		if a.AssetType == "certificate" {
+			known[a.AssetID] = true
+		}
 	}
 	stats.certificates += len(discs)
 	return nil

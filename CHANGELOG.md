@@ -30,6 +30,13 @@ All notable changes to CipherFlag are documented in this file.
   were unaffected. A session is now unique on certificate, source, time,
   client, server and port and a repeat is ignored; the upgrade removes
   duplicates already stored.
+- **One bad certificate could stall the Zeek poller for good.** When ingest
+  skipped a certificate whose fingerprint contradicted its PEM, the poller
+  still took it for stored, so the TLS session that referenced it failed its
+  foreign key on every poll, the ssl position never moved, and no file after
+  it was read. The poller now treats only certificates ingest reports as
+  stored as known, and a file that fails is reported after the others have
+  been read (the ssl logs wait for the next poll if an x509 log failed).
 - **The Zeek sensor image failed at startup.** `cipherflag-ce-zeek` was
   built on `zeek/zeek:latest`, which moved to Zeek 9, and Zeek 9 removed the
   `extract-certs-pem` policy the sensor loaded. The images published for
