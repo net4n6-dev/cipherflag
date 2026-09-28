@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { api, type SummaryStats } from '$lib/api';
 	import { getCurrentUser, type AuthUser } from '$lib/auth';
+	import { parseSourcesConfig, type SourcesConfig } from '$lib/settings/sources-config';
 
 	interface UserEntry {
 		id: string;
@@ -47,12 +48,8 @@
 	let userError = $state('');
 	let userSuccess = $state('');
 
-	// Sources tab
-	interface SourcesConfig {
-		zeek: { enabled: boolean; log_dir: string; poll_interval_seconds: number; network_interface: string };
-		corelight: { enabled: boolean; api_url: string; has_token: boolean };
-		pcap: { max_file_size_mb: number; retention_hours: number; input_dir: string };
-	}
+	// Sources tab (the API also returns `pcap`; PCAP upload is EE-only, so CE
+	// ignores it)
 	interface NetworkInterface {
 		name: string; ip: string; is_up: boolean; is_loopback: boolean; mac: string;
 	}
@@ -66,9 +63,8 @@
 	let srcCorelightEnabled = $state(false);
 	let srcCorelightURL = $state('');
 	let srcCorelightToken = $state('');
-	let srcPcapMaxSize = $state(500);
-	let srcPcapRetention = $state(24);
 	let srcError = $state('');
+	let srcLoadError = $state('');
 	let srcSuccess = $state('');
 
 	// Venafi tab
@@ -179,38 +175,42 @@
 
 	// Sources
 	async function loadSources() {
+		// The form is only filled from a configuration that loaded and parsed.
+		// Otherwise it would show its placeholder defaults, and Save would
+		// write them over the running configuration.
+		srcLoadError = '';
 		try {
-			const [srcRes, ifRes] = await Promise.all([
-				fetch('/api/v1/config/sources'),
-				fetch('/api/v1/config/interfaces'),
-			]);
-			if (srcRes.ok) {
-				sourcesConfig = await srcRes.json();
-				if (sourcesConfig) {
-					srcZeekEnabled = sourcesConfig.zeek.enabled;
-					srcZeekLogDir = sourcesConfig.zeek.log_dir;
-					srcZeekPollInterval = sourcesConfig.zeek.poll_interval_seconds;
-					srcNetworkInterface = sourcesConfig.zeek.network_interface;
-					srcCorelightEnabled = sourcesConfig.corelight.enabled;
-					srcCorelightURL = sourcesConfig.corelight.api_url;
-					srcPcapMaxSize = sourcesConfig.pcap.max_file_size_mb;
-					srcPcapRetention = sourcesConfig.pcap.retention_hours;
-				}
-			}
+			const srcRes = await fetch('/api/v1/config/sources');
+			if (!srcRes.ok) throw new Error(`HTTP ${srcRes.status}`);
+			const cfg = parseSourcesConfig(await srcRes.json());
+			sourcesConfig = cfg;
+			srcZeekEnabled = cfg.zeek.enabled;
+			srcZeekLogDir = cfg.zeek.log_dir;
+			srcZeekPollInterval = cfg.zeek.poll_interval_seconds;
+			srcNetworkInterface = cfg.zeek.network_interface;
+			srcCorelightEnabled = cfg.corelight.enabled;
+			srcCorelightURL = cfg.corelight.api_url;
+		} catch (e) {
+			sourcesConfig = null;
+			const reason = e instanceof Error ? e.message : String(e);
+			srcLoadError = `Could not load the current source configuration (${reason}). Saving is disabled so the running configuration is not overwritten.`;
+		}
+		try {
+			const ifRes = await fetch('/api/v1/config/interfaces');
 			if (ifRes.ok) {
 				const data = await ifRes.json();
 				interfaces = data.interfaces ?? [];
 				currentInterface = data.current_interface ?? '';
 			}
-		} catch {}
+		} catch {} // interfaces only populate a suggestion list
 	}
 
 	async function saveSources() {
+		if (!sourcesConfig) return; // never save a form that was not loaded
 		srcError = ''; srcSuccess = '';
 		const body: any = {
 			zeek: { enabled: srcZeekEnabled, log_dir: srcZeekLogDir, poll_interval_seconds: srcZeekPollInterval, network_interface: srcNetworkInterface },
 			corelight: { enabled: srcCorelightEnabled, api_url: srcCorelightURL },
-			pcap: { max_file_size_mb: srcPcapMaxSize, retention_hours: srcPcapRetention },
 		};
 		if (srcCorelightToken) body.corelight.api_token = srcCorelightToken;
 		try {
@@ -476,6 +476,7 @@
 					<div class="tab-section">
 						<h2>Discovery Sources</h2>
 
+						{#if srcLoadError}<div class="msg error">{srcLoadError}</div>{/if}
 						{#if srcError}<div class="msg error">{srcError}</div>{/if}
 						{#if srcSuccess}<div class="msg success">{srcSuccess}</div>{/if}
 
@@ -554,34 +555,7 @@
 								{/if}
 							</div>
 
-							<!-- PCAP -->
-							<div class="source-card">
-								<div class="src-card-header">
-									<svg class="src-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
-									</svg>
-									<div class="src-card-info">
-										<h3>PCAP Upload</h3>
-										<p>Settings for packet capture file processing</p>
-									</div>
-								</div>
-								<div class="src-card-body">
-									<div class="vf-field">
-										<span class="vf-label">Max File Size (MB, 1–5000)</span>
-										<input type="number" bind:value={srcPcapMaxSize} min="1" max="5000" />
-									</div>
-									<div class="vf-field">
-										<span class="vf-label">Retention (hours, 1–720)</span>
-										<input type="number" bind:value={srcPcapRetention} min="1" max="720" />
-									</div>
-									<div class="vf-field">
-										<span class="vf-label">Input Directory</span>
-										<span class="vf-readonly">{sourcesConfig?.pcap.input_dir ?? '/pcap-input'}</span>
-									</div>
-								</div>
-							</div>
-
-							<button class="submit-btn" style="margin-top: 1rem;" onclick={saveSources}>Save Source Configuration</button>
+							<button class="submit-btn" style="margin-top: 1rem;" onclick={saveSources} disabled={!sourcesConfig}>Save Source Configuration</button>
 							<p class="config-hint">Changes are saved to <code>config/cipherflag.toml</code>. Restart the service for changes to take effect.</p>
 						{:else}
 							<!-- Viewer: read-only display -->
@@ -601,15 +575,6 @@
 									<div class="src-card-header">
 										<h3>Corelight</h3>
 										<span class="src-status" class:on={sourcesConfig.corelight.enabled}>{sourcesConfig.corelight.enabled ? 'Enabled' : 'Disabled'}</span>
-									</div>
-								</div>
-								<div class="source-card">
-									<div class="src-card-header">
-										<h3>PCAP Upload</h3>
-									</div>
-									<div class="src-card-body">
-										<div class="ro-row"><span>Max Size:</span> <span>{sourcesConfig.pcap.max_file_size_mb} MB</span></div>
-										<div class="ro-row"><span>Retention:</span> <span>{sourcesConfig.pcap.retention_hours}h</span></div>
 									</div>
 								</div>
 							{:else}
@@ -1027,7 +992,6 @@
 	.src-card-body { padding: 0 1rem 1rem; border-top: 1px solid var(--cf-border); padding-top: 0.75rem; }
 	.src-status { font-size: 0.7rem; text-transform: uppercase; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(100, 116, 139, 0.15); color: var(--cf-text-muted); }
 	.src-status.on { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
-	.vf-readonly { font-size: 0.85rem; color: var(--cf-text-secondary); font-family: 'JetBrains Mono', monospace; }
 	.field-hint { font-size: 0.7rem; color: var(--cf-text-muted); margin-top: 0.25rem; }
 	.ro-row { display: flex; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.8rem; }
 	.ro-row span:first-child { color: var(--cf-text-muted); width: 100px; }

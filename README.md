@@ -105,6 +105,25 @@ calls home, no telemetry, and no commercial license required.
   vendor REST APIs and require no vendor SDK or license agreement.
   Enable each connector in `config/cipherflag.toml`.
 
+**Certificate Transparency multi-provider (CE, off by default)**
+- `ct_crtsh` (crt.sh), `ct_static` (Static CT API / Sunlight logs),
+  `ct_certspotter` (SSLMate CertSpotter), and `ct_multi` (coverage-union
+  composer over the other three, with per-child provenance) ship in CE.
+  `config/cipherflag.toml`-only — no operator UI. Enable per-domain (or
+  per-group, for `ct_multi`) in config.
+- `ct_static` needs three values per log, all from the log's `tiled_logs`
+  entry in Google's `log_list.json`: `log_url` = `monitoring_url`;
+  `origin` = `submission_url` without `https://` and the trailing `/`
+  (e.g. `log.sycamore.ct.letsencrypt.org/2026h2` — usually a different
+  host from `log_url`); `public_key_pem` = `key` wrapped in a
+  `-----BEGIN PUBLIC KEY-----` PEM block (ECDSA P-256).
+- `ct_static` is forward-watching only: on first enable it starts at the
+  log's current tree head and reports certificates logged after that
+  point (a from-genesis walk of a production Sunlight shard is
+  infeasible). Historical coverage comes from `ct_crtsh` and
+  `ct_certspotter`. Inside `ct_multi` the static child keeps its position
+  in memory only, so it restarts from the head after a process restart.
+
 **Layer 5.4 — Venafi TPP + Cloud push export (CE)**
 - Push-exports the CBOM inventory to a Venafi Trust Protection
   Platform (TPP) instance or Venafi Cloud tenant via the documented
@@ -182,8 +201,6 @@ A separate **CipherFlag EE** product (commercial license) adds:
   backends (host-dependency / risk-prioritization blast-radius graph
   views, enrichment surfaces). The CE operator shell, PKI
   Constellation explorer, and analytics page shipped in CE v2.2.
-- **Certificate Transparency multi-provider arc** (deferred to
-  Phase 2 — will land in a future CE release once the EE arc completes)
 
 Contact CipherFlag for EE access.
 
@@ -250,11 +267,21 @@ cipherflag declared-cas <verb>     Manage the operator-declared CA registry
 cipherflag application-metadata    Manage per-application TTL metadata (HNDL)
 cipherflag ownership <verb>        Manage asset ownership sightings
 cipherflag scan-truststore         One-shot OS / JVM / runtime trust-store scan
-cipherflag generate-signing-key    Generate an Ed25519 signing key for CBOMs
-cipherflag sign-cbom <file>        Sign a CBOM JSON with the signing key
-cipherflag verify-cbom <file>      Verify a signed CBOM
+cipherflag generate-signing-key [--out <prefix>]
+                                   Generate an Ed25519 signing key for CBOMs
+cipherflag sign-cbom --bom <file> --key <key> [--out <file>]
+                                   Sign a CBOM JSON with the signing key
+cipherflag verify-cbom --bom <file> [--trusted-key <pub>]
+                                   Verify a signed CBOM (exit 0 valid,
+                                   1 other signer, 2 invalid, 3 could not
+                                   verify; see docs/configuration.md)
 cipherflag version                 Print version
 ```
+
+Subcommands exit `0` on success, `1` when they tried and failed, and `2`
+when invoked wrongly (`-h`, an unknown flag, a stray argument, a missing
+or invalid required flag); nothing is done in that case. `verify-cbom`
+uses its own codes, listed above.
 
 ---
 
@@ -336,7 +363,7 @@ tree-sitter language bindings, and others).
 | SSE live updates (dashboard + explorer) | shipped v2.2 (CE) |
 | CBOM hardening: `verify-cbom` validation, admin-only import, push-scheduler panic containment | shipped v2.2.2–v2.2.3 (CE) |
 | Fresh-install schema fixes (migration `v2.2.4_schema_parity.sql`) + integration tests in CI | shipped v2.2.4 (CE) |
-| Certificate Transparency multi-provider | deferred (Phase 2) |
+| Certificate Transparency multi-provider (`ct_crtsh`/`ct_static`/`ct_certspotter`/`ct_multi`) | shipped v2.3 (CE, off by default, config-only) |
 | Risk prioritization + blast-radius (host-dependency) | **EE-only** |
 | Optional LLM-assisted repo enrichment (off by default; local or BYO-key model) | **EE-only** |
 | Container image scanning | **EE-only** |

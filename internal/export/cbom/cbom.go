@@ -18,20 +18,27 @@
 package cbom
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 
 	"github.com/net4n6-dev/cipherflag/internal/analysis/scoring"
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/store"
-	"github.com/rs/zerolog/log"
 )
 
-// cbomVersion is embedded in BOM metadata. Set via ldflags in release builds:
-//
-//	-ldflags "-X github.com/net4n6-dev/cipherflag/internal/export/cbom.cbomVersion=1.2.3"
+// cbomVersion is the CipherFlag version embedded in every BOM's
+// metadata.tools and in the CBOM push User-Agent. serve sets it from its
+// Version at startup (SetToolVersion); "dev" remains only in tests and
+// programs that never call it.
 var cbomVersion = "dev"
+
+// SetToolVersion records the CipherFlag version that BOMs name as their
+// producing tool. Call once at startup, before any BOM is generated. An
+// empty version is ignored.
+func SetToolVersion(version string) {
+	if version != "" {
+		cbomVersion = version
+	}
+}
 
 // NewGenerator returns a Generator with no signing configured.
 // Existing callers (tests, handlers, NewRuntime) that do not need signing
@@ -47,55 +54,28 @@ func NewGenerator() *Generator {
 //
 // Spec ref: docs/superpowers/plans/2026-05-16-l4-d-cbom-depth-pass.md §Task 13 Step 5.
 func NewGeneratorWithSigning(signingCfg config.CBOMSigningConfig) (*Generator, error) {
-	if !signingCfg.Enabled {
-		return NewGenerator(), nil
+	signer, err := LoadSigner(signingCfg)
+	if err != nil {
+		return nil, fmt.Errorf("cbom: signing: %w", err)
 	}
-	var signer Signer
-	switch signingCfg.Signer {
-	case "file":
-		s, err := NewFileSigner(signingCfg.Path)
-		if err != nil {
-			return nil, fmt.Errorf("cbom: signing: %w", err)
-		}
-		signer = s
-	case "env":
-		s, err := NewEnvSigner(signingCfg.EnvVar)
-		if err != nil {
-			return nil, fmt.Errorf("cbom: signing: %w", err)
-		}
-		signer = s
-	default:
-		return nil, fmt.Errorf("cbom: signing: signer %q is not supported (want \"file\" or \"env\")", signingCfg.Signer)
-	}
-	return &Generator{signer: signer, libraryFIPSLevel: scoring.LibraryFIPSLevel}, nil
+	return NewGeneratorFromSigner(signer), nil
 }
 
-// NewRuntime constructs a Runtime from a store and CBOMConfig.
-// Call Start(ctx) to begin background emission goroutines.
-// Panics if signing is enabled but the key material is invalid — callers
-// should validate config (including signing config) before calling NewRuntime.
-func NewRuntime(st store.CryptoStore, cfg *config.CBOMConfig) *Runtime {
-	gen, err := NewGeneratorWithSigning(cfg.Signing)
-	if err != nil {
-		// Fail-fast: signing misconfiguration is a startup error. The operator
-		// enabled signing but provided an invalid key — surface it loudly
-		// rather than silently emitting unsigned BOMs.
-		panic("cbom: NewRuntime: " + err.Error())
-	}
+// NewGeneratorFromSigner returns a Generator that signs with signer, or an
+// unsigned one when signer is nil. serve loads the key once (LoadSigner, in
+// its startup check) and hands the one Generator to the CBOM runtime and
+// every CBOM download handler, so all of them sign with the key it logged
+// and none reads the key file again. A Generator is safe for concurrent use.
+func NewGeneratorFromSigner(signer Signer) *Generator {
+	g := NewGenerator()
+	g.signer = signer
+	return g
+}
 
-	// Startup logging: when signing is enabled, emit the public-key SHA-256
-	// fingerprint so operators can verify it against their out-of-band copy.
-	// Spec ref: docs/superpowers/plans/2026-05-16-l4-d-cbom-depth-pass.md §Task 13 Step 6.
-	if gen.signer != nil {
-		if pubKey, pkErr := gen.signer.PublicKey(); pkErr == nil {
-			sum := sha256.Sum256(pubKey)
-			log.Info().
-				Str("algorithm", gen.signer.Algorithm()).
-				Str("public_key_sha256", hex.EncodeToString(sum[:])).
-				Msg("CBOM signing enabled — compare public_key_sha256 against your trusted copy")
-		}
-	}
-
+// NewRuntime constructs a Runtime from a store, CBOMConfig and the Generator
+// every emitted BOM is built (and signed) with. Call Start(ctx) to begin
+// background emission goroutines.
+func NewRuntime(st store.CryptoStore, cfg *config.CBOMConfig, gen *Generator) *Runtime {
 	scopes := ScopesFromConfig(cfg.Scopes)
 	byName := make(map[string]*Scope, len(scopes))
 	for i := range scopes {

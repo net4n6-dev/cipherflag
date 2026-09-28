@@ -93,8 +93,23 @@ func TestSyslogSinkConfig_Validate(t *testing.T) {
 	if err := (&SyslogSinkConfig{Protocol: "carrier-pigeon", Address: "x", Format: "rfc5424"}).Validate("s"); err == nil {
 		t.Error("expected error for bad protocol")
 	}
-	if err := (&SyslogSinkConfig{Protocol: "tls", Address: "x", Format: "cef"}).Validate("s"); err == nil {
-		t.Error("expected error for missing TLS cert/key")
+	if err := (&SyslogSinkConfig{Protocol: "tls", Address: "x", Format: "cef"}).Validate("s"); err != nil {
+		t.Errorf("tls without a client cert is server-authenticated TLS and must validate: %v", err)
+	}
+	if err := (&SyslogSinkConfig{Protocol: "tls", Address: "x", Format: "cef", CertFile: "c.pem"}).Validate("s"); err == nil {
+		t.Error("expected error for cert_file without key_file")
+	}
+	if err := (&SyslogSinkConfig{Protocol: "tls", Address: "x", Format: "cef", KeyFile: "k.pem"}).Validate("s"); err == nil {
+		t.Error("expected error for key_file without cert_file")
+	}
+	if err := (&SyslogSinkConfig{Protocol: "tls", Address: "x", Format: "cef", CertFile: "c.pem", KeyFile: "k.pem"}).Validate("s"); err != nil {
+		t.Errorf("mutual TLS config must validate: %v", err)
+	}
+	if err := (&SyslogSinkConfig{Protocol: "tls", Address: "x", Format: "cef", TLSInsecure: true, CAFile: "ca.pem"}).Validate("s"); err == nil {
+		t.Error("expected error for ca_file combined with tls_insecure (ca_file has no effect once verification is skipped)")
+	}
+	if err := (&SyslogSinkConfig{Protocol: "tls", Address: "x", Format: "cef", TLSInsecure: true}).Validate("s"); err != nil {
+		t.Errorf("tls_insecure alone must validate: %v", err)
 	}
 	if err := (&SyslogSinkConfig{Protocol: "udp", Address: "x", Format: "smoke-signal"}).Validate("s"); err == nil {
 		t.Error("expected error for bad format")

@@ -110,6 +110,9 @@ type SyslogSinkConfig struct {
 	CAFile   string `toml:"ca_file"`
 	CertFile string `toml:"cert_file"`
 	KeyFile  string `toml:"key_file"`
+	// TLSInsecure disables server certificate verification for protocol="tls".
+	// Operator opt-in for lab or self-signed receivers; mirrors the Splunk sink.
+	TLSInsecure bool `toml:"tls_insecure"`
 }
 
 func (c *SyslogSinkConfig) Validate(location string) error {
@@ -126,10 +129,11 @@ func (c *SyslogSinkConfig) Validate(location string) error {
 	default:
 		return fmt.Errorf("%s: format %q must be \"rfc5424\" or \"cef\"", location, c.Format)
 	}
-	if c.Protocol == "tls" {
-		if c.CertFile == "" || c.KeyFile == "" {
-			return fmt.Errorf("%s: cert_file and key_file are required for protocol=\"tls\"", location)
-		}
+	if c.Protocol == "tls" && (c.CertFile == "") != (c.KeyFile == "") {
+		return fmt.Errorf("%s: cert_file and key_file must be set together for protocol=\"tls\"", location)
+	}
+	if c.Protocol == "tls" && c.TLSInsecure && c.CAFile != "" {
+		return fmt.Errorf("%s: ca_file has no effect when tls_insecure is true (the server certificate is not verified); set one or the other", location)
 	}
 	if c.Facility < 0 || c.Facility > 23 {
 		return fmt.Errorf("%s: facility %d must be 0-23", location, c.Facility)

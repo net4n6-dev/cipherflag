@@ -14,8 +14,26 @@ permissions:
   packages: write
 
 jobs:
+  # Nothing is published unless the full CI suite passes on the tagged commit.
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  verify:
+    name: Verify release version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tag matches cmd/cipherflag Version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: scripts/check-release-tag.sh "$TAG"
+
   docker:
     name: Build and push Docker images
+    needs: [ci, verify]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -34,9 +52,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # A prerelease tag (v2.3.0-rc1) publishes only its own version tag;
+      # :latest moves only on a plain vX.Y.Z release.
       - name: Extract version from tag
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+        run: |
+          version="${GITHUB_REF#refs/tags/v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$version" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       - name: Build and push CipherFlag image
         uses: docker/build-push-action@v5
@@ -45,8 +71,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/net4n6-dev/cipherflag-ce:latest
             ghcr.io/net4n6-dev/cipherflag-ce:${{ steps.version.outputs.version }}
+            ${{ steps.version.outputs.prerelease == 'false' && 'ghcr.io/net4n6-dev/cipherflag-ce:latest' || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -57,8 +83,8 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/net4n6-dev/cipherflag-ce-zeek:latest
             ghcr.io/net4n6-dev/cipherflag-ce-zeek:${{ steps.version.outputs.version }}
+            ${{ steps.version.outputs.prerelease == 'false' && 'ghcr.io/net4n6-dev/cipherflag-ce-zeek:latest' || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -73,3 +99,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

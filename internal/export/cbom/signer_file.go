@@ -23,34 +23,38 @@ import (
 
 // FileSigner implements Signer by reading an Ed25519 private key from a PEM
 // file. The PEM block type must be "PRIVATE KEY" or "ED25519 PRIVATE KEY" and
-// the block body must be exactly ed25519.PrivateKeySize (64) bytes.
+// the body a PKCS#8 or raw 64-byte Ed25519 key (parseEd25519PrivateKey).
 type FileSigner struct {
 	priv ed25519.PrivateKey
 }
 
-// NewFileSigner reads and parses the Ed25519 private key PEM at path.
+// NewFileSigner reads and parses the Ed25519 private key PEM at path. Every
+// error names path once.
 func NewFileSigner(path string) (*FileSigner, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("file signer: read %q: %w", path, err)
+		// os.ReadFile's error already names the path.
+		return nil, fmt.Errorf("file signer: %w", err)
 	}
-	return newFileSignerFromPEM(raw)
+	priv, err := parseEd25519PrivateKeyPEM(raw)
+	if err != nil {
+		return nil, fmt.Errorf("file signer %q: %w", path, err)
+	}
+	return &FileSigner{priv: priv}, nil
 }
 
-// newFileSignerFromPEM is shared by FileSigner and EnvSigner (PEM path).
-func newFileSignerFromPEM(pemBytes []byte) (*FileSigner, error) {
+// parseEd25519PrivateKeyPEM decodes a PRIVATE KEY PEM block. Shared by
+// FileSigner and EnvSigner (PEM path); its errors name no source, so each
+// caller adds its own once.
+func parseEd25519PrivateKeyPEM(pemBytes []byte) (ed25519.PrivateKey, error) {
 	block, _ := pem.Decode(pemBytes)
 	if block == nil {
-		return nil, fmt.Errorf("file signer: no PEM block")
+		return nil, fmt.Errorf("no PEM block")
 	}
 	if block.Type != "PRIVATE KEY" && block.Type != "ED25519 PRIVATE KEY" {
-		return nil, fmt.Errorf("file signer: expected Ed25519 PRIVATE KEY PEM, got %q", block.Type)
+		return nil, fmt.Errorf("expected Ed25519 PRIVATE KEY PEM, got %q", block.Type)
 	}
-	if len(block.Bytes) != ed25519.PrivateKeySize {
-		return nil, fmt.Errorf("file signer: Ed25519 key must be %d bytes, got %d",
-			ed25519.PrivateKeySize, len(block.Bytes))
-	}
-	return &FileSigner{priv: ed25519.PrivateKey(block.Bytes)}, nil
+	return parseEd25519PrivateKey(block.Bytes)
 }
 
 // Algorithm implements Signer.

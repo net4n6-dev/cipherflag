@@ -95,15 +95,87 @@ Controls automated certificate push to Venafi (Cloud or TPP).
 | `folder` | `\VED\Policy\Discovered\CipherFlag` | Policy folder in Venafi TPP where certificates are imported. TPP only. |
 | `push_interval_minutes` | `60` | How often to push new/updated certificates (minutes). |
 
+### CBOM syslog sink (`[cbom.scopes.sinks.syslog]`)
+
+A CBOM scope can forward per-asset or per-finding events to a syslog receiver:
+
+```toml
+[[cbom.scopes]]
+name = "prod"
+
+[[cbom.scopes.sinks]]
+type = "syslog"
+
+[cbom.scopes.sinks.syslog]
+protocol = "tls"                # "udp" | "tcp" | "tls"
+address  = "siem.example.com:6514"
+format   = "rfc5424"            # "rfc5424" | "cef"
+ca_file  = "/etc/cipherflag/siem-ca.pem"   # optional; system roots if unset
+# cert_file = "/etc/cipherflag/client.pem" # optional client certificate (mutual TLS)
+# key_file  = "/etc/cipherflag/client.key" # required if, and only if, cert_file is set
+# tls_insecure = false          # true skips server certificate verification
+```
+
+For `protocol = "tls"`:
+
+- Without `cert_file`/`key_file` the sink does server-authenticated TLS only. Set both for mutual TLS; setting only one is a configuration error.
+- The receiver's certificate is verified against `ca_file` (or the system roots). `tls_insecure = true` disables that check, which exposes the feed to interception; use it only for lab receivers. A warning is logged when it is on.
+
+### CBOM signing (`[cbom.signing]`)
+
+Signing emitted CBOMs with Ed25519 is opt-in:
+
+```toml
+[cbom.signing]
+enabled = true
+signer  = "file"                          # "file" | "env"
+path    = "/etc/cipherflag/signing.key"   # for signer = "file"
+env_var = "CIPHERFLAG_SIGNING_KEY"        # for signer = "env"
+```
+
+Generate a keypair with:
+
+    cipherflag generate-signing-key --out /etc/cipherflag/signing
+
+This writes `signing.key` (private, mode 0600) and `signing.pub` (public) and prints the public key's SHA-256 fingerprint. Record the fingerprint out of band so verifiers can check it. With signing enabled, `cipherflag serve` logs the same fingerprint at startup.
+
+#### Key formats
+
+The signer (`signer = "file"`, and `signer = "env"` with a PEM value) reads a `PRIVATE KEY` (or `ED25519 PRIVATE KEY`) PEM block; `verify-cbom --trusted-key` reads a `PUBLIC KEY` (or `ED25519 PUBLIC KEY`) PEM block. Each accepts two encodings of an Ed25519 key:
+
+- **Standard**: a PKCS#8 private key and an SPKI public key, as written by `cipherflag generate-signing-key` (2.3.0 and later), OpenSSL, an HSM or a cloud KMS export, and CipherFlag EE 4.11 and later. To make the pair with OpenSSL instead:
+
+      (umask 077; openssl genpkey -algorithm ed25519 -out /etc/cipherflag/signing.key)
+      openssl pkey -in /etc/cipherflag/signing.key -pubout -out /etc/cipherflag/signing.pub
+
+  The subshell's `umask 077` keeps the private key at mode 0600. OpenSSL prints no fingerprint; the one CipherFlag logs and prints is the SHA-256 of the raw 32-byte public key, which this computes:
+
+      openssl pkey -pubin -in /etc/cipherflag/signing.pub -outform DER | tail -c 32 | sha256sum
+
+- **Raw**: Go's 64-byte private key and 32-byte public key, as written by `cipherflag generate-signing-key` before 2.3.0. These files carry the same PEM labels as the standard encoding but are not PKCS#8 or SPKI, so other tools (OpenSSL included) cannot read them. They keep working; there is no need to regenerate a key only to change its encoding, and its fingerprint is unchanged.
+
+With `signer = "env"`, a value that does not start with `-----BEGIN` is read as standard base64 of either encoding's key bytes (PKCS#8 DER or the raw 64 bytes). Other key types (RSA, ECDSA) and a raw private key whose public half does not match its seed are rejected. With signing enabled, a key that cannot be loaded stops `cipherflag serve` at startup, before it connects to the database, with one `FTL` line naming the key file or environment variable and the reason.
+
+CipherFlag CE before 2.3.0 reads only the raw encoding. Its `verify-cbom` misreads a standard `.pub` (from 2.3.0's `generate-signing-key`, OpenSSL or EE 4.11) and reports a trust mismatch for a genuine BOM, and its signer rejects a standard `.key`. Sign and verify with 2.3.0 or later.
+
+#### Verifying a signed CBOM
+
+    cipherflag verify-cbom --bom /path/to/bom.json --trusted-key /etc/cipherflag/signing.pub
+
+Exit codes:
+
+- `0`: the signature is valid and the embedded key matches `--trusted-key`.
+- `1`: the signature is valid but the embedded key does not match: someone else signed this BOM. Not necessarily a forgery, but not from the expected signer.
+- `2`: the signature is invalid: the BOM was changed after signing, or its `signature` block is absent or malformed, or the BOM is not valid JSON or has no RFC 8785 canonical form.
+- `3`: could not verify; nothing was checked. A usage error (for example a missing `--bom`, an unknown flag or an extra argument), `-h`, an unreadable BOM file, or an unloadable `--trusted-key`. The reason is printed on stderr. Treat `3` as a failure to run, never as a verdict.
+
+Without `--trusted-key`, the exit codes are `0` (valid), `2` (invalid) or `3` (could not verify); the `1` case does not apply.
+
+Before 2.3.0, `verify-cbom` had no code `3`: it exited `0` for `-h`, `1` for an unloadable `--trusted-key` and `2` for an unreadable BOM.
+
 ### `[pcap]`
 
-Controls PCAP upload and processing.
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `max_file_size_mb` | `500` | Maximum PCAP file size for uploads (megabytes). |
-| `retention_hours` | `24` | How long processed PCAP files are retained before cleanup (hours). |
-| `input_dir` | `/pcap-input` | Directory where uploaded PCAPs are written for Zeek processing. In Docker, this is the `pcap-input` shared volume. |
+Not used by CE. PCAP upload and processing are Enterprise Edition features; CE has no PCAP upload page or API. The section (`max_file_size_mb`, `retention_hours`, `input_dir`) is still accepted so that existing configuration files load unchanged, and the settings API still reports it, but nothing in CE reads the values.
 
 ---
 

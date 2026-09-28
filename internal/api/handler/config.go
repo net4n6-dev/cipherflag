@@ -53,11 +53,22 @@ type SourceRow struct {
 	AssetCount          int        `json:"asset_count"`
 }
 
-// SourcesConfigResponse is the response for GET /config/sources.
+// SourcesConfigResponse is the response for GET /config/sources. Zeek carries
+// the editable [sources.zeek_file] settings the Settings page shows and saves
+// back; the sources list only has status. The shape is pinned by
+// frontend/src/lib/testdata/sources-config.json (contract test).
 type SourcesConfigResponse struct {
 	Sources   []SourceRow             `json:"sources"`
+	Zeek      ZeekConfigResponse      `json:"zeek"`
 	Corelight CorelightConfigResponse `json:"corelight"`
 	PCAP      PCAPConfigResponse      `json:"pcap"`
+}
+
+type ZeekConfigResponse struct {
+	Enabled             bool   `json:"enabled"`
+	LogDir              string `json:"log_dir"`
+	PollIntervalSeconds int    `json:"poll_interval_seconds"`
+	NetworkInterface    string `json:"network_interface"`
 }
 
 type CorelightConfigResponse struct {
@@ -66,6 +77,8 @@ type CorelightConfigResponse struct {
 	HasToken bool   `json:"has_token"`
 }
 
+// PCAPConfigResponse reports the [pcap] block, which CE does not use (PCAP
+// upload is EE-only). Kept so API clients written against it keep working.
 type PCAPConfigResponse struct {
 	MaxFileSizeMB  int    `json:"max_file_size_mb"`
 	RetentionHours int    `json:"retention_hours"`
@@ -148,6 +161,12 @@ func (h *ConfigHandler) GetSources(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, SourcesConfigResponse{
 		Sources: sources,
+		Zeek: ZeekConfigResponse{
+			Enabled:             c.Sources.ZeekFile.Enabled,
+			LogDir:              c.Sources.ZeekFile.LogDir,
+			PollIntervalSeconds: c.Sources.ZeekFile.PollIntervalSeconds,
+			NetworkInterface:    c.Sources.ZeekFile.NetworkInterface,
+		},
 		Corelight: CorelightConfigResponse{
 			Enabled:  c.Sources.Corelight.Enabled,
 			APIURL:   c.Sources.Corelight.APIURL,

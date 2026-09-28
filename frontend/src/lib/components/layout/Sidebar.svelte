@@ -1,6 +1,6 @@
 <script lang="ts">
   import {
-    LayoutGrid, Shield, Orbit, BarChart3, FileText, Layers, Upload, Settings,
+    LayoutGrid, Shield, Orbit, BarChart3, FileText, Layers, Settings,
     PanelLeftClose, PanelLeftOpen,
   } from 'lucide-svelte';
   import scopeIcon from '$lib/assets/favicon.svg';
@@ -27,9 +27,6 @@
       { label: 'Analytics', href: '/analytics', icon: BarChart3 },
       { label: 'Reports', href: '/reports', icon: FileText },
       { label: 'Statistics', href: '/stats', icon: Layers },
-    ]},
-    { label: 'Ingest', items: [
-      { label: 'Upload', href: '/upload', icon: Upload },
     ]},
   ];
 

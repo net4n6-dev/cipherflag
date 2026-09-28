@@ -39,6 +39,25 @@ func (m *mockIngester) AttributeAssets(_ context.Context, claims []ingest.Owners
 	return len(claims), 0, nil
 }
 
+// CertDiscovery.Parsed is trusted by dedup as the parse of RawPEM, so a
+// client must not be able to send it: a forged one would bypass the check
+// that the fingerprint matches the PEM.
+func TestIngestHandler_ClientCannotSupplyParsedCertificate(t *testing.T) {
+	mock := &mockIngester{}
+	body := `{"source":"api","certificates":[{"RawPEM":"pem","Parsed":{"FingerprintSHA256":"forged"}}]}`
+	req := httptest.NewRequest("POST", "/api/v1/ingest", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+
+	NewIngestHandler(mock).Ingest(w, req)
+
+	if w.Code != http.StatusOK || mock.lastResult == nil || len(mock.lastResult.Certificates) != 1 {
+		t.Fatalf("status %d, result %+v", w.Code, mock.lastResult)
+	}
+	if p := mock.lastResult.Certificates[0].Parsed; p != nil {
+		t.Errorf("Parsed decoded from the request: %+v", p)
+	}
+}
+
 func TestIngestHandler_Success(t *testing.T) {
 	mock := &mockIngester{}
 	h := NewIngestHandler(mock)

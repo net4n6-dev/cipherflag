@@ -32,6 +32,9 @@ license-public.der
 # scripts/catalogs generator build artifact (accidental `go build` output)
 scripts/catalogs/catalogs
 
+# Office lock files (a ~$README.md was once committed)
+~$*
+
 # Embedded frontend build output (placeholder index.html is tracked)
 internal/web/dist/*
 !internal/web/dist/index.html

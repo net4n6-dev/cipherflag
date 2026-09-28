@@ -2,8 +2,9 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
 
+  // Keep the query string so old /pki?select=<fp> links still select the node.
   onMount(() => {
-    goto('/constellation', { replaceState: true });
+    goto('/constellation' + window.location.search, { replaceState: true });
   });
 </script>
 

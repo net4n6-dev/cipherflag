@@ -26,6 +26,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/api/handler"
 	"github.com/net4n6-dev/cipherflag/internal/api/middleware"
 	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
 	cbomimport "github.com/net4n6-dev/cipherflag/internal/import/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
@@ -61,6 +62,10 @@ func NewRouter(
 	// handler and the always-on Pusher goroutine. Pass venafi.NewLiveConfig
 	// from main before starting the pusher.
 	venafiLive *venafi.LiveConfig,
+	// cbomGen builds (and, when serve loaded a signing key, signs) every
+	// on-demand CBOM download. serve loads the key once and passes the same
+	// Generator to the CBOM runtime.
+	cbomGen *cbom.Generator,
 ) http.Handler {
 	r := chi.NewRouter()
 
@@ -85,7 +90,7 @@ func NewRouter(
 	ingestH := handler.NewIngestHandler(unifiedIngester)
 	osqueryAdapter := osquery.NewAdapter(unifiedIngester)
 	cbomImporter := cbomimport.NewImporter(unifiedIngester)
-	cbomH := handler.NewCBOMHandler(st, &cfg.CBOM, cbomImporter)
+	cbomH := handler.NewCBOMHandler(st, &cfg.CBOM, cbomGen, cbomImporter)
 	providersH := handler.NewProvidersHandler(st)
 	reposMgmtH := handler.NewRepositoriesHandler(st)
 	// CE-flavor: deterministic-only scan submission. AIRuntime is left
@@ -93,7 +98,7 @@ func NewRouter(
 	// AI-gate path. Pricing table is unused in CE.
 	scansH := handler.NewScansHandler(st, handler.AIRuntime{}, nil)
 	findingsH := handler.NewFindingsHandler(st)
-	repoCBOMH := handler.NewRepoCBOMHandler(st, cfg.CBOM.Signing)
+	repoCBOMH := handler.NewRepoCBOMHandler(st, cbomGen)
 	sshKeyH := handler.NewSSHKeyHandler(st)
 	cryptoLibH := handler.NewCryptoLibraryHandler(st)
 	cryptoConfigH := handler.NewCryptoConfigHandler(st)
@@ -207,6 +212,7 @@ func NewRouter(
 
 			// CBOM export (Layer 5.1)
 			r.Get("/export/cbom", cbomH.Download)
+			r.Get("/export/cbom/estate", cbomH.DownloadEstate)
 
 			// CBOM import (Layer 5.2) — writes foreign-BOM contents into the
 			// shared inventory, so admin-only like the other inventory mutations.
@@ -300,6 +306,7 @@ func NewRouter(
 			// v1.7.0 — per-application TTL metadata backing the HNDL flag.
 			// GET is viewer+; mutations are admin-only.
 			r.Get("/applications/{tag}/metadata", appMetaH.Get)
+			r.Get("/applications/{tag}/cbom", cbomH.DownloadApplication)
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.RequireAdmin)
 				r.Put("/applications/{tag}/metadata", appMetaH.Put)

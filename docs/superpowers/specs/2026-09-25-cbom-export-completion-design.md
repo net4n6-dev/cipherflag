@@ -1,6 +1,6 @@
 # CBOM export completion (v2.3, Spec 1 of 3)
 
-Status: design approved in conversation 2026-09-25; awaiting written-spec review.
+Status: implemented; see the plan at docs/superpowers/plans/2026-09-25-cbom-export-completion.md.
 Target release: **2.3.0**.
 Source: `docs/handover-cbom-v2.3-candidates.md` (re-verified against the code on
 2026-09-25; corrections noted below).
@@ -84,7 +84,9 @@ stripped, not carried over.
 
 **`bomjson`** (new package `internal/export/cbom/bomjson`)
 - Holds `MarshalSignedBOM` (moved from `signing.go`, with `jsfSignatureJSON` /
-  `jsfPublicKeyJSON`) and `Write(w io.Writer, bom *cdx.BOM) error`.
+  `jsfPublicKeyJSON`) and `Encode(bom *cdx.BOM) ([]byte, error)` (not
+  `Write(w io.Writer, ...)` as originally sketched: handlers must buffer the
+  body before sending headers, so an error can still become a `500`).
 - Depends only on `cyclonedx-go`. This lets `sinks/s3` import it; `s3` cannot
   import `cbom` (import cycle).
 - `cbom.MarshalSignedBOM` remains as a one-line wrapper so
@@ -154,6 +156,9 @@ stripped, not carried over.
 - New `tls_insecure` (default `false`) sets `InsecureSkipVerify`, mirroring the
   Splunk sink; a warning is logged when the sink is constructed with it on.
 - `docs/configuration.md` documents the option and the both-or-neither rule.
+  CE had no CBOM sink documentation at all before this, not even Splunk's
+  existing `tls_insecure`, so this is a new syslog section rather than an
+  edit to an existing one.
 
 ## Decisions log
 

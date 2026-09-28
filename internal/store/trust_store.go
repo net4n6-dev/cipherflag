@@ -19,48 +19,71 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
 
 	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
-// UpsertTrustStoreObservations batches TrustStoreObservation rows into
-// host_trust_store with last_seen=NOW() on re-observation.
-func (s *PostgresStore) UpsertTrustStoreObservations(ctx context.Context, obs []model.TrustStoreObservation) error {
-	if len(obs) == 0 {
-		return nil
-	}
-	batch := &pgx.Batch{}
+// UpsertTrustStoreObservations writes TrustStoreObservation rows into
+// host_trust_store with last_seen=NOW() on re-observation. A row that
+// cannot be written is logged and counted in failed, by bundle: a caller
+// that reconciles (prunes rows not refreshed) must not treat a source it
+// could not fully write as read.
+//
+// Each row is its own statement. They used to go in one pgx batch, which
+// runs as a single implicit transaction: one failed row aborted every row
+// after it and rolled back the ones before it, which had reported success.
+func (s *PostgresStore) UpsertTrustStoreObservations(ctx context.Context, obs []model.TrustStoreObservation) (failed map[BundleScope]int, err error) {
+	failed = map[BundleScope]int{}
 	for _, o := range obs {
-		batch.Queue(
+		if _, err := s.pool.Exec(ctx,
 			`INSERT INTO host_trust_store
                 (host_id, ca_fingerprint_sha256, source, source_detail)
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (host_id, ca_fingerprint_sha256, source, source_detail)
              DO UPDATE SET last_seen = NOW()`,
 			o.HostID, o.CAFingerprint, o.Source, o.SourceDetail,
-		)
-	}
-	br := s.pool.SendBatch(ctx, batch)
-	defer br.Close()
-	for i := range obs {
-		if _, err := br.Exec(); err != nil {
+		); err != nil {
+			if ctx.Err() != nil {
+				return failed, ctx.Err()
+			}
+			failed[BundleScope{Source: o.Source, SourceDetail: o.SourceDetail}]++
 			log.Warn().Err(err).
-				Str("host", obs[i].HostID).Str("ca", obs[i].CAFingerprint).
+				Str("host", o.HostID).Str("ca", o.CAFingerprint).
 				Msg("UpsertTrustStoreObservations: row failed")
 		}
 	}
-	return nil
+	return failed, nil
 }
 
-// PruneStaleTrustStoreRows deletes rows last-seen before watermark for
-// the given (host, source) scope.
-func (s *PostgresStore) PruneStaleTrustStoreRows(ctx context.Context, hostID, source string, watermark time.Time) (int64, error) {
+// DatabaseNow is the database's clock, the one that stamps last_seen on the
+// trust-store and private-key tables. A reconcile watermark must come from
+// it: taken from a scanned host's clock running ahead of the database, it
+// would prune rows the scan had just written.
+func (s *PostgresStore) DatabaseNow(ctx context.Context) (time.Time, error) {
+	var now time.Time
+	if err := s.pool.QueryRow(ctx, `SELECT now()`).Scan(&now); err != nil {
+		return time.Time{}, fmt.Errorf("database clock: %w", err)
+	}
+	return now, nil
+}
+
+// BundleScope is one bundle's rows on a host: the Source and SourceDetail
+// its observations carry. Write failures are reported, and stale rows
+// removed, per bundle.
+type BundleScope struct {
+	Source       string
+	SourceDetail string
+}
+
+// PruneStaleTrustStoreRows deletes rows last-seen before watermark for one
+// bundle (host, source, source_detail): the CAs a scan that read that
+// bundle no longer found in it.
+func (s *PostgresStore) PruneStaleTrustStoreRows(ctx context.Context, hostID, source, sourceDetail string, watermark time.Time) (int64, error) {
 	tag, err := s.pool.Exec(ctx,
 		`DELETE FROM host_trust_store
-         WHERE host_id = $1 AND source = $2 AND last_seen < $3`,
-		hostID, source, watermark,
+         WHERE host_id = $1 AND source = $2 AND source_detail = $3 AND last_seen < $4`,
+		hostID, source, sourceDetail, watermark,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("PruneStaleTrustStoreRows: %w", err)

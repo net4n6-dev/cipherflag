@@ -62,15 +62,16 @@ func discoverJVMKeystores(_ context.Context, _ *Scanner) ([]bundleObservation, e
 }
 
 // mapJKS parses a JKS bundle with the password ladder; emits Trusted/Priv
-// observations per the entry types in the keystore.
-func (s *Scanner) mapJKS(b bundleObservation) ([]model.TrustStoreObservation, []model.PrivateKeyObservation) {
+// observations per the entry types in the keystore. keysComplete is false
+// when a private-key entry could not be read (its key password differs
+// from the store's), so the bundle's held keys are not fully known.
+func (s *Scanner) mapJKS(b bundleObservation) (trust []model.TrustStoreObservation, priv []model.PrivateKeyObservation, keysComplete bool) {
 	ks, password, err := loadJKS(b.Data, s.jvmPasswords)
 	if err != nil {
 		log.Warn().Err(err).Str("path", b.Path).Msg("JKS load failed (password mismatch?)")
-		return nil, nil
+		return nil, nil, false
 	}
-	var trust []model.TrustStoreObservation
-	var priv []model.PrivateKeyObservation
+	keysComplete = true
 	for _, alias := range ks.Aliases() {
 		if tce, err := ks.GetTrustedCertificateEntry(alias); err == nil {
 			sum := sha256.Sum256(tce.Certificate.Content)
@@ -78,6 +79,7 @@ func (s *Scanner) mapJKS(b bundleObservation) ([]model.TrustStoreObservation, []
 				CAFingerprint: hex.EncodeToString(sum[:]),
 				Source:        b.Source,
 				SourceDetail:  b.SourceDetail,
+				CAPEM:         certPEM(tce.Certificate.Content),
 			})
 			continue
 		}
@@ -89,11 +91,18 @@ func (s *Scanner) mapJKS(b bundleObservation) ([]model.TrustStoreObservation, []
 					Evidence:        "jks_private_key_entry",
 					Source:          "truststore",
 					SourceDetail:    b.SourceDetail,
+					CertPEM:         certPEM(cert.Content),
 				})
 			}
+			continue
+		}
+		if ks.IsPrivateKeyEntry(alias) {
+			keysComplete = false
+			log.Warn().Str("path", b.Path).Str("alias", alias).
+				Msg("JKS private-key entry not readable with the keystore password; this keystore's held keys are not reconciled")
 		}
 	}
-	return trust, priv
+	return trust, priv, keysComplete
 }
 
 func loadJKS(data []byte, passwords []string) (keystore.KeyStore, string, error) {

@@ -6,6 +6,7 @@
   import type { Node3D, Edge3D, ConstellationMode } from '$lib/components/constellation/constellation-types';
   import { gradeColor, nodeRadius3D } from '$lib/components/constellation/constellation-types';
   import { apiNodeToNode3D, apiEdgeToEdge3D, createSimulation3D } from '$lib/components/constellation/constellation-physics';
+  import { resolveCertTarget, selectParam } from '$lib/components/constellation/constellation-select';
   import { onAssetDiscovered, onAssetScored } from '$lib/events.svelte';
   import ConstellationScene from '$lib/components/constellation/ConstellationScene.svelte';
   import type { ConstellationSceneApi } from '$lib/components/constellation/ConstellationSceneBody.svelte';
@@ -92,6 +93,10 @@
       simulation = await createSimulation3D(nodes, edges, () => {
         tickCounter++;
       });
+
+      // Deep link: /constellation?select=<fingerprint> (Analytics Chain Flow).
+      const selected = selectParam(window.location.search);
+      if (selected) handleNavigateCert(selected, { deepLink: true });
     } catch (e) {
       error = e instanceof Error ? e.message : 'Failed to load landscape';
     }
@@ -223,10 +228,10 @@
     }
   }
 
-  function handleNavigateCert(fp: string) {
-    const target = nodes.find(n => n.id === fp);
-    if (target) selectedNode = target;
-    else goto(`/assets/certificate/${fp}`);
+  function handleNavigateCert(fp: string, opts: { deepLink?: boolean } = {}) {
+    const target = resolveCertTarget(nodes, fp, opts);
+    if (target.kind === 'node') selectedNode = target.node;
+    else goto(target.href, { replaceState: target.replaceState });
   }
 
   function nodeOpacity(node: Node3D): number {
@@ -407,7 +412,7 @@
             <span class="detail-key">Fingerprint</span>
             <span class="detail-val mono fp">{selectedNode.id}</span>
           </div>
-          <a href="/assets/certificate/{selectedNode.id}" class="full-detail-link">View full detail &rarr;</a>
+          <a href="/certificates/{selectedNode.id}" class="full-detail-link">View full detail &rarr;</a>
         </div>
       </div>
     {/if}

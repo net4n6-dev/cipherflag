@@ -26,19 +26,31 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/model"
 )
 
+// certPEM encodes a DER certificate as a PEM CERTIFICATE block, carried on
+// observations so the caller can store the certificate before the trust or
+// private-key row that references it.
+func certPEM(der []byte) string {
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
+}
+
 // mapBundle decodes a single bundleObservation per its Format.
-func (s *Scanner) mapBundle(b bundleObservation) ([]model.TrustStoreObservation, []model.PrivateKeyObservation) {
+// mapBundle maps one bundle. keysComplete reports whether every private key
+// in it was read; only then is the bundle authoritative for its held keys.
+// A PKCS#12 file is decoded whole or not at all, so it is complete whenever
+// it decodes.
+func (s *Scanner) mapBundle(b bundleObservation) (trust []model.TrustStoreObservation, priv []model.PrivateKeyObservation, keysComplete bool) {
 	switch b.Format {
 	case "pem":
-		return s.mapPEM(b), nil
+		return s.mapPEM(b), nil, true
 	case "der":
-		return s.mapDER(b), nil
+		return s.mapDER(b), nil, true
 	case "jks":
 		return s.mapJKS(b)
 	case "pkcs12":
-		return s.mapPKCS12(b)
+		trust, priv := s.mapPKCS12(b)
+		return trust, priv, true
 	}
-	return nil, nil
+	return nil, nil, true
 }
 
 func (s *Scanner) mapPEM(b bundleObservation) []model.TrustStoreObservation {
@@ -62,6 +74,7 @@ func (s *Scanner) mapPEM(b bundleObservation) []model.TrustStoreObservation {
 			CAFingerprint: cert.FingerprintSHA256,
 			Source:        b.Source,
 			SourceDetail:  b.SourceDetail,
+			CAPEM:         certPEM(block.Bytes),
 		})
 	}
 	return out
@@ -77,6 +90,7 @@ func (s *Scanner) mapDER(b bundleObservation) []model.TrustStoreObservation {
 		CAFingerprint: cert.FingerprintSHA256,
 		Source:        b.Source,
 		SourceDetail:  b.SourceDetail,
+		CAPEM:         certPEM(b.Data),
 	}}
 }
 
@@ -100,6 +114,7 @@ func (s *Scanner) mapPKCS12(b bundleObservation) ([]model.TrustStoreObservation,
 				trust = append(trust, model.TrustStoreObservation{
 					CAFingerprint: hex.EncodeToString(sum[:]),
 					Source:        b.Source, SourceDetail: b.SourceDetail,
+					CAPEM: certPEM(cert.Raw),
 				})
 			}
 			for _, c := range caCerts {
@@ -107,6 +122,7 @@ func (s *Scanner) mapPKCS12(b bundleObservation) ([]model.TrustStoreObservation,
 				trust = append(trust, model.TrustStoreObservation{
 					CAFingerprint: hex.EncodeToString(sum[:]),
 					Source:        b.Source, SourceDetail: b.SourceDetail,
+					CAPEM: certPEM(c.Raw),
 				})
 			}
 		} else {
@@ -117,6 +133,7 @@ func (s *Scanner) mapPKCS12(b bundleObservation) ([]model.TrustStoreObservation,
 					Evidence:        "pkcs12_entry",
 					Source:          "truststore",
 					SourceDetail:    b.SourceDetail,
+					CertPEM:         certPEM(cert.Raw),
 				})
 			}
 			// caCerts from key-bundles intentionally not written to trust store.

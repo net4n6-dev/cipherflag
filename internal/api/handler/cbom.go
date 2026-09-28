@@ -20,13 +20,17 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/net4n6-dev/cipherflag/internal/config"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 	cbomimport "github.com/net4n6-dev/cipherflag/internal/import/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/store"
+	"github.com/rs/zerolog/log"
 )
 
 const cbomContentType = "application/vnd.cyclonedx+json; version=1.6"
@@ -35,6 +39,8 @@ const cbomContentType = "application/vnd.cyclonedx+json; version=1.6"
 // *cbom.Generator satisfies it. Tests inject a fake.
 type cbomGenerator interface {
 	Generate(ctx context.Context, st store.CryptoStore, scope *cbom.Scope) (*cdx.BOM, error)
+	GenerateWholeEstate(ctx context.Context, st store.CryptoStore) (*cdx.BOM, error)
+	GenerateForApplication(ctx context.Context, st store.CryptoStore, tag string) (*cdx.BOM, error)
 }
 
 // cbomImporterIface is the minimal interface the handler needs for imports.
@@ -53,14 +59,9 @@ type CBOMHandler struct {
 
 // NewCBOMHandler constructs the handler. Importer may be nil if the
 // import endpoint is not wired (the Download handler works standalone).
-// When cfg.Signing.Enabled is true, each on-demand CBOM download is signed.
-func NewCBOMHandler(st store.CryptoStore, cfg *config.CBOMConfig, importer cbomImporterIface) *CBOMHandler {
-	gen, err := cbom.NewGeneratorWithSigning(cfg.Signing)
-	if err != nil {
-		// Signing misconfiguration is a startup error — fail fast so the
-		// operator sees a clear message rather than silently unsigned BOMs.
-		panic("cbom handler: " + err.Error())
-	}
+// Each on-demand CBOM download is built with gen, which signs when serve
+// loaded a signing key (cbom.NewGeneratorFromSigner).
+func NewCBOMHandler(st store.CryptoStore, cfg *config.CBOMConfig, gen *cbom.Generator, importer cbomImporterIface) *CBOMHandler {
 	return &CBOMHandler{
 		store:    st,
 		gen:      gen,
@@ -74,6 +75,7 @@ func NewCBOMHandler(st store.CryptoStore, cfg *config.CBOMConfig, importer cbomI
 // params (host_id, hostname_pattern, asset_type, min_risk_score).
 // Mixing both is a 400.
 func (h *CBOMHandler) Download(w http.ResponseWriter, r *http.Request) {
+	extendWriteDeadline(w)
 	q := r.URL.Query()
 
 	scopeName := q.Get("scope")
@@ -140,18 +142,66 @@ func (h *CBOMHandler) Download(w http.ResponseWriter, r *http.Request) {
 
 	bom, err := h.gen.Generate(r.Context(), h.store, scope)
 	if err != nil {
+		log.Error().Err(err).Msg("cbom: generate failed")
 		writeError(w, http.StatusInternalServerError, "CBOM generation failed")
 		return
 	}
+	writeBOM(w, bom, "", false)
+}
 
-	w.Header().Set("Content-Type", cbomContentType)
-	w.WriteHeader(http.StatusOK)
-	enc := cdx.NewBOMEncoder(w, cdx.BOMFileFormatJSON)
-	enc.SetPretty(false)
-	if err := enc.Encode(bom); err != nil {
-		// Headers already sent — cannot change status. Log and drop.
-		_ = err
+// DownloadEstate handles GET /api/v1/export/cbom/estate: a CycloneDX 1.6 CBOM
+// over every scored asset. Signed when [cbom.signing] is enabled.
+func (h *CBOMHandler) DownloadEstate(w http.ResponseWriter, r *http.Request) {
+	extendWriteDeadline(w)
+	bom, err := h.gen.GenerateWholeEstate(r.Context(), h.store)
+	if err != nil {
+		log.Error().Err(err).Msg("cbom: estate generation failed")
+		writeError(w, http.StatusInternalServerError, "CBOM generation failed")
+		return
 	}
+	filename := "cipherflag-cbom-estate-" + time.Now().UTC().Format("2006-01-02") + ".cdx.json"
+	writeBOM(w, bom, filename, false)
+}
+
+// DownloadApplication handles GET /api/v1/applications/{tag}/cbom: a CycloneDX
+// 1.6 CBOM of the assets carrying the application tag. An empty tag is a 400; a
+// tag no scored asset carries is a 404 (an empty BOM would look valid and hide
+// a typo). Signed when [cbom.signing] is enabled.
+func (h *CBOMHandler) DownloadApplication(w http.ResponseWriter, r *http.Request) {
+	extendWriteDeadline(w)
+	tag := strings.TrimSpace(chi.URLParam(r, "tag"))
+	if tag == "" {
+		writeError(w, http.StatusBadRequest, "application tag is required")
+		return
+	}
+	bom, err := h.gen.GenerateForApplication(r.Context(), h.store, tag)
+	if errors.Is(err, cbom.ErrNoApplicationAssets) {
+		writeError(w, http.StatusNotFound, "no scored assets carry this application tag")
+		return
+	}
+	if err != nil {
+		log.Error().Err(err).Str("application_tag", tag).Msg("cbom: application generation failed")
+		writeError(w, http.StatusInternalServerError, "CBOM generation failed")
+		return
+	}
+	filename := "cipherflag-cbom-app-" + filenameSafe(tag) + "-" + time.Now().UTC().Format("2006-01-02") + ".cdx.json"
+	writeBOM(w, bom, filename, false)
+}
+
+// filenameSafe restricts s to [A-Za-z0-9._-]; every other rune becomes "_". It
+// keeps a caller-controlled application tag from injecting header syntax or
+// path components into Content-Disposition.
+func filenameSafe(s string) string {
+	var b strings.Builder
+	for _, c := range s {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '.' || c == '_' || c == '-' {
+			b.WriteRune(c)
+		} else {
+			b.WriteRune('_')
+		}
+	}
+	return b.String()
 }
 
 // cbomImportMaxSize is the body size cap for POST /api/v1/import/cbom.

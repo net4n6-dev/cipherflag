@@ -31,8 +31,3 @@ platform = "cloud"
 api_key = ""
 region = "us"
 push_interval_minutes = 60
-
-[pcap]
-max_file_size_mb = 500
-retention_hours = 24
-input_dir = "/pcap-input"

@@ -1,0 +1,21 @@
+{
+  "sources": [
+    { "name": "zeek", "enabled": false, "poll_interval_seconds": 45, "last_sync_at": null, "status": "disconnected", "asset_count": 0 },
+    { "name": "osquery", "enabled": false, "poll_interval_seconds": 0, "last_sync_at": null, "status": "disconnected", "asset_count": 0 },
+    { "name": "velociraptor", "enabled": false, "poll_interval_seconds": 0, "last_sync_at": null, "status": "disconnected", "asset_count": 0 },
+    { "name": "wazuh", "enabled": false, "poll_interval_seconds": 0, "last_sync_at": null, "status": "disconnected", "asset_count": 0 },
+    { "name": "defender", "enabled": false, "poll_interval_seconds": 0, "last_sync_at": null, "status": "disconnected", "asset_count": 0 },
+    { "name": "sentinelone", "enabled": false, "poll_interval_seconds": 3600, "last_sync_at": null, "status": "disconnected", "asset_count": 0 },
+    { "name": "tanium", "enabled": false, "poll_interval_seconds": 0, "last_sync_at": null, "status": "disconnected", "asset_count": 0 },
+    { "name": "absolute", "enabled": false, "poll_interval_seconds": 3600, "last_sync_at": null, "status": "disconnected", "asset_count": 0 },
+    { "name": "netwrix", "enabled": false, "poll_interval_seconds": 0, "last_sync_at": null, "status": "disconnected", "asset_count": 0 }
+  ],
+  "zeek": {
+    "enabled": false,
+    "log_dir": "/data/zeek/current",
+    "poll_interval_seconds": 45,
+    "network_interface": "eth1"
+  },
+  "corelight": { "enabled": true, "api_url": "https://corelight.example.test", "has_token": true },
+  "pcap": { "max_file_size_mb": 500, "retention_hours": 24, "input_dir": "/pcap-input" }
+}

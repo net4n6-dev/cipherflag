@@ -26,6 +26,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/analysis/scoring"
 	"github.com/net4n6-dev/cipherflag/internal/auth"
 	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/export/cbom"
 	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
 	"github.com/net4n6-dev/cipherflag/internal/model"
@@ -62,7 +63,7 @@ func TestRouter_ImportCBOM_AdminOnly(t *testing.T) {
 	st := &authGateStore{agentHash: hex.EncodeToString(sum[:])}
 	router := NewRouter(st, &config.Config{}, "", "", secret,
 		observcache.NewNoop(), scoring.NewNoopScorer(), sse.NewHub(),
-		venafi.NewLiveConfig(config.VenafiExportConfig{}))
+		venafi.NewLiveConfig(config.VenafiExportConfig{}), cbom.NewGenerator())
 
 	cookie := func(role string) *http.Cookie {
 		tok, err := auth.SignJWT(secret, "u1", "u1@example.com", role)

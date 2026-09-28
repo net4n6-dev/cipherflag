@@ -34,6 +34,10 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/export/venafi"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/absolute"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/ct/certspotter"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/ct/crtsh"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/ct/multi"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/ct/static"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/defender"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/netwrix"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
@@ -41,18 +45,23 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/ingest/tanium"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/cachegc"
 	scanscheduler "github.com/net4n6-dev/cipherflag/internal/scanner/scheduler"
+	"github.com/net4n6-dev/cipherflag/internal/sightingsprune"
 	"github.com/net4n6-dev/cipherflag/internal/sse"
 	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
-// Version is the CipherFlag CE release version. Set at build time via
-// -ldflags "-X main.Version=2.0.0"; defaults to the in-source constant
-// for development builds.
-const Version = "2.2.5"
+// Version is the CipherFlag CE release version, and the single source of
+// truth for it: it is a constant, not set at build time. The release
+// workflow refuses to publish unless the pushed tag equals v+Version
+// (scripts/check-release-tag.sh), and cmd/cipherflag/version_test.go checks
+// that CHANGELOG.md, frontend/package.json and docker-compose.yml agree.
+const Version = "2.3.0"
 
 func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: "15:04:05"})
+	// BOMs and the CBOM push User-Agent name this version as their tool.
+	cbom.SetToolVersion(Version)
 
 	if len(os.Args) < 2 {
 		fmt.Println("CipherFlag CE", Version)
@@ -120,6 +129,10 @@ func main() {
 }
 
 func runServe(ctx context.Context, cfg *config.Config, configPath string) {
+	// The signing key is read here and nowhere else: one Generator signs for
+	// the CBOM runtime and every CBOM download handler.
+	cbomGen := cbom.NewGeneratorFromSigner(checkCBOMSigning(cfg.CBOM.Signing))
+
 	st, err := store.NewPostgresStore(ctx, cfg.Storage.PostgresURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to database")
@@ -150,7 +163,7 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	// can reference it.
 	var cbomRuntime *cbom.Runtime
 	if cfg.CBOM.Enabled {
-		cbomRuntime = cbom.NewRuntime(st, &cfg.CBOM)
+		cbomRuntime = cbom.NewRuntime(st, &cfg.CBOM, cbomGen)
 		log.Info().
 			Int("scopes", len(cfg.CBOM.Scopes)).
 			Bool("event_push", cfg.CBOM.EventPushEnabled).
@@ -195,6 +208,18 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		log.Info().Msg("cache GC running")
 	}
 
+	// Retention for host_ip_sightings, which ingest writes on every
+	// observation and nothing else deletes. Prunes once now (so a restart
+	// after a long outage cannot leave the table over its bound), then
+	// daily; 7-day retention.
+	{
+		pruneCtx, pruneCancel := context.WithCancel(ctx)
+		defer pruneCancel()
+		go sightingsprune.NewRunner(st, 24*time.Hour).Run(pruneCtx)
+		log.Info().Int("retain_days", sightingsprune.DefaultRetainDays).
+			Msg("host_ip_sightings prune runner started (24h interval)")
+	}
+
 	// Start CBOM runtime goroutines (after scorer is wired).
 	if cbomRuntime != nil {
 		cbomCtx, cbomCancel := context.WithCancel(ctx)
@@ -204,6 +229,16 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 			Dur("push_interval", cfg.CBOM.PushInterval).
 			Dur("min_emit_interval", cfg.CBOM.MinEmitInterval).
 			Msg("cbom runtime started")
+	}
+
+	// Repair certificates stored blank before 2.3.0, in the background and
+	// after the CBOM runtime is draining scored events.
+	{
+		repairCtx, repairCancel := context.WithCancel(ctx)
+		defer repairCancel()
+		startCertificateRepair(repairCtx, st, func(ctx context.Context, fp string) error {
+			return scorer.ScoreAsset(ctx, "certificate", fp)
+		})
 	}
 
 	// Venafi push scheduler (Layer 3 export connector).
@@ -321,6 +356,78 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		log.Info().Str("console_url", cfg.Sources.Absolute.ConsoleURL).Msg("absolute poller started")
 	}
 
+	// Certificate Transparency: crt.sh (off by default).
+	if cfg.Sources.CtCrtsh.Enabled() {
+		for _, d := range cfg.Sources.CtCrtsh.Domains {
+			if !d.Enabled {
+				continue
+			}
+			if err := crtsh.ValidateDomain(d.Domain); err != nil {
+				log.Fatal().Err(err).Str("domain", d.Domain).Msg("invalid ct_crtsh domain config")
+			}
+		}
+		ctCrtshCtx, ctCrtshCancel := context.WithCancel(ctx)
+		defer ctCrtshCancel()
+		ctCrtshIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		ctCrtshPoller := crtsh.NewPoller(nil, ctCrtshIngester, st, cfg.Sources.CtCrtsh)
+		go ctCrtshPoller.Run(ctCrtshCtx)
+		log.Info().Int("domains", len(cfg.Sources.CtCrtsh.Domains)).Msg("ct_crtsh poller started")
+	}
+
+	// Certificate Transparency: Static CT API / Sunlight (off by default).
+	if cfg.Sources.CtStatic.Enabled() {
+		for _, d := range cfg.Sources.CtStatic.Domains {
+			if !d.Enabled {
+				continue
+			}
+			if err := static.ValidateDomainConfig(d.Domain, d.LogURL, d.Origin, d.PublicKeyPEM); err != nil {
+				log.Fatal().Err(err).Str("domain", d.Domain).Msg("invalid ct_static domain config")
+			}
+		}
+		ctStaticCtx, ctStaticCancel := context.WithCancel(ctx)
+		defer ctStaticCancel()
+		ctStaticIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		ctStaticPoller := static.NewPoller(ctStaticIngester, st, nil, cfg.Sources.CtStatic)
+		go ctStaticPoller.Run(ctStaticCtx)
+		log.Info().Int("domains", len(cfg.Sources.CtStatic.Domains)).Msg("ct_static poller started")
+	}
+
+	// Certificate Transparency: SSLMate CertSpotter (off by default).
+	if cfg.Sources.CtCertspotter.Enabled() {
+		for _, d := range cfg.Sources.CtCertspotter.Domains {
+			if !d.Enabled {
+				continue
+			}
+			if err := certspotter.ValidateDomain(d.Domain, d.RequestsPerHour); err != nil {
+				log.Fatal().Err(err).Str("domain", d.Domain).Msg("invalid ct_certspotter domain config")
+			}
+		}
+		ctCertspotterCtx, ctCertspotterCancel := context.WithCancel(ctx)
+		defer ctCertspotterCancel()
+		ctCertspotterIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		ctCertspotterPoller := certspotter.NewPoller(nil, ctCertspotterIngester, st, cfg.Sources.CtCertspotter)
+		go ctCertspotterPoller.Run(ctCertspotterCtx)
+		log.Info().Int("domains", len(cfg.Sources.CtCertspotter.Domains)).Msg("ct_certspotter poller started")
+	}
+
+	// Certificate Transparency: multi-provider coverage union (off by default).
+	if cfg.Sources.CtMulti.Enabled() {
+		for _, g := range cfg.Sources.CtMulti.Groups {
+			if !g.Enabled {
+				continue
+			}
+			if err := multi.ValidateGroup(g); err != nil {
+				log.Fatal().Err(err).Str("domain", g.Domain).Msg("invalid ct_multi group config")
+			}
+		}
+		ctMultiCtx, ctMultiCancel := context.WithCancel(ctx)
+		defer ctMultiCancel()
+		ctMultiIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		ctMultiPoller := multi.NewPoller(ctMultiIngester, nil, cfg.Sources.CtMulti)
+		go ctMultiPoller.Run(ctMultiCtx)
+		log.Info().Int("groups", len(cfg.Sources.CtMulti.Groups)).Msg("ct_multi poller started")
+	}
+
 	// Netwrix Auditor AD CS connector (off by default).
 	// NewPoller takes the store directly — no ingester required for this connector.
 	if cfg.Sources.Netwrix.Enabled {
@@ -354,7 +461,7 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	go sse.StartListener(sseCtx, cfg.Storage.PostgresURL, sseHub, log.Logger)
 	log.Info().Msg("SSE hub started")
 
-	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer, sseHub, venafiLive)
+	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer, sseHub, venafiLive, cbomGen)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Listen,

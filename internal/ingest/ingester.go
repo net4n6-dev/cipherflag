@@ -16,6 +16,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -146,19 +147,21 @@ func (u *UnifiedIngester) Ingest(ctx context.Context, result *DiscoveryResult) (
 		if disc.Source == "" {
 			disc.Source = result.Source
 		}
-		// Derive FingerprintSHA256 from RawPEM when adapter didn't pre-compute it.
-		// Adapters that set FingerprintSHA256 themselves (osquery, scanners) take
-		// the fast path. Adapters that only have RawPEM (AWS ACM, future CT) get
-		// the FP derived here at the boundary so they don't all reimplement the
-		// same SHA256 + parse dance. Empty-FP empty-RawPEM combinations are
-		// dropped (matches osquery's pre-existing convention).
-		if disc.FingerprintSHA256 == "" && disc.RawPEM != "" {
+		// A discovery with only RawPEM (the ingest API allows it) gets its
+		// fingerprint from the PEM here, and the parse is handed on in
+		// Parsed so dedup, which builds the stored row from the full
+		// certificate, does not parse it again. A PEM that does not parse
+		// and no fingerprint drops the certificate (osquery's pre-existing
+		// convention); a supplied fingerprint is checked against the PEM in
+		// dedup.
+		if disc.RawPEM != "" && disc.FingerprintSHA256 == "" {
 			parsed, err := certparse.ParsePEM([]byte(disc.RawPEM))
 			if err != nil {
 				log.Warn().Err(err).Str("source", result.Source).Msg("ingest: PEM parse failed, skipping cert")
 				continue
 			}
 			disc.FingerprintSHA256 = parsed.FingerprintSHA256
+			disc.Parsed = parsed
 		}
 		if disc.FingerprintSHA256 == "" {
 			log.Warn().Str("source", result.Source).Msg("ingest: cert has neither FingerprintSHA256 nor parseable RawPEM, skipping")
@@ -175,6 +178,11 @@ func (u *UnifiedIngester) Ingest(ctx context.Context, result *DiscoveryResult) (
 		}
 		u.metrics.RecordMiss(result.Source, "certificate")
 		assetID, isNew, err := u.dedup.DedupCertificate(ctx, hostIDForKey, disc)
+		if errors.Is(err, dedup.ErrPEMMismatch) {
+			// A contradiction; storing either certificate would be wrong.
+			log.Warn().Err(err).Str("source", result.Source).Msg("ingest: skipping cert")
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("dedup certificate: %w", err)
 		}

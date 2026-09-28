@@ -176,7 +176,7 @@ func TestIntegration_EventPushEndToEnd(t *testing.T) {
 		}},
 	}
 
-	rt := NewRuntime(st, cfg)
+	rt := NewRuntime(st, cfg, testGenerator(t, cfg))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -233,7 +233,7 @@ func TestIntegration_ScheduledPushBatch(t *testing.T) {
 		EventPushEnabled: false,
 		Scopes:           scopes,
 	}
-	rt := NewRuntime(st, cfg)
+	rt := NewRuntime(st, cfg, testGenerator(t, cfg))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
@@ -335,7 +335,7 @@ func TestRuntime_EmitMultiSinkScope(t *testing.T) {
 		t.Fatalf("config validate: %v", err)
 	}
 
-	rt := NewRuntime(st, cfg)
+	rt := NewRuntime(st, cfg, testGenerator(t, cfg))
 	// emitScope is unexported; test is in the same package (package cbom).
 	rt.emitScope(ctx, &rt.scopes[0])
 

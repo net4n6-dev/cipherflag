@@ -145,7 +145,7 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 			key_usage, extended_key_usage,
 			ocsp_responder_urls, crl_distribution_points, scts,
 			source_discovery, first_seen, last_seen, raw_pem,
-			authority_key_id, subject_key_id
+			authority_key_id, subject_key_id, spki_fingerprint_sha256
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8,
 			$9, $10, $11, $12, $13,
@@ -154,14 +154,50 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 			$20, $21, $22,
 			$23, $24, $25, $26, $27,
 			$28, $29, $30, $31,
-			$32, $33
+			$32, $33, NULLIF($34, '')
 		)
 		ON CONFLICT (fingerprint_sha256) DO UPDATE SET
-			last_seen = EXCLUDED.last_seen,
-			source_discovery = EXCLUDED.source_discovery,
+			-- Only forward: a writer holding an older read (the startup
+			-- repair, running alongside ingest) must not rewind a sighting.
+			last_seen = GREATEST(certificates.last_seen, EXCLUDED.last_seen),
 			raw_pem = COALESCE(NULLIF(EXCLUDED.raw_pem, ''), certificates.raw_pem),
-			authority_key_id = EXCLUDED.authority_key_id,
-			subject_key_id = EXCLUDED.subject_key_id
+			-- Fill-only: a certificate's X.509 metadata never changes, so a
+			-- column is set from the new observation only while it is still
+			-- empty (a row stored blank by an earlier version is completed)
+			-- and never overwritten once set, so an observation that lacks a
+			-- value (one without a PEM, or a row read back by GetCertificate,
+			-- which does not select the key IDs) cannot blank it. first_seen
+			-- and source_discovery keep the first observation; per-source
+			-- history is in asset_provenance.
+			authority_key_id           = COALESCE(certificates.authority_key_id, EXCLUDED.authority_key_id),
+			subject_key_id             = COALESCE(certificates.subject_key_id, EXCLUDED.subject_key_id),
+			spki_fingerprint_sha256    = COALESCE(certificates.spki_fingerprint_sha256, EXCLUDED.spki_fingerprint_sha256),
+			basic_constraints_path_len = COALESCE(certificates.basic_constraints_path_len, EXCLUDED.basic_constraints_path_len),
+			ocsp_responder_urls        = CASE WHEN certificates.ocsp_responder_urls IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.ocsp_responder_urls ELSE certificates.ocsp_responder_urls END,
+			crl_distribution_points    = CASE WHEN certificates.crl_distribution_points IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.crl_distribution_points ELSE certificates.crl_distribution_points END,
+			scts                       = CASE WHEN certificates.scts IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.scts ELSE certificates.scts END,
+			subject_cn          = CASE WHEN certificates.subject_cn = '' THEN EXCLUDED.subject_cn ELSE certificates.subject_cn END,
+			subject_org         = CASE WHEN certificates.subject_org = '' THEN EXCLUDED.subject_org ELSE certificates.subject_org END,
+			subject_ou          = CASE WHEN certificates.subject_ou = '' THEN EXCLUDED.subject_ou ELSE certificates.subject_ou END,
+			subject_country     = CASE WHEN certificates.subject_country = '' THEN EXCLUDED.subject_country ELSE certificates.subject_country END,
+			subject_state       = CASE WHEN certificates.subject_state = '' THEN EXCLUDED.subject_state ELSE certificates.subject_state END,
+			subject_locality    = CASE WHEN certificates.subject_locality = '' THEN EXCLUDED.subject_locality ELSE certificates.subject_locality END,
+			subject_full        = CASE WHEN certificates.subject_full = '' THEN EXCLUDED.subject_full ELSE certificates.subject_full END,
+			issuer_cn           = CASE WHEN certificates.issuer_cn = '' THEN EXCLUDED.issuer_cn ELSE certificates.issuer_cn END,
+			issuer_org          = CASE WHEN certificates.issuer_org = '' THEN EXCLUDED.issuer_org ELSE certificates.issuer_org END,
+			issuer_ou           = CASE WHEN certificates.issuer_ou = '' THEN EXCLUDED.issuer_ou ELSE certificates.issuer_ou END,
+			issuer_country      = CASE WHEN certificates.issuer_country = '' THEN EXCLUDED.issuer_country ELSE certificates.issuer_country END,
+			issuer_full         = CASE WHEN certificates.issuer_full = '' THEN EXCLUDED.issuer_full ELSE certificates.issuer_full END,
+			serial_number       = CASE WHEN certificates.serial_number = '' THEN EXCLUDED.serial_number ELSE certificates.serial_number END,
+			not_before          = CASE WHEN certificates.not_before = '0001-01-01 00:00:00+00' THEN EXCLUDED.not_before ELSE certificates.not_before END,
+			not_after           = CASE WHEN certificates.not_after = '0001-01-01 00:00:00+00' THEN EXCLUDED.not_after ELSE certificates.not_after END,
+			key_algorithm       = CASE WHEN certificates.key_algorithm IN ('', 'Unknown') THEN EXCLUDED.key_algorithm ELSE certificates.key_algorithm END,
+			key_size_bits       = CASE WHEN certificates.key_size_bits = 0 THEN EXCLUDED.key_size_bits ELSE certificates.key_size_bits END,
+			signature_algorithm = CASE WHEN certificates.signature_algorithm IN ('', 'Unknown') THEN EXCLUDED.signature_algorithm ELSE certificates.signature_algorithm END,
+			subject_alt_names   = CASE WHEN certificates.subject_alt_names IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.subject_alt_names ELSE certificates.subject_alt_names END,
+			key_usage           = CASE WHEN certificates.key_usage IS NULL OR certificates.key_usage IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.key_usage ELSE certificates.key_usage END,
+			extended_key_usage  = CASE WHEN certificates.extended_key_usage IS NULL OR certificates.extended_key_usage IN ('null'::jsonb, '[]'::jsonb) THEN EXCLUDED.extended_key_usage ELSE certificates.extended_key_usage END,
+			is_ca               = certificates.is_ca OR EXCLUDED.is_ca
 	`,
 		cert.FingerprintSHA256,
 		cert.Subject.CommonName, cert.Subject.Organization, cert.Subject.OrganizationalUnit,
@@ -173,7 +209,7 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 		sans, cert.IsCA, cert.BasicConstraintsPathLen,
 		ku, eku, ocsp, crl, scts,
 		string(cert.SourceDiscovery), cert.FirstSeen, cert.LastSeen, cert.RawPEM,
-		cert.AuthorityKeyID, cert.SubjectKeyID,
+		cert.AuthorityKeyID, cert.SubjectKeyID, cert.SPKIFingerprintSHA256,
 	)
 	if err != nil {
 		return err
@@ -411,83 +447,6 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 		Page:         q.Page,
 		PageSize:     q.PageSize,
 	}, nil
-}
-
-func (s *PostgresStore) BatchUpsertCertificates(ctx context.Context, certs []*model.Certificate) error {
-	if len(certs) == 0 {
-		return nil
-	}
-	batch := &pgx.Batch{}
-	for _, cert := range certs {
-		sans, _ := json.Marshal(cert.SubjectAltNames)
-		ku, _ := json.Marshal(cert.KeyUsage)
-		eku, _ := json.Marshal(cert.ExtendedKeyUsage)
-		ocsp, _ := json.Marshal(cert.OCSPResponderURLs)
-		crl, _ := json.Marshal(cert.CRLDistributionPoints)
-		scts, _ := json.Marshal(cert.SCTs)
-
-		batch.Queue(`
-			INSERT INTO certificates (
-				fingerprint_sha256, subject_cn, subject_org, subject_ou,
-				subject_country, subject_state, subject_locality, subject_full,
-				issuer_cn, issuer_org, issuer_ou, issuer_country, issuer_full,
-				serial_number, not_before, not_after,
-				key_algorithm, key_size_bits, signature_algorithm,
-				subject_alt_names, is_ca, basic_constraints_path_len,
-				key_usage, extended_key_usage,
-				ocsp_responder_urls, crl_distribution_points, scts,
-				source_discovery, first_seen, last_seen, raw_pem,
-				authority_key_id, subject_key_id, spki_fingerprint_sha256
-			) VALUES (
-				$1, $2, $3, $4, $5, $6, $7, $8,
-				$9, $10, $11, $12, $13,
-				$14, $15, $16,
-				$17, $18, $19,
-				$20, $21, $22,
-				$23, $24, $25, $26, $27,
-				$28, $29, $30, $31,
-				$32, $33, $34
-			)
-			ON CONFLICT (fingerprint_sha256) DO UPDATE SET
-				last_seen = EXCLUDED.last_seen,
-				source_discovery = EXCLUDED.source_discovery,
-				raw_pem = COALESCE(NULLIF(EXCLUDED.raw_pem, ''), certificates.raw_pem),
-				authority_key_id = EXCLUDED.authority_key_id,
-				subject_key_id = EXCLUDED.subject_key_id,
-				spki_fingerprint_sha256 = COALESCE(EXCLUDED.spki_fingerprint_sha256, certificates.spki_fingerprint_sha256)
-		`,
-			cert.FingerprintSHA256,
-			cert.Subject.CommonName, cert.Subject.Organization, cert.Subject.OrganizationalUnit,
-			cert.Subject.Country, cert.Subject.State, cert.Subject.Locality, cert.Subject.Full,
-			cert.Issuer.CommonName, cert.Issuer.Organization, cert.Issuer.OrganizationalUnit,
-			cert.Issuer.Country, cert.Issuer.Full,
-			cert.SerialNumber, cert.NotBefore, cert.NotAfter,
-			string(cert.KeyAlgorithm), cert.KeySizeBits, string(cert.SignatureAlgorithm),
-			sans, cert.IsCA, cert.BasicConstraintsPathLen,
-			ku, eku, ocsp, crl, scts,
-			string(cert.SourceDiscovery), cert.FirstSeen, cert.LastSeen, cert.RawPEM,
-			cert.AuthorityKeyID, cert.SubjectKeyID,
-			cert.SPKIFingerprintSHA256,
-		)
-	}
-	br := s.pool.SendBatch(ctx, batch)
-	defer br.Close()
-	for range certs {
-		if _, err := br.Exec(); err != nil {
-			return fmt.Errorf("batch upsert: %w", err)
-		}
-	}
-	// Close the batch result before running the per-cert resolution loop so
-	// the connection is free for the lookup queries inside the adapter.
-	if err := br.Close(); err != nil {
-		return fmt.Errorf("batch close: %w", err)
-	}
-
-	// CE-flavor: cert_issuance link table + AKI/SKI resolver are
-	// EE-only (Layer 4.4 SP-1.6 PKI edge engine). The bulk-cert path
-	// returns without follow-up issuance resolution; AKI/SKI columns
-	// remain populated on certificates rows for general inspection.
-	return nil
 }
 
 func (s *PostgresStore) GetAllCertificatesForGraph(ctx context.Context) ([]model.Certificate, error) {

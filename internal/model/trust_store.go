@@ -35,6 +35,10 @@ type TrustStoreObservation struct {
 	CAFingerprint string
 	Source        string // os_bundle | app_config | jvm_cacerts | lang_runtime
 	SourceDetail  string
+	// CAPEM is the CA certificate itself. host_trust_store references
+	// certificates by fingerprint, so scan-truststore stores the
+	// certificate before the row. Not persisted in host_trust_store.
+	CAPEM string `json:"-"`
 }
 
 // PrivateKeyHolding is one row from cert_private_key_holding. Records that
@@ -59,6 +63,11 @@ type PrivateKeyObservation struct {
 	Evidence        string // colocated_pem | pkcs12_entry | jks_private_key_entry | protected_path
 	Source          string
 	SourceDetail    string
+	// CertPEM is the certificate whose key is held, when the scanner has
+	// it. cert_private_key_holding references certificates by fingerprint,
+	// so the certificate is stored before the row. Not persisted in
+	// cert_private_key_holding.
+	CertPEM string `json:"-"`
 }
 
 // PKITrustedByDetail mirrors PKIEdgeDetail (from L4-C). Populated by the

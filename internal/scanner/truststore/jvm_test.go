@@ -79,7 +79,7 @@ func TestMapJKS_SplitsTrustedAndPrivate(t *testing.T) {
 		Path: "test.jks", Source: "jvm_cacerts", SourceDetail: "test.jks",
 		Format: "jks", Data: data,
 	}
-	trust, priv := s.mapJKS(b)
+	trust, priv, _ := s.mapJKS(b)
 	if len(trust) != 2 {
 		t.Errorf("trust = %d, want 2", len(trust))
 	}

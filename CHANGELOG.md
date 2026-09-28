@@ -2,6 +2,215 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [2.3.0] - 2026-09-27
+
+### Security
+- **Signed BOMs were emitted without their signature on three paths.**
+  With `[cbom.signing]` enabled, `GET /api/v1/export/cbom`, the repo-CBOM
+  download and the S3 sink wrote `"signature":{}`: the signature was
+  computed but lost when the BOM was serialised. The server logged
+  "CBOM signing enabled" at startup, so these outputs looked signed. All
+  writers now go through one serialiser that keeps the signature, and
+  tests verify the signature on every path. Re-download any BOM you
+  relied on as signed. (File and HTTP sinks were not affected.)
+
+### Added
+- `GET /api/v1/export/cbom/estate`: a CBOM over every scored asset.
+- `GET /api/v1/applications/{tag}/cbom`: a CBOM of the assets carrying an
+  application tag (`404` when no scored asset carries it).
+- Both are readable by any authenticated user and signed when signing is
+  enabled.
+- Syslog sink: `tls_insecure` option, and `cert_file`/`key_file` are now
+  optional for `protocol = "tls"` (server-authenticated TLS). Setting only
+  one of the two is a configuration error.
+- **Certificate Transparency sources** (off by default, configured in
+  `config/cipherflag.toml` only): `ct_crtsh` (crt.sh), `ct_static` (Static
+  CT API / Sunlight logs, verifying each log's signed checkpoint and the
+  inclusion of every leaf), `ct_certspotter` (SSLMate CertSpotter), and
+  `ct_multi`, which combines the other three for one set of domains and
+  records which provider found each certificate. Configured domains are
+  validated at startup. They replace the CT settings stub of earlier
+  versions, which did nothing. `ct_static` watches forward from the log's
+  current head; historical coverage comes from `ct_crtsh` and
+  `ct_certspotter`. See the README for the per-log values `ct_static`
+  needs.
+
+### Fixed
+- BOMs named their producing tool as `cipherflag dev`; they now carry the
+  release version, as does the CBOM push `User-Agent`.
+- **Settings → Sources showed made-up values, and saving overwrote the real
+  Zeek configuration.** Since 2.0.0 the sources API no longer returned the
+  Zeek settings the page reads, so the page silently kept its placeholder
+  defaults (Zeek enabled, `/var/log/zeek/current`) and "Save Source
+  Configuration" wrote them to `config/cipherflag.toml`. The API returns the
+  Zeek settings again; the page checks the response, and if it cannot load
+  the configuration it says so and disables Save. A contract test pins the
+  response shape on both sides. If you saved this tab on 2.0.0 to 2.2.x,
+  check `[sources.zeek_file]` in your config.
+- **Certificates posted to `/api/v1/ingest` with only their PEM were stored
+  blank.** The ingester derived the fingerprint from `RawPEM` but nothing
+  else, so subject, issuer, CA flag, key and validity stayed empty; such
+  certificates were scored on nothing and never appeared in the PKI graph.
+  A certificate that arrives with its PEM, from any source, is now stored
+  with everything in it: names, organization, serial, validity, key,
+  signature, SANs, CA flag and path length, key usages, key IDs, SPKI
+  fingerprint and OCSP and CRL locations. Values a client or adapter sends
+  are kept over the PEM's, except an `Unknown` algorithm. A fingerprint
+  that does not match the PEM is now rejected (the certificate is skipped
+  with a warning) instead of stored.
+- **A certificate's "last seen" never moved after its first ingest.** A
+  re-observed certificate was written back with the `last_seen` it was
+  read with, so reports showed the first-seen date as last seen and the
+  Venafi push, which re-sends certificates seen since their last push,
+  never picked a re-observed certificate up again. Re-observations now
+  update `last_seen`.
+- A certificate stored with missing details now gets them when it is seen
+  again: each empty field (including an `Unknown` algorithm) is filled from
+  the new observation, a field that is already set is never overwritten,
+  and a CA is never recorded as a non-CA. `source_discovery` now keeps the
+  source that first discovered the certificate; every source that saw it
+  is still recorded in its provenance.
+- Re-observing a certificate no longer erases its stored authority and
+  subject key IDs (every re-observation wrote empty ones over them), and
+  the SPKI fingerprint, which was never stored, is now recorded. Nothing in
+  CE displays these yet; the data is now kept intact.
+- Certificates an earlier version stored blank (posted to `/api/v1/ingest`
+  with only their PEM) are repaired automatically: at startup `serve`
+  rebuilds them from their stored PEM, scores them, and logs how many it
+  repaired. Nothing needs to be re-sent. A stored PEM that does not parse,
+  or belongs to a different certificate, is left as it is and counted as
+  skipped in the same log line.
+- **`scan-truststore` stored almost nothing and still reported success.**
+  Trust-store and private-key rows reference certificates by fingerprint,
+  but the command never stored the certificates it found, so every row for
+  a certificate CipherFlag had not already seen failed and was dropped with
+  a warning. A scan of a macOS host found 414 trust-store entries and stored
+  none. The command now stores each certificate it finds first (with its
+  metadata, provenance on the scanned host, and scoring), and then the rows.
+  As a result, CA certificates from scanned trust stores now appear in the
+  certificate inventory, and in findings, like any other certificate.
+- The CBOM signing key is read once, at startup, and that one key signs
+  every emitted and downloaded CBOM. It used to be read up to four times
+  during startup, so a key file replaced or briefly empty at that moment
+  could crash `serve` after the startup check had passed, or have the
+  runtime and the download handlers sign with different keys. As before, a
+  new key takes effect on restart.
+- **A CA or private key removed from a host stayed in the inventory
+  forever.** `scan-truststore` only added and refreshed rows. It now also
+  removes, for each trust bundle and keystore it actually read, the CAs and
+  keys no longer in it. A bundle that is missing, cannot be read (a
+  permission problem, a locked keychain), cannot be decoded (a keystore
+  password that does not match) or was not probed in this run is left
+  exactly as it was, as is a bundle with a row the scan could not write. A
+  keystore with a private-key entry that the keystore password does not
+  open keeps its held keys (its CAs are still reconciled). A bundle that is
+  deleted outright keeps its rows; only removals from a bundle that is
+  still readable are reconciled.
+- **One unwritable trust-store or private-key row lost the whole scan's
+  rows.** The rows were written as one batch, which the database runs as a
+  single transaction, so one failure aborted every row after it and rolled
+  back the ones before it, which had reported success. Each row is now
+  written on its own.
+- **`host_ip_sightings` grew without limit.** Ingest records a sighting
+  for every host and IP it observes, and nothing deleted them. `serve` now
+  deletes sightings not seen for 7 days, once at startup and then daily.
+- **`asset_count` overstated BOM contents.** It now equals the number of
+  asset components in the BOM. When health reports were dropped because
+  their asset no longer exists, `assets_omitted` and `assets_omitted_types`
+  properties disclose it.
+- Application exports now fail on a mapping error instead of silently
+  omitting the asset, matching scope exports.
+- CBOM export handlers no longer time out at the server's 30-second write
+  limit, no longer discard generation errors silently, and return a real
+  `500` if serialisation fails instead of a truncated `200`.
+- The PKI Constellation's "View full detail" link and its search fallback
+  went to `/assets/certificate/…`, a route CE does not have, and showed the
+  not-found page. They now open the certificate detail page. A frontend test
+  now fails the build when any in-app link names a route that does not
+  exist.
+- Clicking a CA in Analytics → Chain Flow opened the PKI Constellation with
+  nothing selected: the link went through the `/pki` redirect, which
+  dropped its `?select=` parameter. It now opens the constellation with that
+  CA selected (or its certificate page if the CA is not in the graph), and
+  old `/pki?select=` links keep working.
+- **`verify-cbom` reported a trust mismatch for a genuine BOM when
+  `--trusted-key` was a standard SPKI public key** (from OpenSSL, or from
+  CipherFlag EE 4.11's `generate-signing-key`). It read the PEM body as a
+  raw key, which never matched, and exited `1`. Every signing-key reader
+  (the file and env signers and `--trusted-key`) now accepts standard
+  PKCS#8/SPKI keys as well as the raw keys CE has always written. A
+  trusted key that is not an Ed25519 public key (including a PEM block
+  labelled other than `PUBLIC KEY` or `ED25519 PUBLIC KEY`, such as a
+  private key) is now reported as an error naming the file instead of as
+  a trust mismatch. A raw private key
+  whose public half does not match its seed, which signed BOMs no verifier
+  accepts, is now rejected when loaded. See "Key formats" in
+  `docs/configuration.md`.
+- **A signing key that could not be loaded crash-looped the server.** With
+  `[cbom.signing]` enabled and a missing or unusable key, `serve` got past
+  startup and then panicked while building the CBOM runtime or the CBOM
+  download handlers, so a container under `restart: unless-stopped`
+  restarted forever. `serve` now checks the key first and exits with one
+  line naming the key file or environment variable and the way out
+  (`[cbom.signing] enabled = false`), before connecting to the database.
+
+### Changed
+- `docker-compose.yml` runs the release it ships with
+  (`ghcr.io/net4n6-dev/cipherflag-ce:2.3.0`) instead of `:latest`.
+- **`verify-cbom` exits `3` when it could not verify (breaking for
+  scripts).** Its documented codes are `0` (valid), `1` (valid, signed by a
+  different key) and `2` (invalid), but runs that checked nothing exited
+  with those codes too: `-h` exited `0`, a missing `--bom` and an unloadable
+  `--trusted-key` exited `1`, and an unreadable BOM or an unknown flag
+  exited `2`. A stray extra argument was ignored and `--bom` verified as
+  usual. All of these now exit `3`. Malformed, unsigned and tampered BOMs
+  still exit `2`, as does a BOM with no RFC 8785 canonical form (no valid
+  signature can cover one). The trusted key is now loaded before the
+  signature is checked, so a run that cannot finish the trust check no
+  longer prints "Signature valid" first. Scripts that treated `1` as
+  "wrong key" for an unreadable key file should treat `3` as a failure to
+  run.
+- **`generate-signing-key` writes standard PKCS#8 and SPKI key files.** It
+  wrote Go's raw key bytes under the PKCS#8/SPKI PEM labels, which OpenSSL
+  and other tools could not read. The printed fingerprint is still the
+  SHA-256 of the raw 32-byte public key, so fingerprints recorded for older
+  keys stay valid, and raw keys made by earlier versions keep working.
+  CipherFlag CE before 2.3.0 cannot load the new files: its `verify-cbom`
+  reports a trust mismatch on a new `.pub` and its signer rejects a new
+  `.key`. Use 2.3.0 or later wherever a new key is used.
+- **Releases are gated on the full CI suite.** The release workflow used to
+  publish images on any `v*` tag without running tests. It now runs the
+  CI workflow (Go, integration and frontend jobs) and checks that the tag
+  matches `Version` in `cmd/cipherflag/main.go` before building images. A
+  prerelease tag (for example `v2.3.0-rc1`) no longer moves `:latest` and is
+  marked as a prerelease on GitHub.
+- **CLI subcommands exit `2` when invoked wrongly (breaking for scripts).**
+  `generate-signing-key`, `sign-cbom`, `scan-truststore`, `declared-cas
+  import`, `ownership declare`/`import`/`backfill` and
+  `application-metadata declare`/`import` now exit `0` when they did what
+  was asked, `1` when they tried and failed, and `2` when the invocation
+  was wrong and nothing was done. Before, `-h` exited `0` (success), a
+  missing or invalid required flag exited `1` (failure), and a stray
+  argument was ignored: `generate-signing-key foo` wrote
+  `cbom-signing.*`. Stray arguments are now rejected. `verify-cbom` keeps
+  its own `0`-`3` codes.
+- The README documented `verify-cbom <file>` and `sign-cbom <file>`; both
+  take flags (`--bom`, `--trusted-key`, `--key`), and the positional form
+  failed. The README now shows the real usage.
+
+### Removed
+- **The Upload (PCAP) page.** It was listed in the sidebar but could never
+  work in CE: PCAP upload and processing are Enterprise Edition features and
+  CE registers none of the `/api/v1/pcap/*` routes the page called. The
+  page, its sidebar entry and the PCAP settings cards are gone. The `[pcap]`
+  config section is no longer in the sample configs; existing configs that
+  contain it still load, and the settings API still reports it, but CE does
+  not use it.
+
+### Notes
+- The estate export is assembled in memory with one lookup per asset; very
+  large inventories cost memory and time proportional to their size.
+
 ## [2.2.5] - 2026-09-25
 
 ### Fixed

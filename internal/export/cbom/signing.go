@@ -20,72 +20,15 @@ import (
 	"fmt"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
+
+	"github.com/net4n6-dev/cipherflag/internal/export/cbom/bomjson"
 )
 
-// jsfPublicKeyJSON mirrors cdx.JSFPublicKey with proper json tags for OKP key
-// material. Used by MarshalSignedBOM to inject the signature block into the
-// raw JSON map, working around cdx.JSFSignature's json:"-" tag on *JSFSigner.
-type jsfPublicKeyJSON struct {
-	KTY string `json:"kty"`
-	CRV string `json:"crv"`
-	X   string `json:"x"`
-}
-
-// jsfSignatureJSON is the serializable representation of a JSF single-signer
-// block. It serializes as the "signature" field value inside the BOM JSON
-// object. Kept in this package so both the production emit path (sink.go) and
-// the CLI (cbom_sign.go) share one definition.
-type jsfSignatureJSON struct {
-	Algorithm string           `json:"algorithm"`
-	Value     string           `json:"value"`
-	PublicKey jsfPublicKeyJSON `json:"publicKey"`
-}
-
-// MarshalSignedBOM serializes bom to JSON, preserving the JSF signature block
-// even though cdx.JSFSignature embeds *JSFSigner with json:"-" (which causes
-// standard json.Marshal to silently drop Algorithm/Value/PublicKey).
-//
-// When bom.Signature is nil the function falls back to a plain json.Marshal of
-// bom and returns those bytes unchanged — callers do not need to branch.
-//
-// Algorithm:
-//  1. Marshal the full BOM (drops signature fields due to json:"-").
-//  2. If bom.Signature != nil, unmarshal into map[string]json.RawMessage,
-//     inject a hand-built "signature" key, and re-marshal.
-//
-// The resulting JSON is compact (no indentation). Callers that need pretty
-// output should json.Indent the result.
+// MarshalSignedBOM serialises bom to JSON, preserving the JSF signature block.
+// It is a thin wrapper kept for existing callers; new code should call
+// bomjson.Encode.
 func MarshalSignedBOM(bom *cdx.BOM) ([]byte, error) {
-	body, err := json.Marshal(bom)
-	if err != nil {
-		return nil, fmt.Errorf("cbom: MarshalSignedBOM: marshal body: %w", err)
-	}
-	if bom.Signature == nil || bom.Signature.JSFSigner == nil {
-		return body, nil
-	}
-	sigJSON := jsfSignatureJSON{
-		Algorithm: bom.Signature.Algorithm,
-		Value:     bom.Signature.Value,
-		PublicKey: jsfPublicKeyJSON{
-			KTY: bom.Signature.PublicKey.KTY,
-			CRV: bom.Signature.PublicKey.CRV,
-			X:   bom.Signature.PublicKey.X,
-		},
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(body, &fields); err != nil {
-		return nil, fmt.Errorf("cbom: MarshalSignedBOM: unmarshal fields: %w", err)
-	}
-	sigBytes, err := json.Marshal(sigJSON)
-	if err != nil {
-		return nil, fmt.Errorf("cbom: MarshalSignedBOM: marshal signature: %w", err)
-	}
-	fields["signature"] = json.RawMessage(sigBytes)
-	out, err := json.Marshal(fields)
-	if err != nil {
-		return nil, fmt.Errorf("cbom: MarshalSignedBOM: re-marshal: %w", err)
-	}
-	return out, nil
+	return bomjson.MarshalSigned(bom)
 }
 
 // SignBOM attaches a JSF (JSON Signature Format) detached signature to bom.

@@ -38,10 +38,10 @@ func TestUpsertTrustStoreObservations_DedupesOnTuple(t *testing.T) {
 		Source:        "os_bundle",
 		SourceDetail:  "/etc/ssl/certs/ca-certificates.crt",
 	}}
-	if err := st.UpsertTrustStoreObservations(ctx, obs); err != nil {
+	if _, err := st.UpsertTrustStoreObservations(ctx, obs); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.UpsertTrustStoreObservations(ctx, obs); err != nil {
+	if _, err := st.UpsertTrustStoreObservations(ctx, obs); err != nil {
 		t.Fatal(err)
 	}
 
@@ -66,7 +66,7 @@ func TestListTrustStoreHoldingsForHost_GroupsBySource(t *testing.T) {
 	if err := st.UpsertCertificate(ctx, minCert("ca2")); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.UpsertTrustStoreObservations(ctx, []model.TrustStoreObservation{
+	if _, err := st.UpsertTrustStoreObservations(ctx, []model.TrustStoreObservation{
 		{HostID: hostID, CAFingerprint: "ca1", Source: "os_bundle", SourceDetail: "/etc/ssl/certs/ca-certificates.crt"},
 		{HostID: hostID, CAFingerprint: "ca1", Source: "app_config", SourceDetail: "nginx:/etc/nginx/conf.d/api.conf:ssl_trusted_certificate"},
 		{HostID: hostID, CAFingerprint: "ca2", Source: "jvm_cacerts", SourceDetail: "/usr/lib/jvm/default/lib/security/cacerts"},
@@ -89,14 +89,14 @@ func TestPruneStaleTrustStoreRows_ByHostAndSource(t *testing.T) {
 	if err := st.UpsertCertificate(ctx, minCert("ca1")); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.UpsertTrustStoreObservations(ctx, []model.TrustStoreObservation{{
+	if _, err := st.UpsertTrustStoreObservations(ctx, []model.TrustStoreObservation{{
 		HostID: hostID, CAFingerprint: "ca1",
 		Source: "os_bundle", SourceDetail: "/etc/ssl/certs/ca-certificates.crt",
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	st.Pool().Exec(ctx, `UPDATE host_trust_store SET last_seen = NOW() - INTERVAL '1 hour'`)
-	n, err := st.PruneStaleTrustStoreRows(ctx, hostID, "os_bundle", time.Now().Add(-30*time.Minute))
+	n, err := st.PruneStaleTrustStoreRows(ctx, hostID, "os_bundle", "/etc/ssl/certs/ca-certificates.crt", time.Now().Add(-30*time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -78,6 +78,34 @@ type ScanResult struct {
 	PrivateKey        []model.PrivateKeyObservation
 	BundlesScanned    int                          // total across all discoverers
 	DiscovererResults map[string]DiscovererOutcome // keyed by discoverer Name
+	// ReadBundles are the bundles this scan actually read (and decoded,
+	// for a binary format), so the ones whose contents it knows. Only
+	// these may be reconciled: a bundle that was missing, unreadable, not
+	// decodable or not probed says nothing about what it holds.
+	ReadBundles []BundleRef
+}
+
+// BundleRef names one trust bundle as its observations do: Source and
+// SourceDetail. KeyStore is set for a keystore (JKS or PKCS#12) read this
+// scan with every private-key entry in it readable, whose private-key
+// holdings (source "truststore", the same SourceDetail) it is then also
+// authoritative for.
+type BundleRef struct {
+	Source       string
+	SourceDetail string
+	KeyStore     bool
+}
+
+// bundleRead reports whether a mapped bundle's contents are known. A PEM
+// bundle that was read is known even with no certificates in it (every CA
+// was removed). A binary bundle that yielded nothing did not decode (wrong
+// password, corrupt) or is empty, and either way is treated as unknown so
+// nothing is removed on its account.
+func bundleRead(b bundleObservation, trust int, keys int) bool {
+	if b.Format == "pem" {
+		return true
+	}
+	return trust+keys > 0
 }
 
 // New constructs a Scanner. jvmPasswords defaults to ["changeit"] when nil.
@@ -147,9 +175,16 @@ func (s *Scanner) Scan(ctx context.Context) (ScanResult, error) {
 	}
 
 	for _, b := range allBundles {
-		trust, key := s.mapBundle(b)
+		trust, key, keysComplete := s.mapBundle(b)
 		out.TrustStore = append(out.TrustStore, trust...)
 		out.PrivateKey = append(out.PrivateKey, key...)
+		if bundleRead(b, len(trust), len(key)) {
+			out.ReadBundles = append(out.ReadBundles, BundleRef{
+				Source:       b.Source,
+				SourceDetail: b.SourceDetail,
+				KeyStore:     (b.Format == "jks" || b.Format == "pkcs12") && keysComplete,
+			})
+		}
 	}
 	return out, nil
 }

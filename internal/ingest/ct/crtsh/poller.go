@@ -1,0 +1,364 @@
+// Copyright 2026 net4n6-dev
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package crtsh
+
+import (
+	"context"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/rs/zerolog/log"
+
+	"github.com/net4n6-dev/cipherflag/internal/certparse"
+	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/ingest"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/ct"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/dedup"
+	"github.com/net4n6-dev/cipherflag/internal/model"
+)
+
+// defaultInterval matches every other CE poller's fallback (tanium/poller.go:41).
+const defaultInterval = time.Hour
+
+// Store is the subset of CryptoStore the poller uses — mirrors
+// tanium/poller.go:35-40.
+type Store interface {
+	GetIngestionState(ctx context.Context, sourceName string) (*model.IngestionState, error)
+	SetIngestionState(ctx context.Context, state *model.IngestionState) error
+}
+
+// Poller drives the ct_crtsh polling cycle across every configured domain.
+type Poller struct {
+	client   *Client
+	ingester ingest.Ingester
+	store    Store
+	cfg      config.CtCrtshSourceConfig
+	interval time.Duration
+
+	// overrides is non-nil only under test; production uses the crt.sh
+	// production URL and 1s inter-PEM gap.
+	overrides *pollerOverrides
+}
+
+type pollerOverrides struct {
+	client *Client
+	pemGap time.Duration
+}
+
+// Compile-time assertion that Poller satisfies ct.Provider — Task 5's
+// ct_multi constructs *crtsh.Poller and puts it directly into a
+// []ct.Provider slice. If a future refactor drops QueryDomain or Name,
+// this fails the build here rather than at ct_multi's call site.
+var _ ct.Provider = (*Poller)(nil)
+
+// NewPoller constructs a Poller. client may be nil in production; a
+// per-domain production Client is built lazily by crtshClient().
+func NewPoller(client *Client, ing ingest.Ingester, st Store, cfg config.CtCrtshSourceConfig) *Poller {
+	return &Poller{client: client, ingester: ing, store: st, cfg: cfg, interval: defaultInterval}
+}
+
+func (p *Poller) crtshClient() *Client {
+	if p.overrides != nil && p.overrides.client != nil {
+		return p.overrides.client
+	}
+	if p.client != nil {
+		return p.client
+	}
+	return &Client{
+		BaseURL:    "https://crt.sh",
+		HTTPClient: &http.Client{Timeout: 2 * time.Minute},
+	}
+}
+
+func (p *Poller) pemGap() time.Duration {
+	if p.overrides != nil && p.overrides.pemGap > 0 {
+		return p.overrides.pemGap
+	}
+	return 1 * time.Second
+}
+
+// Run executes runOneCycleSafely on a ticker until ctx is cancelled.
+// Matches internal/ingest/tanium/poller.go:71-87.
+func (p *Poller) Run(ctx context.Context) {
+	p.runOneCycleSafely(ctx)
+	ticker := time.NewTicker(p.interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().Msg("ct_crtsh poller stopped")
+			return
+		case <-ticker.C:
+			p.runOneCycleSafely(ctx)
+		}
+	}
+}
+
+func (p *Poller) runOneCycleSafely(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error().Interface("panic", r).Msg("ct_crtsh poller panic recovered")
+		}
+	}()
+	if err := p.runCycle(ctx); err != nil {
+		log.Error().Err(err).Msg("ct_crtsh cycle failed")
+	}
+}
+
+// runCycle polls every enabled configured domain independently — one
+// domain's failure logs and continues rather than aborting the cycle
+// (Review Focus: multi-domain isolation).
+func (p *Poller) runCycle(ctx context.Context) error {
+	for _, d := range p.cfg.Domains {
+		if !d.Enabled {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := p.pollDomain(ctx, d); err != nil {
+			log.Error().Err(err).Str("domain", d.Domain).Msg("ct_crtsh: domain cycle failed, continuing")
+		}
+	}
+	return nil
+}
+
+func (p *Poller) pollDomain(ctx context.Context, d config.CtDomainConfig) error {
+	sourceName := fmt.Sprintf("ct_crtsh:%s", d.Domain)
+
+	seen := map[int64]struct{}{}
+	if p.store != nil {
+		state, err := p.store.GetIngestionState(ctx, sourceName)
+		if err != nil {
+			return fmt.Errorf("get ingestion state: %w", err)
+		}
+		if state != nil && state.Cursor != "" {
+			var ids []int64
+			// A malformed persisted cursor must not panic the cycle
+			// (Review Focus: malformed checkpoint) — log and start fresh.
+			if err := json.Unmarshal([]byte(state.Cursor), &ids); err != nil {
+				log.Warn().Err(err).Str("source", sourceName).Msg("ct_crtsh: malformed cursor, resetting seen-set")
+			} else {
+				for _, id := range ids {
+					seen[id] = struct{}{}
+				}
+			}
+		}
+	}
+
+	client := p.crtshClient()
+	p.waitForDomainGate()
+
+	entries, err := client.QueryDomain(ctx, d.Domain, d.IncludeSubdomains)
+	if err != nil {
+		return fmt.Errorf("query domain %s: %w", d.Domain, err)
+	}
+
+	// Seen-set policy: an ID is recorded (and so never fetched again) only
+	// once its PEM has been fetched successfully — whether or not it then
+	// parses, since a fetched body that doesn't parse never will. A FETCH
+	// failure (transient 5xx that exhausted retries, timeout, ...) is
+	// deliberately NOT recorded, so the next poll cycle retries it.
+	// Previously fetch failures were marked seen, which blacklisted the
+	// cert permanently until an operator hand-edited the cursor JSON.
+	scanTime := time.Now().UTC()
+	var certs []dedup.CertDiscovery
+	var fetchFailures int
+	for _, e := range entries {
+		if _, already := seen[e.ID]; already {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		pemStr, ferr := client.FetchPEM(ctx, e.ID)
+		if ferr != nil {
+			log.Warn().Err(ferr).Int64("crtsh_id", e.ID).Str("domain", d.Domain).Msg("ct_crtsh: PEM fetch failed; will retry next cycle")
+			fetchFailures++
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(p.pemGap()):
+		}
+		parsed, perr := parsePEM(pemStr)
+		if perr != nil {
+			log.Warn().Err(perr).Int64("crtsh_id", e.ID).Msg("ct_crtsh: PEM parse failed; skipping permanently")
+			seen[e.ID] = struct{}{} // fetched but unparseable: will never parse, don't refetch
+			continue
+		}
+		certs = append(certs, dedup.CertDiscovery{
+			Source:             "ct_crtsh",
+			StoreType:          "ct_log",
+			FingerprintSHA256:  parsed.FingerprintSHA256,
+			SubjectCN:          parsed.Subject.CommonName,
+			IssuerCN:           parsed.Issuer.CommonName,
+			SerialNumber:       parsed.SerialNumber,
+			NotBefore:          parsed.NotBefore,
+			NotAfter:           parsed.NotAfter,
+			KeyAlgorithm:       string(parsed.KeyAlgorithm),
+			KeySizeBits:        parsed.KeySizeBits,
+			SignatureAlgorithm: string(parsed.SignatureAlgorithm),
+			SubjectAltNames:    parsed.SubjectAltNames,
+			IsCA:               parsed.IsCA,
+			RawPEM:             pemStr,
+			FilePath:           fmt.Sprintf("crtsh:%d", e.ID),
+			RawMetadata: map[string]any{
+				"crtsh_id":     e.ID,
+				"crtsh_issuer": e.IssuerName,
+			},
+		})
+		seen[e.ID] = struct{}{}
+	}
+
+	// Empty result is a normal ok cycle, not an error (Review Focus).
+	if len(certs) > 0 {
+		dr := &ingest.DiscoveryResult{
+			Source:             "ct_crtsh",
+			SkipHostResolution: true,
+			Certificates:       certs,
+			Timestamp:          scanTime,
+		}
+		if _, ierr := p.ingester.Ingest(ctx, dr); ierr != nil {
+			return fmt.Errorf("ingest: %w", ierr)
+		}
+	}
+
+	if p.store != nil {
+		ids := make([]int64, 0, len(seen))
+		for id := range seen {
+			ids = append(ids, id)
+		}
+		cursorJSON, merr := json.Marshal(ids)
+		if merr != nil {
+			return fmt.Errorf("marshal cursor: %w", merr)
+		}
+		newState := &model.IngestionState{
+			SourceName: sourceName,
+			Cursor:     string(cursorJSON),
+			UpdatedAt:  time.Now().UTC(),
+		}
+		if err := p.store.SetIngestionState(ctx, newState); err != nil {
+			log.Warn().Err(err).Str("source", sourceName).Msg("ct_crtsh: failed to persist cursor")
+		}
+	}
+	log.Info().Str("domain", d.Domain).Int("certs", len(certs)).Int("fetch_failures", fetchFailures).Msg("ct_crtsh: domain cycle complete")
+	return nil
+}
+
+// waitForDomainGate calls the shared throttle unless a test override
+// disables it (production only; tests skip so the suite stays fast).
+func (p *Poller) waitForDomainGate() {
+	if p.overrides == nil {
+		ct.WaitForDomainGate()
+	}
+}
+
+// Name implements ct.Provider — a short identifier used for logging and
+// ct_multi's per-child ChildStatus. Deliberately distinct from the
+// provenance string "ct_crtsh" (SourceName), which is what stamps
+// DiscoveryResult.Source / asset_provenance.source — via pollDomain here
+// and via CTEntry.Source (see buildCTEntry) under ct_multi — and keys the
+// ingestion_state checkpoint. EE's original crtsh/poller.go keeps the
+// same two strings distinct.
+func (p *Poller) Name() string { return "crtsh" }
+
+// QueryDomain implements ct.Provider. Lists every crt.sh entry for the
+// domain, fetches each cert PEM, and returns the normalised CTEntry
+// slice. Per-cert fetch/parse failures are logged and skipped rather
+// than aborting the whole call, matching pollDomain's failure handling.
+//
+// QueryDomain does NOT filter against pollDomain's per-domain seen-ID
+// checkpoint, nor does it write ingestion_state — that side effect
+// remains on pollDomain (the standalone ct_crtsh poller's own cycle),
+// so a ct_multi fan-out calling QueryDomain directly doesn't drift or
+// duplicate-write the per-source checkpoint. Matches EE's documented
+// crtsh/poller.go contract.
+func (p *Poller) QueryDomain(ctx context.Context, domain string) ([]ct.CTEntry, error) {
+	p.waitForDomainGate()
+
+	client := p.crtshClient()
+	entries, err := client.QueryDomain(ctx, domain, false)
+	if err != nil {
+		return nil, fmt.Errorf("crtsh QueryDomain(%s): %w", domain, err)
+	}
+
+	out := make([]ct.CTEntry, 0, len(entries))
+	for i, e := range entries {
+		if i > 0 {
+			select {
+			case <-time.After(p.pemGap()):
+			case <-ctx.Done():
+				return out, ctx.Err()
+			}
+		}
+		pemStr, ferr := client.FetchPEM(ctx, e.ID)
+		if ferr != nil {
+			log.Warn().Err(ferr).Int64("crtsh_id", e.ID).Str("domain", domain).Msg("crtsh: FetchPEM failed; skipping")
+			continue
+		}
+		entry, berr := buildCTEntry(pemStr, e)
+		if berr != nil {
+			log.Warn().Err(berr).Int64("crtsh_id", e.ID).Msg("crtsh: cert parse failed; skipping")
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+// buildCTEntry parses a PEM string + crt.sh metadata into the
+// normalised ct.CTEntry shape consumed by ct_multi. Caller is
+// responsible for skipping entries this function rejects.
+func buildCTEntry(pemStr string, e CrtShEntry) (ct.CTEntry, error) {
+	parsed, err := parsePEM(pemStr)
+	if err != nil {
+		return ct.CTEntry{}, fmt.Errorf("buildCTEntry: %w", err)
+	}
+	return ct.CTEntry{
+		Fingerprint: parsed.FingerprintSHA256,
+		PEM:         []byte(pemStr),
+		CommonName:  e.CommonName,
+		NameValue:   e.NameValue,
+		IssuerName:  e.IssuerName,
+		NotBefore:   parsed.NotBefore,
+		NotAfter:    parsed.NotAfter,
+		// Must match pollDomain's DiscoveryResult.Source ("ct_crtsh")
+		// exactly — ct_multi's composer (internal/ingest/ct/multi)
+		// groups entries by CTEntry.Source and stamps it directly as
+		// DiscoveryResult.Source for its per-child Ingest call, so a
+		// mismatch here would fragment asset_provenance.source between
+		// the standalone and ct_multi-composed paths for the same
+		// underlying provider (the Global Constraint this port exists
+		// to fix relative to EE's original inconsistent naming).
+		Source: "ct_crtsh",
+	}, nil
+}
+
+func parsePEM(s string) (*model.Certificate, error) {
+	block, _ := pem.Decode([]byte(strings.TrimSpace(s)))
+	if block == nil {
+		return nil, fmt.Errorf("ct_crtsh: no PEM block in body")
+	}
+	if block.Type != "CERTIFICATE" {
+		return nil, fmt.Errorf("ct_crtsh: PEM type = %q, want CERTIFICATE", block.Type)
+	}
+	return certparse.ParseDER(block.Bytes)
+}

@@ -39,7 +39,7 @@ func TestUpsertPrivateKeyHoldings_InsertsAndUpdatesLastSeen(t *testing.T) {
 		Source:          "certfiles",
 		SourceDetail:    "/etc/ssl/key.pem",
 	}}
-	if err := st.UpsertPrivateKeyHoldings(ctx, obs); err != nil {
+	if _, err := st.UpsertPrivateKeyHoldings(ctx, obs); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
@@ -56,7 +56,7 @@ func TestUpsertPrivateKeyHoldings_InsertsAndUpdatesLastSeen(t *testing.T) {
 	}
 
 	time.Sleep(10 * time.Millisecond)
-	if err := st.UpsertPrivateKeyHoldings(ctx, obs); err != nil {
+	if _, err := st.UpsertPrivateKeyHoldings(ctx, obs); err != nil {
 		t.Fatalf("re-upsert: %v", err)
 	}
 	var first2, last2 time.Time
@@ -81,7 +81,7 @@ func TestHostsHoldingCAKey_ExcludesProtectedPath(t *testing.T) {
 	if err := st.UpsertCertificate(ctx, minCert("ca-fp")); err != nil {
 		t.Fatalf("seedCert: %v", err)
 	}
-	if err := st.UpsertPrivateKeyHoldings(ctx, []model.PrivateKeyObservation{
+	if _, err := st.UpsertPrivateKeyHoldings(ctx, []model.PrivateKeyObservation{
 		{HostID: hostStrong, CertFingerprint: "ca-fp", Evidence: "colocated_pem",
 			Source: "certfiles", SourceDetail: "/etc/ssl/private/ca.pem"},
 		{HostID: hostWeak, CertFingerprint: "ca-fp", Evidence: "protected_path",
@@ -111,7 +111,7 @@ func TestPruneStalePrivateKeyHoldings_DeletesBeforeWatermark(t *testing.T) {
 	if err := st.UpsertCertificate(ctx, minCert("cert-fp")); err != nil {
 		t.Fatalf("seedCert: %v", err)
 	}
-	if err := st.UpsertPrivateKeyHoldings(ctx, []model.PrivateKeyObservation{{
+	if _, err := st.UpsertPrivateKeyHoldings(ctx, []model.PrivateKeyObservation{{
 		HostID: hostID, CertFingerprint: "cert-fp", Evidence: "colocated_pem",
 		Source: "certfiles", SourceDetail: "/etc/ssl/key.pem",
 	}}); err != nil {
@@ -120,7 +120,7 @@ func TestPruneStalePrivateKeyHoldings_DeletesBeforeWatermark(t *testing.T) {
 	st.Pool().Exec(ctx, `UPDATE cert_private_key_holding SET last_seen = NOW() - INTERVAL '1 hour'`)
 
 	watermark := time.Now().Add(-30 * time.Minute)
-	n, err := st.PruneStalePrivateKeyHoldings(ctx, hostID, "certfiles", watermark)
+	n, err := st.PruneStalePrivateKeyHoldings(ctx, hostID, "certfiles", "/etc/ssl/key.pem", watermark)
 	if err != nil {
 		t.Fatal(err)
 	}

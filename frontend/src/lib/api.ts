@@ -162,18 +162,6 @@ export interface ChainTree {
 	validation_errors: HealthFinding[];
 }
 
-export interface PCAPJob {
-	id: string;
-	filename: string;
-	file_size: number;
-	status: 'queued' | 'processing' | 'complete' | 'failed';
-	certs_found: number;
-	certs_new: number;
-	error?: string;
-	created_at: string;
-	completed_at?: string;
-}
-
 export interface AggregatedGraphNode {
 	fingerprint: string;
 	common_name: string;
@@ -649,15 +637,6 @@ export const api = {
 	getIssuers: () => fetchJSON<{ issuers: IssuerStat[] }>('/stats/issuers'),
 	getExpiryTimeline: () => fetchJSON<ExpiryTimeline>('/stats/expiry-timeline'),
 	searchCerts: (params: string) => fetchJSON<CertSearchResult>(`/certificates?${params}`),
-	getPCAPJob: (id: string) => fetchJSON<PCAPJob>(`/pcap/jobs/${id}`),
-	listPCAPJobs: () => fetchJSON<{ jobs: PCAPJob[] }>('/pcap/jobs'),
-	uploadPCAP: async (file: File): Promise<PCAPJob> => {
-		const formData = new FormData();
-		formData.append('file', file);
-		const res = await fetch(`${BASE}/pcap/upload`, { method: 'POST', body: formData });
-		if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-		return res.json();
-	},
 	exportCerts: (format: 'csv' | 'json', params?: string) => {
 		window.open(`${BASE}/export/certificates?format=${format}${params ? '&' + params : ''}`);
 	},

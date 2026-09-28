@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
@@ -39,8 +40,8 @@ type Generator struct {
 }
 
 // Generate produces a CycloneDX 1.6 BOM for the given scope. (The target format
-// is 1.7, but cyclonedx-go v0.10.0 caps at 1.6; upgrade the assignment below
-// when the library adds SpecVersion1_7.)
+// is 1.7, but cyclonedx-go v0.10.0 caps at 1.6; upgrade the assignment in
+// buildBOMFromRows when the library adds SpecVersion1_7.)
 func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *Scope) (*cdx.BOM, error) {
 	// 1. Resolve scope host IDs (patterns → UUIDs).
 	hostIDs, err := resolveHostIDsForScope(ctx, st, scope)
@@ -58,6 +59,36 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 		return nil, fmt.Errorf("cbom: list scope assets for %q: %w", scope.Name, err)
 	}
 
+	root := &cdx.Component{
+		Type:   cdx.ComponentTypeApplication,
+		BOMRef: "scope:" + scope.Name,
+		Name:   scope.Name,
+		Properties: &[]cdx.Property{
+			{Name: "cipherflag:scope.host_count", Value: strconv.Itoa(len(hostIDs))},
+			{Name: "cipherflag:scope.asset_count", Value: strconv.Itoa(len(rows))},
+		},
+	}
+	return g.buildBOMFromRows(ctx, st, rows, bomParams{root: root, label: "scope:" + scope.Name})
+}
+
+// bomParams configures buildBOMFromRows for one export flavour.
+type bomParams struct {
+	// root is the BOM's metadata.component. The caller sets its identity and
+	// its cipherflag:*.asset_count property.
+	root *cdx.Component
+	// label tags the drift and unresolved-dependency log lines ("scope:prod").
+	label string
+	// depsInBOMOnly restricts dependency edges to refs whose component is in
+	// this BOM (application exports). When false every ref counts as in scope
+	// (scope and estate exports).
+	depsInBOMOnly bool
+}
+
+// buildBOMFromRows maps asset rows to a CycloneDX 1.6 BOM: components, enriched
+// algorithm components, dependency graph, and (when a signer is configured) the
+// JSF signature. Shared by Generate, GenerateForApplication and
+// GenerateWholeEstate.
+func (g *Generator) buildBOMFromRows(ctx context.Context, st store.CryptoStore, rows []store.ScopeAssetRow, p bomParams) (*cdx.BOM, error) {
 	// 3. Map each row to a CycloneDX component; collect referenced algo BOM refs.
 	var components []cdx.Component
 	// enrichedAlgos deduplicates algorithm components by BOMRef, preserving
@@ -73,6 +104,9 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 	type libEntry struct{ name, version string }
 	var libEntries []libEntry
 
+	mapped := 0
+	omitted := 0
+	omittedByType := map[string]int{}
 	for _, row := range rows {
 		comp, algoComps, err := g.mapRow(ctx, st, row)
 		if err != nil {
@@ -80,7 +114,17 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 		}
 		if comp != nil {
 			components = append(components, *comp)
+			mapped++
+		} else if isSupportedAssetType(row.AssetType) {
+			// A supported type whose store lookup returned nothing (in CE, a
+			// health report whose asset was deleted): a real omission.
+			omitted++
+			omittedByType[row.AssetType]++
 		}
+		// Rows of an unsupported type (e.g. "host", "repository" — present in
+		// ListApplicationScopeAssets/ListAllAssetHealthReports for tag-scoping,
+		// not because they are crypto assets mapRow renders) are neither mapped
+		// nor disclosed as omitted: they were never eligible to appear in a CBOM.
 		for _, ac := range algoComps {
 			if _, seen := enrichedAlgos[ac.BOMRef]; !seen {
 				enrichedAlgos[ac.BOMRef] = ac
@@ -93,6 +137,7 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 			libEntries = append(libEntries, libEntry{row.LibraryName, row.LibraryVersion})
 		}
 	}
+	setAssetCounts(p.root, mapped, omitted, omittedByType)
 
 	// 4. Post-enrichment: set executionEnvironment and certificationLevel on
 	//    each algorithm component using the accumulated source and library data.
@@ -160,9 +205,6 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 	bom := cdx.NewBOM()
 	bom.SpecVersion = cdx.SpecVersion1_6 // cyclonedx-go v0.10.0 caps at 1.6; upgrade when library adds 1.7
 	bom.SerialNumber = "urn:uuid:" + uuid.New().String()
-
-	hostCount := len(hostIDs)
-	assetCount := len(rows)
 	bom.Metadata = &cdx.Metadata{
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Tools: &cdx.ToolsChoice{
@@ -172,23 +214,19 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 				Version: cbomVersion,
 			}},
 		},
-		Component: &cdx.Component{
-			Type:   cdx.ComponentTypeApplication,
-			BOMRef: "scope:" + scope.Name,
-			Name:   scope.Name,
-			Properties: &[]cdx.Property{
-				{Name: "cipherflag:scope.host_count", Value: strconv.Itoa(hostCount)},
-				{Name: "cipherflag:scope.asset_count", Value: strconv.Itoa(assetCount)},
-			},
-		},
+		Component: p.root,
 	}
 
-	// 6b. Compute dependency graph from assembled components.
+	// 6b. Compute the dependency graph from the assembled components.
 	lookup := issuanceLookupForStore(ctx, st)
-	deps := computeDependencies(components, lookup, func(string) bool { return true })
+	inBom := buildBOMRefSet(components)
+	inScope := func(string) bool { return true }
+	if p.depsInBOMOnly {
+		inScope = func(ref string) bool { return inBom[ref] }
+	}
+	deps := computeDependencies(components, lookup, inScope)
 
 	// 6c. Annotate components with unresolved/inferred dep signals.
-	inBom := buildBOMRefSet(components)
 	components = annotateUnresolvedAndInferred(components, deps, inBom, lookup)
 
 	if len(components) > 0 {
@@ -197,19 +235,63 @@ func (g *Generator) Generate(ctx context.Context, st store.CryptoStore, scope *S
 	if len(deps) > 0 {
 		bom.Dependencies = &deps
 	}
-
-	logAlgorithmDrift(components, "scope:"+scope.Name)
-	logUnresolvedDeps(components, "scope:"+scope.Name)
+	logAlgorithmDrift(components, p.label)
+	logUnresolvedDeps(components, p.label)
 
 	// Opt-in JSF signing: sign after the BOM is fully assembled so the
 	// signature covers components + dependencies.
-	// Spec ref: docs/superpowers/plans/2026-05-16-l4-d-cbom-depth-pass.md §Task 13 Step 5.
 	if g.signer != nil {
 		if err := SignBOM(bom, g.signer); err != nil {
 			return nil, fmt.Errorf("cbom: sign BOM: %w", err)
 		}
 	}
 	return bom, nil
+}
+
+// setAssetCounts makes the root's *.asset_count describe the components the BOM
+// actually contains, and discloses rows that produced no component (in CE, a
+// health report whose asset was deleted). The count value is patched in place
+// and the disclosure properties are appended, so existing property order (and
+// therefore the golden output) is unchanged when nothing was omitted.
+func setAssetCounts(root *cdx.Component, mapped, omitted int, omittedByType map[string]int) {
+	if root == nil || root.Properties == nil {
+		return
+	}
+	props := *root.Properties
+	for i := range props {
+		if !strings.HasSuffix(props[i].Name, ".asset_count") {
+			continue
+		}
+		props[i].Value = strconv.Itoa(mapped)
+		if omitted > 0 {
+			types := make([]string, 0, len(omittedByType))
+			for typ := range omittedByType {
+				types = append(types, typ)
+			}
+			sort.Strings(types)
+			prefix := strings.TrimSuffix(props[i].Name, "asset_count")
+			props = append(props,
+				cdx.Property{Name: prefix + "assets_omitted", Value: strconv.Itoa(omitted)},
+				cdx.Property{Name: prefix + "assets_omitted_types", Value: strings.Join(types, ",")},
+			)
+			*root.Properties = props
+		}
+		return
+	}
+}
+
+// isSupportedAssetType reports whether mapRow has a case for assetType. Rows
+// of an unsupported type intentionally produce no component (mapRow's default
+// case) and must not be counted as an omission: they are not a crypto asset
+// that CBOM was ever going to render, so a nil component says nothing about
+// whether the underlying record still exists.
+func isSupportedAssetType(assetType string) bool {
+	switch assetType {
+	case "certificate", "ssh_key", "crypto_library", "crypto_config":
+		return true
+	default:
+		return false
+	}
 }
 
 // mapRow loads the full asset record and converts it to a CycloneDX component.

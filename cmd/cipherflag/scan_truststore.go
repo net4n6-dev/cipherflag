@@ -28,10 +28,15 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/net4n6-dev/cipherflag/internal/analysis/scoring"
 	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/ingest"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/dedup"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/configs"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/executil"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/truststore"
@@ -42,14 +47,12 @@ import (
 // It performs a one-shot scan of the local host's trust stores and JKS
 // private-key entries, then persists the results via the store upserts.
 func runScanTruststore(ctx context.Context, cfg *config.Config, args []string) {
-	fs := flag.NewFlagSet("scan-truststore", flag.ExitOnError)
+	fs := flag.NewFlagSet("scan-truststore", flag.ContinueOnError)
 	hostID := fs.String("host-id", "", "UUID of the host this scan is attributed to (must exist in hosts table)")
-	if err := fs.Parse(args); err != nil {
-		log.Fatal().Err(err).Msg("scan-truststore: flag parse error")
-	}
+	parseSubcommandFlags(fs, args)
 
 	if *hostID == "" {
-		log.Fatal().Msg("scan-truststore: --host-id <uuid> is required")
+		usageError(fs, "--host-id <uuid> is required")
 	}
 
 	st, err := store.NewPostgresStore(ctx, cfg.Storage.PostgresURL)
@@ -75,13 +78,11 @@ func runScanTruststore(ctx context.Context, cfg *config.Config, args []string) {
 	cfgScanner := configs.New(runner)
 	appRefs := cfgScanner.ScanTrustBundles(ctx, truststore.TrustBundlePaths)
 	if len(appRefs) > 0 {
-		appObs, err := truststore.IngestAppConfigBundles(appRefs)
-		if err != nil {
-			// IngestAppConfigBundles always returns nil error (log-and-continue
-			// semantics), but handle defensively.
-			log.Warn().Err(err).Msg("scan-truststore: app_config bundle ingest partial error")
-		}
+		// Per-file problems are logged; only the bundles actually read are
+		// reported, so an unreadable one is not reconciled.
+		appObs, appRead := truststore.ReadAppConfigBundles(appRefs)
 		result.TrustStore = append(result.TrustStore, appObs...)
+		result.ReadBundles = append(result.ReadBundles, appRead...)
 		log.Info().
 			Int("refs", len(appRefs)).
 			Int("observations", len(appObs)).
@@ -96,11 +97,13 @@ func runScanTruststore(ctx context.Context, cfg *config.Config, args []string) {
 		result.PrivateKey[i].HostID = *hostID
 	}
 
-	if err := st.UpsertTrustStoreObservations(ctx, result.TrustStore); err != nil {
-		log.Fatal().Err(err).Msg("scan-truststore: write trust store observations")
+	var scorer scoring.Scorer = scoring.NewNoopScorer()
+	if cfg.Analysis.ScorerEnabled {
+		scorer = scoring.NewDispatcher(st)
 	}
-	if err := st.UpsertPrivateKeyHoldings(ctx, result.PrivateKey); err != nil {
-		log.Fatal().Err(err).Msg("scan-truststore: write private-key holdings")
+	ing := ingest.NewUnifiedIngester(st, ingest.WithScorer(scorer))
+	if err := persistTrustStoreScan(ctx, st, ing, *hostID, result); err != nil {
+		log.Fatal().Err(err).Msg("scan-truststore: persist scan")
 	}
 
 	// Warn for any discoverer that reported a non-empty error string so
@@ -121,4 +124,119 @@ func runScanTruststore(ctx context.Context, cfg *config.Config, args []string) {
 		Int("trust_store_observations", len(result.TrustStore)).
 		Int("private_key_observations", len(result.PrivateKey)).
 		Msg("scan-truststore: complete")
+}
+
+// certIngester is the part of ingest.UnifiedIngester persistTrustStoreScan uses.
+type certIngester interface {
+	Ingest(ctx context.Context, result *ingest.DiscoveryResult) (*ingest.IngestionSummary, error)
+}
+
+// persistTrustStoreScan writes one scan's results for hostID. host_trust_store
+// and cert_private_key_holding reference certificates by fingerprint, so the
+// scanned certificates are stored first, through the normal ingest path
+// (metadata filled from the PEM, provenance on the scanned host, scoring).
+// Without that, every row for a certificate CipherFlag had not already seen
+// failed its foreign key and was dropped: on a fresh install, all of them.
+//
+// Then the scan is reconciled, one bundle at a time and only for the
+// bundles it read (result.ReadBundles): the rows of a read bundle that this
+// scan did not refresh are a CA (or, for a keystore, a key) no longer in
+// it, and are removed. A bundle that was missing, unreadable, could not be
+// decoded or was not probed this time is left exactly as it was, since
+// nothing is known about its contents; so is a bundle with a row that could
+// not be written. The cutoff is the database clock read before any write,
+// the clock that stamps last_seen, so a host clock running ahead of the
+// database cannot remove rows the scan has just written.
+func persistTrustStoreScan(ctx context.Context, st *store.PostgresStore, ing certIngester, hostID string, result truststore.ScanResult) error {
+	watermark, err := st.DatabaseNow(ctx)
+	if err != nil {
+		return err
+	}
+	if certs := scannedCertificates(result); len(certs) > 0 {
+		if _, err := ing.Ingest(ctx, &ingest.DiscoveryResult{
+			Source:             "truststore",
+			SourceHostID:       hostID,
+			SkipHostResolution: true,
+			Timestamp:          time.Now().UTC(),
+			Certificates:       certs,
+		}); err != nil {
+			return fmt.Errorf("store scanned certificates: %w", err)
+		}
+	}
+	trustFailed, err := st.UpsertTrustStoreObservations(ctx, result.TrustStore)
+	if err != nil {
+		return fmt.Errorf("write trust store observations: %w", err)
+	}
+	keysFailed, err := st.UpsertPrivateKeyHoldings(ctx, result.PrivateKey)
+	if err != nil {
+		return fmt.Errorf("write private-key holdings: %w", err)
+	}
+
+	for _, b := range result.ReadBundles {
+		scope := store.BundleScope{Source: b.Source, SourceDetail: b.SourceDetail}
+		if n := trustFailed[scope]; n > 0 {
+			log.Warn().Str("source", b.Source).Str("bundle", b.SourceDetail).Int("failed_rows", n).
+				Msg("scan-truststore: not removing stale rows for a bundle with rows that could not be written")
+		} else {
+			pruned, err := st.PruneStaleTrustStoreRows(ctx, hostID, b.Source, b.SourceDetail, watermark)
+			if err != nil {
+				return fmt.Errorf("remove stale trust-store rows for %s: %w", b.SourceDetail, err)
+			}
+			if pruned > 0 {
+				log.Info().Str("source", b.Source).Str("bundle", b.SourceDetail).Int64("removed", pruned).
+					Msg("scan-truststore: removed trust-store entries no longer in the bundle")
+			}
+		}
+		if !b.KeyStore {
+			continue
+		}
+		// This scanner reports every private-key holding with source
+		// "truststore" and the keystore's SourceDetail.
+		keyScope := store.BundleScope{Source: "truststore", SourceDetail: b.SourceDetail}
+		if n := keysFailed[keyScope]; n > 0 {
+			log.Warn().Str("keystore", b.SourceDetail).Int("failed_rows", n).
+				Msg("scan-truststore: not removing stale private-key rows for a keystore with rows that could not be written")
+			continue
+		}
+		pruned, err := st.PruneStalePrivateKeyHoldings(ctx, hostID, keyScope.Source, keyScope.SourceDetail, watermark)
+		if err != nil {
+			return fmt.Errorf("remove stale private-key rows for %s: %w", b.SourceDetail, err)
+		}
+		if pruned > 0 {
+			log.Info().Str("keystore", b.SourceDetail).Int64("removed", pruned).
+				Msg("scan-truststore: removed private-key holdings no longer in the keystore")
+		}
+	}
+	return nil
+}
+
+// scannedCertificates is one discovery per certificate and place it was found
+// (a CA in two trust stores is one certificate with two provenance rows).
+// Observations without a PEM are skipped; their rows then land only if the
+// certificate is already known.
+func scannedCertificates(result truststore.ScanResult) []dedup.CertDiscovery {
+	type place struct{ fingerprint, storeType, path string }
+	seen := map[place]bool{}
+	var out []dedup.CertDiscovery
+	add := func(fingerprint, pemText, storeType, path string) {
+		p := place{fingerprint, storeType, path}
+		if pemText == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		out = append(out, dedup.CertDiscovery{
+			FingerprintSHA256: fingerprint,
+			RawPEM:            pemText,
+			Source:            "truststore",
+			StoreType:         storeType,
+			FilePath:          path,
+		})
+	}
+	for _, o := range result.TrustStore {
+		add(o.CAFingerprint, o.CAPEM, o.Source, o.SourceDetail)
+	}
+	for _, o := range result.PrivateKey {
+		add(o.CertFingerprint, o.CertPEM, o.Source, o.SourceDetail)
+	}
+	return out
 }

@@ -29,8 +29,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/net4n6-dev/cipherflag/internal/config"
+	"github.com/net4n6-dev/cipherflag/internal/export/cbom/bomjson"
 	"github.com/net4n6-dev/cipherflag/internal/export/cbom/sinks/types"
 )
 
@@ -114,13 +114,11 @@ func (s *Sink) encode(payload *types.SinkPayload) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("nil payload")
 	}
 	if payload.BOM != nil {
-		var buf bytes.Buffer
-		enc := cdx.NewBOMEncoder(&buf, cdx.BOMFileFormatJSON)
-		enc.SetPretty(false)
-		if err := enc.Encode(payload.BOM); err != nil {
+		b, err := bomjson.Encode(payload.BOM)
+		if err != nil {
 			return nil, "", err
 		}
-		return buf.Bytes(), "application/vnd.cyclonedx+json; version=1.6", nil
+		return b, "application/vnd.cyclonedx+json; version=1.6", nil
 	}
 	// Events -> NDJSON
 	var buf bytes.Buffer

@@ -19,6 +19,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 func TestLoadDefaults(t *testing.T) {
@@ -378,34 +380,167 @@ func TestLoad_RankFormulaIsDefaultTracksTomlPresence(t *testing.T) {
 	}
 }
 
-func TestConfig_CTKindEnableFlags_DefaultsAndOverride(t *testing.T) {
-	// Default (no TOML ct_crtsh sub-block): every CT kind enabled.
-	defaults, err := loadFromTOML(t, `
-[sources.external_sources]
-`)
-	if err != nil {
-		t.Fatalf("loadFromTOML: %v", err)
-	}
-	if !defaults.Sources.ExternalSources.CtCrtsh.Enabled {
-		t.Error("default: ct_crtsh.enabled should be true")
-	}
-	if !defaults.Sources.ExternalSources.CtStatic.Enabled {
-		t.Error("default: ct_static.enabled should be true")
-	}
+func TestSourcesConfig_CTFields_TOMLRoundTrip(t *testing.T) {
+	tomlSrc := `
+[sources.ct_crtsh]
+  [[sources.ct_crtsh.domains]]
+  enabled = true
+  domain = "example.com"
+  include_subdomains = true
 
-	// Operator disables ct_crtsh.
-	overridden, err := loadFromTOML(t, `
-[sources.external_sources.ct_crtsh]
-enabled = false
-`)
-	if err != nil {
-		t.Fatalf("loadFromTOML: %v", err)
+[sources.ct_static]
+  [[sources.ct_static.domains]]
+  enabled = true
+  domain = "example.com"
+  log_url = "https://mon.sycamore.ct.letsencrypt.org/2026h2/"
+  origin = "log.sycamore.ct.letsencrypt.org/2026h2"
+  public_key_pem = "pem-placeholder"
+
+[sources.ct_multi]
+  [[sources.ct_multi.groups]]
+  enabled = true
+  domain = "example.com"
+    [[sources.ct_multi.groups.children]]
+    [sources.ct_multi.groups.children.crtsh]
+    [[sources.ct_multi.groups.children]]
+    [sources.ct_multi.groups.children.static]
+    domain = "example.com"
+    log_url = "https://log.example.com/"
+    origin = "log.example.com"
+    public_key_pem = "pem-placeholder"
+`
+	var cfg Config
+	if _, err := toml.Decode(tomlSrc, &cfg); err != nil {
+		t.Fatalf("decode: %v", err)
 	}
-	if overridden.Sources.ExternalSources.CtCrtsh.Enabled {
-		t.Error("override: ct_crtsh.enabled should be false")
+	if len(cfg.Sources.CtCrtsh.Domains) != 1 || cfg.Sources.CtCrtsh.Domains[0].Domain != "example.com" {
+		t.Fatalf("ct_crtsh domains = %+v", cfg.Sources.CtCrtsh.Domains)
 	}
-	// ct_static not overridden — should still default to true.
-	if !overridden.Sources.ExternalSources.CtStatic.Enabled {
-		t.Error("override: ct_static.enabled should remain true when not overridden")
+	if len(cfg.Sources.CtMulti.Groups) != 1 || len(cfg.Sources.CtMulti.Groups[0].Children) != 2 {
+		t.Fatalf("ct_multi groups = %+v", cfg.Sources.CtMulti.Groups)
 	}
+	if cfg.Sources.CtMulti.Groups[0].Children[0].Crtsh == nil {
+		t.Fatal("expected first child to be crtsh")
+	}
+	if cfg.Sources.CtMulti.Groups[0].Children[1].Static == nil || cfg.Sources.CtMulti.Groups[0].Children[1].Static.Domain != "example.com" {
+		t.Fatal("expected second child to be static with domain example.com")
+	}
+	if got := cfg.Sources.CtMulti.Groups[0].Children[1].Static.Origin; got != "log.example.com" {
+		t.Errorf("ct_multi static child origin = %q, want log.example.com", got)
+	}
+	want := CtStaticDomainConfig{
+		Enabled:      true,
+		Domain:       "example.com",
+		LogURL:       "https://mon.sycamore.ct.letsencrypt.org/2026h2/",
+		Origin:       "log.sycamore.ct.letsencrypt.org/2026h2",
+		PublicKeyPEM: "pem-placeholder",
+	}
+	if len(cfg.Sources.CtStatic.Domains) != 1 || cfg.Sources.CtStatic.Domains[0] != want {
+		t.Errorf("ct_static domains = %+v, want [%+v]", cfg.Sources.CtStatic.Domains, want)
+	}
+}
+
+// TestCtSourceConfigs_Enabled covers the Enabled() aggregator methods on all
+// four Ct*SourceConfig types. main.go gates each poller's construction on
+// these, so a bug here would silently disable an entire CT source kind.
+func TestCtSourceConfigs_Enabled(t *testing.T) {
+	t.Run("CtCrtshSourceConfig", func(t *testing.T) {
+		cases := []struct {
+			name string
+			cfg  CtCrtshSourceConfig
+			want bool
+		}{
+			{"empty", CtCrtshSourceConfig{}, false},
+			{"all_disabled", CtCrtshSourceConfig{Domains: []CtDomainConfig{
+				{Enabled: false, Domain: "a.example.com"},
+				{Enabled: false, Domain: "b.example.com"},
+			}}, false},
+			{"one_enabled", CtCrtshSourceConfig{Domains: []CtDomainConfig{
+				{Enabled: false, Domain: "a.example.com"},
+				{Enabled: true, Domain: "b.example.com"},
+			}}, true},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				if got := tc.cfg.Enabled(); got != tc.want {
+					t.Errorf("Enabled() = %v, want %v", got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("CtStaticSourceConfig", func(t *testing.T) {
+		cases := []struct {
+			name string
+			cfg  CtStaticSourceConfig
+			want bool
+		}{
+			{"empty", CtStaticSourceConfig{}, false},
+			{"all_disabled", CtStaticSourceConfig{Domains: []CtStaticDomainConfig{
+				{Enabled: false, Domain: "a.example.com"},
+				{Enabled: false, Domain: "b.example.com"},
+			}}, false},
+			{"one_enabled", CtStaticSourceConfig{Domains: []CtStaticDomainConfig{
+				{Enabled: false, Domain: "a.example.com"},
+				{Enabled: true, Domain: "b.example.com"},
+			}}, true},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				if got := tc.cfg.Enabled(); got != tc.want {
+					t.Errorf("Enabled() = %v, want %v", got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("CtCertspotterSourceConfig", func(t *testing.T) {
+		cases := []struct {
+			name string
+			cfg  CtCertspotterSourceConfig
+			want bool
+		}{
+			{"empty", CtCertspotterSourceConfig{}, false},
+			{"all_disabled", CtCertspotterSourceConfig{Domains: []CtCertspotterDomainConfig{
+				{Enabled: false, Domain: "a.example.com"},
+				{Enabled: false, Domain: "b.example.com"},
+			}}, false},
+			{"one_enabled", CtCertspotterSourceConfig{Domains: []CtCertspotterDomainConfig{
+				{Enabled: false, Domain: "a.example.com"},
+				{Enabled: true, Domain: "b.example.com"},
+			}}, true},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				if got := tc.cfg.Enabled(); got != tc.want {
+					t.Errorf("Enabled() = %v, want %v", got, tc.want)
+				}
+			})
+		}
+	})
+
+	t.Run("CtMultiSourceConfig", func(t *testing.T) {
+		cases := []struct {
+			name string
+			cfg  CtMultiSourceConfig
+			want bool
+		}{
+			{"empty", CtMultiSourceConfig{}, false},
+			{"all_disabled", CtMultiSourceConfig{Groups: []CtMultiGroupConfig{
+				{Enabled: false, Domain: "a.example.com"},
+				{Enabled: false, Domain: "b.example.com"},
+			}}, false},
+			{"one_enabled", CtMultiSourceConfig{Groups: []CtMultiGroupConfig{
+				{Enabled: false, Domain: "a.example.com"},
+				{Enabled: true, Domain: "b.example.com"},
+			}}, true},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				if got := tc.cfg.Enabled(); got != tc.want {
+					t.Errorf("Enabled() = %v, want %v", got, tc.want)
+				}
+			})
+		}
+	})
 }
