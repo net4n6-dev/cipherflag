@@ -25,6 +25,8 @@ All notable changes to CipherFlag are documented in this file.
   one of the two is a configuration error.
 
 ### Fixed
+- BOMs named their producing tool as `cipherflag dev`; they now carry the
+  release version, as does the CBOM push `User-Agent`.
 - **Settings → Sources showed made-up values, and saving overwrote the real
   Zeek configuration.** Since 2.0.0 the sources API no longer returned the
   Zeek settings the page reads, so the page silently kept its placeholder

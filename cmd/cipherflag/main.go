@@ -50,14 +50,18 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
-// Version is the CipherFlag CE release version. Set at build time via
-// -ldflags "-X main.Version=2.0.0"; defaults to the in-source constant
-// for development builds.
+// Version is the CipherFlag CE release version, and the single source of
+// truth for it: it is a constant, not set at build time. The release
+// workflow refuses to publish unless the pushed tag equals v+Version
+// (scripts/check-release-tag.sh), and cmd/cipherflag/version_test.go checks
+// that CHANGELOG.md, frontend/package.json and docker-compose.yml agree.
 const Version = "2.3.0"
 
 func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: "15:04:05"})
+	// BOMs and the CBOM push User-Agent name this version as their tool.
+	cbom.SetToolVersion(Version)
 
 	if len(os.Args) < 2 {
 		fmt.Println("CipherFlag CE", Version)

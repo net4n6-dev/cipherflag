@@ -25,10 +25,20 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/store"
 )
 
-// cbomVersion is embedded in BOM metadata. Set via ldflags in release builds:
-//
-//	-ldflags "-X github.com/net4n6-dev/cipherflag/internal/export/cbom.cbomVersion=1.2.3"
+// cbomVersion is the CipherFlag version embedded in every BOM's
+// metadata.tools and in the CBOM push User-Agent. serve sets it from its
+// Version at startup (SetToolVersion); "dev" remains only in tests and
+// programs that never call it.
 var cbomVersion = "dev"
+
+// SetToolVersion records the CipherFlag version that BOMs name as their
+// producing tool. Call once at startup, before any BOM is generated. An
+// empty version is ignored.
+func SetToolVersion(version string) {
+	if version != "" {
+		cbomVersion = version
+	}
+}
 
 // NewGenerator returns a Generator with no signing configured.
 // Existing callers (tests, handlers, NewRuntime) that do not need signing
