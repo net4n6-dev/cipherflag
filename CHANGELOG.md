@@ -25,6 +25,15 @@ All notable changes to CipherFlag are documented in this file.
   one of the two is a configuration error.
 
 ### Fixed
+- **Settings → Sources showed made-up values, and saving overwrote the real
+  Zeek configuration.** Since 2.0.0 the sources API no longer returned the
+  Zeek settings the page reads, so the page silently kept its placeholder
+  defaults (Zeek enabled, `/var/log/zeek/current`) and "Save Source
+  Configuration" wrote them to `config/cipherflag.toml`. The API returns the
+  Zeek settings again; the page checks the response, and if it cannot load
+  the configuration it says so and disables Save. A contract test pins the
+  response shape on both sides. If you saved this tab on 2.0.0 to 2.2.x,
+  check `[sources.zeek_file]` in your config.
 - **`asset_count` overstated BOM contents.** It now equals the number of
   asset components in the BOM. When health reports were dropped because
   their asset no longer exists, `assets_omitted` and `assets_omitted_types`

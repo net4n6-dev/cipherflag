@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import { api, type SummaryStats } from '$lib/api';
 	import { getCurrentUser, type AuthUser } from '$lib/auth';
+	import { parseSourcesConfig, type SourcesConfig } from '$lib/settings/sources-config';
 
 	interface UserEntry {
 		id: string;
@@ -47,12 +48,8 @@
 	let userError = $state('');
 	let userSuccess = $state('');
 
-	// Sources tab
-	interface SourcesConfig {
-		zeek: { enabled: boolean; log_dir: string; poll_interval_seconds: number; network_interface: string };
-		corelight: { enabled: boolean; api_url: string; has_token: boolean };
-		// The API also returns `pcap`; PCAP upload is EE-only, so CE ignores it.
-	}
+	// Sources tab (the API also returns `pcap`; PCAP upload is EE-only, so CE
+	// ignores it)
 	interface NetworkInterface {
 		name: string; ip: string; is_up: boolean; is_loopback: boolean; mac: string;
 	}
@@ -67,6 +64,7 @@
 	let srcCorelightURL = $state('');
 	let srcCorelightToken = $state('');
 	let srcError = $state('');
+	let srcLoadError = $state('');
 	let srcSuccess = $state('');
 
 	// Venafi tab
@@ -177,31 +175,38 @@
 
 	// Sources
 	async function loadSources() {
+		// The form is only filled from a configuration that loaded and parsed.
+		// Otherwise it would show its placeholder defaults, and Save would
+		// write them over the running configuration.
+		srcLoadError = '';
 		try {
-			const [srcRes, ifRes] = await Promise.all([
-				fetch('/api/v1/config/sources'),
-				fetch('/api/v1/config/interfaces'),
-			]);
-			if (srcRes.ok) {
-				sourcesConfig = await srcRes.json();
-				if (sourcesConfig) {
-					srcZeekEnabled = sourcesConfig.zeek.enabled;
-					srcZeekLogDir = sourcesConfig.zeek.log_dir;
-					srcZeekPollInterval = sourcesConfig.zeek.poll_interval_seconds;
-					srcNetworkInterface = sourcesConfig.zeek.network_interface;
-					srcCorelightEnabled = sourcesConfig.corelight.enabled;
-					srcCorelightURL = sourcesConfig.corelight.api_url;
-				}
-			}
+			const srcRes = await fetch('/api/v1/config/sources');
+			if (!srcRes.ok) throw new Error(`HTTP ${srcRes.status}`);
+			const cfg = parseSourcesConfig(await srcRes.json());
+			sourcesConfig = cfg;
+			srcZeekEnabled = cfg.zeek.enabled;
+			srcZeekLogDir = cfg.zeek.log_dir;
+			srcZeekPollInterval = cfg.zeek.poll_interval_seconds;
+			srcNetworkInterface = cfg.zeek.network_interface;
+			srcCorelightEnabled = cfg.corelight.enabled;
+			srcCorelightURL = cfg.corelight.api_url;
+		} catch (e) {
+			sourcesConfig = null;
+			const reason = e instanceof Error ? e.message : String(e);
+			srcLoadError = `Could not load the current source configuration (${reason}). Saving is disabled so the running configuration is not overwritten.`;
+		}
+		try {
+			const ifRes = await fetch('/api/v1/config/interfaces');
 			if (ifRes.ok) {
 				const data = await ifRes.json();
 				interfaces = data.interfaces ?? [];
 				currentInterface = data.current_interface ?? '';
 			}
-		} catch {}
+		} catch {} // interfaces only populate a suggestion list
 	}
 
 	async function saveSources() {
+		if (!sourcesConfig) return; // never save a form that was not loaded
 		srcError = ''; srcSuccess = '';
 		const body: any = {
 			zeek: { enabled: srcZeekEnabled, log_dir: srcZeekLogDir, poll_interval_seconds: srcZeekPollInterval, network_interface: srcNetworkInterface },
@@ -471,6 +476,7 @@
 					<div class="tab-section">
 						<h2>Discovery Sources</h2>
 
+						{#if srcLoadError}<div class="msg error">{srcLoadError}</div>{/if}
 						{#if srcError}<div class="msg error">{srcError}</div>{/if}
 						{#if srcSuccess}<div class="msg success">{srcSuccess}</div>{/if}
 
@@ -549,7 +555,7 @@
 								{/if}
 							</div>
 
-							<button class="submit-btn" style="margin-top: 1rem;" onclick={saveSources}>Save Source Configuration</button>
+							<button class="submit-btn" style="margin-top: 1rem;" onclick={saveSources} disabled={!sourcesConfig}>Save Source Configuration</button>
 							<p class="config-hint">Changes are saved to <code>config/cipherflag.toml</code>. Restart the service for changes to take effect.</p>
 						{:else}
 							<!-- Viewer: read-only display -->
