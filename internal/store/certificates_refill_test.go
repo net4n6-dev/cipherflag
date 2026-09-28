@@ -134,6 +134,31 @@ func TestUpsertCertificate_FillsOnlyEmptyColumnsOnConflict(t *testing.T) {
 	require.Equal(t, got, again, "a set column must never be overwritten")
 }
 
+// The startup repair runs alongside live ingest and writes a row back with
+// the last_seen it read. last_seen was overwritten unconditionally, so a
+// re-observation landing between the repair's read and its write was
+// rewound to the older time, and the Venafi push (last_seen >
+// venafi_pushed_at) could miss it. last_seen now only moves forward.
+func TestUpsertCertificate_NeverMovesLastSeenBack(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	fp := "refill-lastseen-0001"
+	t.Cleanup(func() {
+		_, _ = st.pool.Exec(ctx, `DELETE FROM certificates WHERE fingerprint_sha256 = $1`, fp)
+	})
+	older := time.Now().Add(-time.Hour).Truncate(time.Microsecond)
+	newer := time.Now().Truncate(time.Microsecond)
+
+	require.NoError(t, st.UpsertCertificate(ctx, &model.Certificate{FingerprintSHA256: fp, FirstSeen: older, LastSeen: older}))
+	require.NoError(t, st.UpsertCertificate(ctx, &model.Certificate{FingerprintSHA256: fp, FirstSeen: older, LastSeen: newer}))
+	require.True(t, readCertRow(t, st, fp).lastSeen.Equal(newer), "a later sighting moves last_seen forward")
+
+	// The repair's write, carrying the last_seen it read before the sighting.
+	require.NoError(t, st.UpsertCertificate(ctx, &model.Certificate{FingerprintSHA256: fp, FirstSeen: older, LastSeen: older}))
+	got := readCertRow(t, st, fp).lastSeen
+	require.True(t, got.Equal(newer), "last_seen %v was moved back from %v", got, newer)
+}
+
 type extraRow struct {
 	org, spki, ocsp, crl, scts, keyAlg, sigAlg string
 	aki, ski                                   []byte

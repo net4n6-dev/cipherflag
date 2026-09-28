@@ -157,7 +157,9 @@ func (s *PostgresStore) UpsertCertificate(ctx context.Context, cert *model.Certi
 			$32, $33, NULLIF($34, '')
 		)
 		ON CONFLICT (fingerprint_sha256) DO UPDATE SET
-			last_seen = EXCLUDED.last_seen,
+			-- Only forward: a writer holding an older read (the startup
+			-- repair, running alongside ingest) must not rewind a sighting.
+			last_seen = GREATEST(certificates.last_seen, EXCLUDED.last_seen),
 			raw_pem = COALESCE(NULLIF(EXCLUDED.raw_pem, ''), certificates.raw_pem),
 			-- Fill-only: a certificate's X.509 metadata never changes, so a
 			-- column is set from the new observation only while it is still
