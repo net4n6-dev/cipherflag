@@ -2,7 +2,7 @@
 
 All notable changes to CipherFlag are documented in this file.
 
-## [2.3.1] - Unreleased
+## [2.3.1] - 2026-09-29
 
 ### Security
 - **Session cookies are now signed with a per-install random key.** The key

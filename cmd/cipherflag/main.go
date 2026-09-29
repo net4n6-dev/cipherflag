@@ -56,7 +56,7 @@ import (
 // workflow refuses to publish unless the pushed tag equals v+Version
 // (scripts/check-release-tag.sh), and cmd/cipherflag/version_test.go checks
 // that CHANGELOG.md, frontend/package.json and docker-compose.yml agree.
-const Version = "2.3.0"
+const Version = "2.3.1"
 
 func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
