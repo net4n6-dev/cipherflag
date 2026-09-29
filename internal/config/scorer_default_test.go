@@ -52,7 +52,7 @@ func TestLoad_ScorerEnabledOptOut(t *testing.T) {
 }
 
 func TestShippedSampleConfigsEnableScoring(t *testing.T) {
-	for _, name := range []string{"cipherflag.toml", "cipherflag.docker.toml"} {
+	for _, name := range []string{"cipherflag.toml"} {
 		t.Run(name, func(t *testing.T) {
 			data, err := os.ReadFile(filepath.Join("..", "..", "config", name))
 			if err != nil {

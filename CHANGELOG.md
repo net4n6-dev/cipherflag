@@ -124,6 +124,11 @@ All notable changes to CipherFlag are documented in this file.
   is kept as written, the previous file is kept as `cipherflag.toml.bak`, the
   write is atomic, a file Settings cannot patch safely is left untouched, and
   a config that cannot be written gives a message that says what to do.
+- **`config/cipherflag.docker.toml` is removed.** Nothing read it, and
+  following its own instructions gave a broken install: it used a
+  `${POSTGRES_PASSWORD:-changeme}` placeholder the loader does not expand and
+  a Zeek `log_dir` that did not match the Compose mount, so the poller never
+  found the sensor's logs. `config/cipherflag.toml` is the shipped config.
 - **Documentation described things CE does not do.** The README,
   quickstart, user guide, configuration reference and Venafi guide
   described:
