@@ -278,8 +278,12 @@ mkdir -p pcap-input/branch-office-2026-09
 cp capture.pcap pcap-input/branch-office-2026-09/
 ```
 
-The sensor checks for new files every 5 seconds, runs Zeek over each, and
-marks the job:
+The sensor checks for new files every 5 seconds and runs Zeek over each once
+it has stopped changing (10 seconds by default, `PCAP_SETTLE_SECONDS`), so a
+`cp` still in progress is not processed truncated. `mv` from the same
+filesystem keeps the file's old modification time, so a file already older
+than that window is picked up at once; a just-created file still waits. It
+then marks the job:
 
 ```bash
 docker compose exec zeek ls -a /zeek-logs/branch-office-2026-09
@@ -287,8 +291,64 @@ docker compose exec zeek ls -a /zeek-logs/branch-office-2026-09
 # .failed   Zeek could not process it (the reason is in: docker compose logs zeek)
 ```
 
-A job is processed once. To process a capture again, copy it into a new job
-directory; certificates already stored are updated, not duplicated.
+A job directory may hold several captures. They are processed independently,
+and one that fails does not block the others. With one capture the logs are in
+`/zeek-logs/<job>`; with several, each capture gets its own directory,
+`/zeek-logs/<job>--<file name>` (for example `branch--one.pcap`), with its own
+`.done` or `.failed`.
+
+A capture whose log directory name would collide with another capture's (job
+`x` with capture `y`, and a job named `x--y`) or is longer than 200 characters
+is refused and marked failed. It has no log directory and no `.failed` file;
+the reason is in its marker, `/zeek-logs/.state/<job>/<file name>`, and in
+`docker compose logs zeek`. If a log directory still holds the logs of a
+capture that no longer exists, a new capture that maps to it waits (the sensor
+log says so) and is processed once retention removes that directory or you
+remove it by hand; a real collision with a capture that still exists is
+failed for good.
+
+A capture is processed once. The sensor records that in
+`/zeek-logs/.state/<job>/<file name>`, keyed by name, so deleting a job's log
+directory does not make it run again, and neither does copying a file with the
+same name over it or back in. Do not rename or replace a job's only capture;
+put the new file in a new job directory. Certificates already stored are
+updated, not duplicated, and sessions are stored once.
+
+To process a capture again, drop it under a new job name. Or delete both its
+log directory and its marker, the log directory first: deleting only the
+marker does nothing, because the sensor finds the `.done` in the log directory
+and records the capture as processed again. For a job with one capture the log
+directory is `/zeek-logs/<job>`; for a job with several it is
+`/zeek-logs/<job>--<file name>`. The marker is always
+`/zeek-logs/.state/<job>/<file name>`:
+
+```bash
+docker compose exec zeek rm -rf /zeek-logs/branch-office-2026-09
+docker compose exec zeek rm /zeek-logs/.state/branch-office-2026-09/capture.pcap
+```
+
+If you upgrade from an older sensor:
+
+- A job directory with one capture that was already processed is adopted
+  (marked processed), not run again.
+- A job directory that holds several captures had only its first one
+  processed. After the upgrade every capture of that job is processed into its
+  own directory, so the first one runs once more. The same happens if you add
+  a second capture later to an older one-capture job, because the first
+  capture's log directory name changes. The store deduplicates the re-ingested
+  sessions, so nothing is duplicated in the inventory; only Zeek's work and
+  the extra log files are repeated.
+- A `.done` directory left by the broken 2.3.0 sensor without any logs is
+  treated as processed. Delete those `/zeek-logs/<job>` directories (or use a
+  new job name) to reprocess the captures.
+- Logs older than the retention window are removed on the first pass after
+  the upgrade. Set `ZEEK_LOG_RETENTION_HOURS=0` for the first start to keep
+  them.
+
+The sensor deletes old logs itself. Once an hour it removes rotated logs
+(`<log>.<time>.log`) and finished job directories older than
+`ZEEK_LOG_RETENTION_HOURS` (default 168, one week; 0 keeps everything). See
+[configuration.md](configuration.md#zeek-sensor-environment).
 
 ---
 
@@ -682,7 +742,7 @@ docker compose exec postgres psql -U cipherflag -c \
 
 - Verify Zeek is running: `docker compose --profile zeek ps` and `docker compose logs zeek`
 - Confirm `NETWORK_INTERFACE` is correct and receiving traffic (TLS 1.3-only traffic yields no certificates)
-- For PCAP files, check the job's marker: `docker compose exec zeek ls -a /zeek-logs/<job>` (`.done` or `.failed`)
+- For PCAP files, check the job's marker: `docker compose exec zeek ls -a /zeek-logs/<job>` (`.done` or `.failed`; a job with several captures uses `/zeek-logs/<job>--<file name>`). A refused capture (name collision, name over 200 characters) has no log directory: read `docker compose exec zeek cat /zeek-logs/.state/<job>/<file name>`
 - Check that CipherFlag reads the logs: `docker compose logs cipherflag | grep 'zeek:'` shows what each poll ingested, or warns that `log_dir` does not exist
 
 ### Venafi push not working
@@ -703,5 +763,5 @@ docker compose exec postgres psql -U cipherflag -c \
 ### High memory usage
 
 - Check PostgreSQL: `docker compose exec postgres psql -U cipherflag -c "SELECT pg_size_pretty(pg_database_size('cipherflag'));"`
-- Zeek logs accumulate: the sensor rotates them hourly but does not delete old ones. Remove rotated logs (`<log>.<time>.log`) and finished job directories from the `zeek-logs` volume once CipherFlag has read them
+- Zeek logs accumulate: no manual cleanup is needed. The sensor rotates them hourly and deletes rotated logs and finished job directories older than `ZEEK_LOG_RETENTION_HOURS` (default 168 hours; 0 keeps everything). Deleting a finished job's logs by hand is safe (the sensor will not re-run the capture) but unnecessary. Logs older than the window are removed even if CipherFlag was stopped and never read them
 - PCAP files in `./pcap-input/` are not removed after processing; delete them when no longer needed

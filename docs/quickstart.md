@@ -87,7 +87,9 @@ mkdir -p pcap-input/test-1
 cp capture.pcap pcap-input/test-1/
 ```
 
-The sensor processes it within a few seconds and marks the job done;
+The sensor waits until the file has been unchanged for 10 seconds
+(`PCAP_SETTLE_SECONDS`), then processes it and marks the job done, so allow
+about 15 to 30 seconds for a small capture;
 CipherFlag reads the job's logs on its next poll (every 30 seconds by
 default), and the certificates appear on the dashboard. To check a job:
 

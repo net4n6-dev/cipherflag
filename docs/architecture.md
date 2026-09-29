@@ -19,7 +19,7 @@ The Zeek network sensor is a third, opt-in container:
   │  zeek-logs volume                                        │
   │    x509.log, ssl.log, ...       live logs                │
   │    x509.<time>.log, ...         rotated hourly           │
-  │    <job>/ ... .done | .failed   one directory per PCAP   │
+  │    <job>[--<file>]/ .done|.failed  one dir per PCAP      │
   └────────────────────────────┬─────────────────────────────┘
                                │ mounted read-only at /var/log/zeek/current
                                v
@@ -113,10 +113,14 @@ through a directory:
 Copy capture.pcap to ./pcap-input/<job>/ (ZEEK_PCAP_DIR)
     |
     v
-Zeek container's PCAP watcher finds it (every 5 seconds)
+Zeek container's PCAP watcher finds it (every 5 seconds) and waits until
+    | the file has been unchanged for PCAP_SETTLE_SECONDS (default 10)
     | runs: zeek -r /pcap-input/<job>/capture.pcap
-    | writes logs to zeek-logs/<job>/
-    | then marks the job .done, or .failed if Zeek could not process it
+    | writes logs to zeek-logs/<job>/ (one capture in the job) or
+    |   zeek-logs/<job>--<file name>/ (several captures in the job)
+    | then marks that directory .done, or .failed if Zeek could not process it
+    | and records the capture in zeek-logs/.state/<job>/<file name>, so it
+    |   is not run again even if its log directory is deleted
     v
 CipherFlag's poller reads a job's logs once it is .done
     | normal ingestion pipeline; a .failed job is never read

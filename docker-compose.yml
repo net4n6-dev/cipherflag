@@ -77,6 +77,11 @@ services:
     image: ghcr.io/net4n6-dev/cipherflag-ce-zeek:2.3.0
     environment:
       NETWORK_INTERFACE: ${NETWORK_INTERFACE:-}
+      # Hours to keep rotated logs and finished job logs (0 keeps everything).
+      ZEEK_LOG_RETENTION_HOURS: ${ZEEK_LOG_RETENTION_HOURS:-168}
+      ZEEK_RETENTION_INTERVAL_SECONDS: ${ZEEK_RETENTION_INTERVAL_SECONDS:-3600}
+      # Seconds a capture must be unchanged before it is processed.
+      PCAP_SETTLE_SECONDS: ${PCAP_SETTLE_SECONDS:-10}
     volumes:
       - zeek-logs:/zeek-logs
       - ${ZEEK_PCAP_DIR:-./pcap-input}:/pcap-input

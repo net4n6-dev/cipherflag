@@ -18,6 +18,9 @@ everything it does is set in `config/cipherflag.toml` or Settings.
 |----------|---------|-------------|
 | `NETWORK_INTERFACE` | *(empty)* | Interface the Zeek sensor (profile `zeek`) captures on, e.g. `eth0`. Empty: the sensor only processes PCAP files. Live capture needs a Linux host. |
 | `ZEEK_PCAP_DIR` | `./pcap-input` | Host directory the Zeek sensor takes PCAP files from, one subdirectory per job. |
+| `ZEEK_LOG_RETENTION_HOURS` | `168` | Hours the Zeek sensor keeps rotated logs and finished job logs; `0` keeps everything. See [Zeek sensor environment](#zeek-sensor-environment). |
+| `ZEEK_RETENTION_INTERVAL_SECONDS` | `3600` | Seconds between the sensor's retention passes. See [Zeek sensor environment](#zeek-sensor-environment). |
+| `PCAP_SETTLE_SECONDS` | `10` | Seconds a PCAP must be unchanged before the sensor processes it. See [Zeek sensor environment](#zeek-sensor-environment). |
 | `POSTGRES_PASSWORD` | `changeme` | The `postgres` container's password. If you change it, change the password in `[storage] postgres_url` in `config/cipherflag.toml` to match, or CipherFlag cannot connect. |
 
 Venafi is configured in `[export.venafi]` or Settings > Venafi, not in
@@ -92,7 +95,7 @@ Controls the Zeek log poller, which reads a Zeek sensor's JSON logs:
 `x509` logs (certificates, stored in full when the sensor logs them with
 `log-certs-base64`) and `ssl` logs (TLS sessions, recorded as observations).
 It reads the live logs, the files Zeek's rotation renames them to
-(`x509.<time>.log`), and each PCAP job directory `<job>/` once the sensor
+(`x509.<time>.log`), and each PCAP job directory (`<job>/`, or `<job>--<file name>/` for a job holding several captures) once the sensor
 has marked it `.done`.
 
 | Key | Default | Description |
@@ -104,6 +107,33 @@ has marked it `.done`.
 
 The poller's position in each file is kept in the `ingestion_state` table,
 so a restart resumes where it left off.
+
+### Zeek sensor environment
+
+The Compose `zeek` service reads these variables (set them in `.env`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ZEEK_LOG_RETENTION_HOURS` | `168` | Once an hour the sensor deletes rotated logs of every Zeek log type (`<type>.<YYYY-MM-DD-HH-MM-SS>.log` and `.log.gz`) and finished job directories (`.done` or `.failed`) older than this many hours. `0` keeps everything. A value that is not a whole number between 0 and 999999 logs a warning and turns retention off. |
+| `ZEEK_RETENTION_INTERVAL_SECONDS` | `3600` | Pause between retention passes (1 to 999999; anything else logs a warning and uses 3600). |
+| `PCAP_SETTLE_SECONDS` | `10` | A capture is processed only after its file has been unchanged this long, so a `cp` in progress is not run truncated. A value that is not a whole number of at most 9 digits logs a warning and uses 10. |
+
+Retention never touches live logs, a job directory still in progress (no
+`.done` or `.failed`), or a finished one whose capture is not recorded as
+processed and is still in `pcap-input`. The sensor records each processed
+capture in `/zeek-logs/.state/<job>/<file name>`; deleting a job's log
+directory does not make the capture run again, and a marker is pruned only
+once its capture is gone from `pcap-input` and the marker is older than the
+window (markers are not pruned when retention is 0, nor while `pcap-input`
+holds no captures at all). The CipherFlag container mounts the logs volume read-only, so only
+the sensor prunes it. CipherFlag ingests new logs within its poll interval
+(30 seconds by default), so the default window is far longer than needed
+unless CipherFlag is stopped: logs older than the window are removed even if
+CipherFlag was down and never read them.
+
+Sizing: 168 hours keeps every rotated log type (conn, dns, http and the
+rest), not just x509 and ssl, so on a busy interface give the `zeek-logs`
+volume enough space or use a shorter window.
 
 ### `[sources.corelight]`
 

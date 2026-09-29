@@ -138,6 +138,20 @@ All notable changes to CipherFlag are documented in this file.
   also now order ties by fingerprint, so paging never repeats or skips rows
   that share a sort value, and a database error during a search is reported
   instead of returning a short page.
+- **The Zeek sensor processed only one capture per job, forgot what it had
+  done, read half-copied files and never cleaned up.** Every capture in a job
+  directory is now processed (one capture keeps the log directory `<job>`;
+  several get `<job>--<file name>`). Processed and failed captures are
+  recorded in `/zeek-logs/.state/<job>/<file name>`, so deleting a log
+  directory no longer re-runs a capture, and a file is only picked up once it
+  has not changed for `PCAP_SETTLE_SECONDS` (default 10). Rotated logs and
+  finished job directories older than `ZEEK_LOG_RETENTION_HOURS` (default 168,
+  0 disables) are removed hourly. Upgrading: the first capture of a job that
+  holds several captures runs once more (the store dedupes it); a job marked
+  `.done` by the broken 2.3.0 sensor without producing logs is still treated
+  as processed, so delete its `/zeek-logs/<job>` directory to reprocess it;
+  logs older than the retention window are removed on the first pass, so set
+  `ZEEK_LOG_RETENTION_HOURS=0` for the first start to keep them.
 - **Documentation described things CE does not do.** The README,
   quickstart, user guide, configuration reference and Venafi guide
   described:
