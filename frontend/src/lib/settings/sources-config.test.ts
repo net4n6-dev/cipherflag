@@ -15,8 +15,7 @@ describe('parseSourcesConfig', () => {
 				log_dir: '/data/zeek/current',
 				poll_interval_seconds: 45,
 				network_interface: 'eth1'
-			},
-			corelight: { enabled: true, api_url: 'https://corelight.example.test', has_token: true }
+			}
 		});
 	});
 

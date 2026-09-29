@@ -381,7 +381,7 @@
 <div class="hero">
   <div class="hero-badge">Open Source &middot; Apache 2.0</div>
   <h1>Certificate intelligence <em>your scanners can't see</em></h1>
-  <p>Passive TLS discovery via Zeek. Health scoring across 24 rules. Interactive PKI analytics. Venafi integration. All from a single <code style="font-family:var(--font-mono);color:var(--amber);font-size:0.95rem;">docker-compose up</code>.</p>
+  <p>Passive TLS discovery via Zeek. Health scoring with letter grades. Interactive PKI analytics. Venafi integration. All from a single <code style="font-family:var(--font-mono);color:var(--amber);font-size:0.95rem;">docker compose up</code>.</p>
   <div class="hero-actions">
     <a href="https://github.com/net4n6-dev/cipherflag/releases" class="btn btn-primary">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -396,8 +396,8 @@
 
 <!-- ─── INSTALL COMMAND ─── -->
 <div class="install-strip">
-  <div class="install-box" onclick="navigator.clipboard.writeText('curl -fsSL https://raw.githubusercontent.com/net4n6-dev/cipherflag/main/scripts/install.sh | sh');this.querySelector('.copy-btn').innerHTML='<svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;><polyline points=&quot;20 6 9 17 4 12&quot;/></svg>';setTimeout(()=>{this.querySelector('.copy-btn').innerHTML='<svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;><rect x=&quot;9&quot; y=&quot;9&quot; width=&quot;13&quot; height=&quot;13&quot; rx=&quot;2&quot; ry=&quot;2&quot;/><path d=&quot;M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1&quot;/></svg>'},2000)">
-    <code><span class="prompt">$</span> curl -fsSL https://raw.githubusercontent.com/net4n6-dev/cipherflag/main/scripts/install.sh | sh</code>
+  <div class="install-box" onclick="navigator.clipboard.writeText('git clone https://github.com/net4n6-dev/cipherflag.git && cd cipherflag && docker compose up -d');this.querySelector('.copy-btn').innerHTML='<svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;><polyline points=&quot;20 6 9 17 4 12&quot;/></svg>';setTimeout(()=>{this.querySelector('.copy-btn').innerHTML='<svg viewBox=&quot;0 0 24 24&quot; fill=&quot;none&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;2&quot;><rect x=&quot;9&quot; y=&quot;9&quot; width=&quot;13&quot; height=&quot;13&quot; rx=&quot;2&quot; ry=&quot;2&quot;/><path d=&quot;M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1&quot;/></svg>'},2000)">
+    <code><span class="prompt">$</span> git clone https://github.com/net4n6-dev/cipherflag.git &amp;&amp; cd cipherflag &amp;&amp; docker compose up -d</code>
     <button class="copy-btn" title="Copy">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
     </button>
@@ -487,7 +487,7 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
       </div>
       <h3>Passive Discovery</h3>
-      <p>Zeek monitors a SPAN port or network tap and extracts every TLS certificate from live traffic — no agents, no active probing, no disruption.</p>
+      <p>Zeek monitors a SPAN port or network tap and extracts the certificates it sees in TLS handshakes (TLS 1.2 and earlier). No agents, no active probing, no disruption.</p>
     </div>
 
     <div class="feature-card">
@@ -495,7 +495,7 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
       </div>
       <h3>Health Scoring</h3>
-      <p>24 security rules covering expiration, key strength, signature algorithms, chain trust, CT compliance, wildcard use, and crypto agility. Grades from A+ to F.</p>
+      <p>Security rules covering expiration, key strength, signature algorithms, chain trust, CT compliance, wildcard use, and crypto agility. Grades from A+ to F.</p>
     </div>
 
     <div class="feature-card">
@@ -503,7 +503,7 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
       </div>
       <h3>PKI Explorer</h3>
-      <p>Interactive force-directed graph of your entire CA hierarchy. Click any node for blast radius analysis — see every cert a compromised CA has signed.</p>
+      <p>Interactive PKI graph of your entire CA hierarchy. Click any node for blast radius analysis: see every cert a compromised CA has signed.</p>
     </div>
 
     <div class="feature-card">
@@ -519,7 +519,7 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
       </div>
       <h3>Reports &amp; Analytics</h3>
-      <p>Five analytics views — chain flow, ownership treemap, crypto posture, expiry forecast, source lineage — plus four drillable report types.</p>
+      <p>Analytics views (chain flow, ownership treemap, crypto posture, expiry forecast, source lineage, library distribution, SSH keys) plus four drillable report types.</p>
     </div>
 
     <div class="feature-card">
@@ -527,7 +527,7 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
       </div>
       <h3>PCAP Analysis</h3>
-      <p>Drag and drop .pcap files for offline analysis. Upload a capture, Zeek processes it, and certificates appear in your inventory within seconds.</p>
+      <p>Copy .pcap files into <code>./pcap-input/&lt;job&gt;/</code> for offline analysis. The Zeek sensor processes each capture and its certificates appear in your inventory after the next poll.</p>
     </div>
   </div>
 </section>
@@ -537,15 +537,15 @@
   <div class="scoring-inner">
     <div>
       <div class="section-label">Health Scoring</div>
-      <div class="section-title">24 rules. One grade.</div>
+      <div class="section-title">One score. One grade.</div>
       <p class="section-desc" style="margin-bottom:1.5rem;">Every certificate is scored from 0 to 100 and assigned a letter grade. Findings include severity, category, point deduction, and remediation guidance.</p>
       <div class="grade-scale">
         <span class="grade-pill grade-a">A+ 95–100</span>
-        <span class="grade-pill grade-a">A 90–94</span>
-        <span class="grade-pill grade-b">B 80–89</span>
-        <span class="grade-pill grade-c">C 70–79</span>
-        <span class="grade-pill grade-d">D 60–69</span>
-        <span class="grade-pill grade-f">F &lt;60</span>
+        <span class="grade-pill grade-a">A 85–94</span>
+        <span class="grade-pill grade-b">B 70–84</span>
+        <span class="grade-pill grade-c">C 50–69</span>
+        <span class="grade-pill grade-d">D 20–49</span>
+        <span class="grade-pill grade-f">F &lt;20</span>
       </div>
     </div>
     <div>
@@ -571,14 +571,14 @@
 <section>
   <div class="section-label">Under the Hood</div>
   <div class="section-title">Built for operators</div>
-  <p class="section-desc">Three containers, zero runtime dependencies beyond Docker. Ships as multi-arch images (amd64 + arm64).</p>
+  <p class="section-desc">Up to three containers (the Zeek sensor is opt-in), zero runtime dependencies beyond Docker. Ships as multi-arch images (amd64 + arm64).</p>
   <div class="stack-row">
     <span class="stack-tag">Go 1.25</span>
-    <span class="stack-tag">PostgreSQL 15</span>
+    <span class="stack-tag">PostgreSQL 16</span>
     <span class="stack-tag">SvelteKit 2</span>
     <span class="stack-tag">D3.js</span>
     <span class="stack-tag">Cytoscape.js</span>
-    <span class="stack-tag">Zeek 7.x</span>
+    <span class="stack-tag">Zeek 9</span>
     <span class="stack-tag">Docker Compose</span>
     <span class="stack-tag">JWT + RBAC</span>
   </div>
@@ -587,7 +587,7 @@
 <!-- ─── CTA ─── -->
 <div class="cta-section">
   <h2>Start seeing your certificates</h2>
-  <p>Three commands. Five minutes. Full certificate visibility.</p>
+  <p>Docker Compose. Five minutes. Full certificate visibility.</p>
   <div class="hero-actions">
     <a href="howto.html" class="btn btn-primary">Get Started</a>
     <a href="https://github.com/net4n6-dev/cipherflag" class="btn btn-secondary" target="_blank" rel="noopener">Browse Source</a>

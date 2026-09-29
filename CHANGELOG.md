@@ -168,6 +168,20 @@ All notable changes to CipherFlag are documented in this file.
   They also said to change `POSTGRES_PASSWORD` without the matching change
   to `postgres_url`, which leaves CipherFlag unable to connect. All of
   these are corrected.
+- **More documentation and UI text was wrong.** The Venafi verification
+  `curl` examples ran without a session and got 401; the quickstart and user
+  guide told users to copy a PCAP into `./pcap-input/` instead of
+  `./pcap-input/<job>/`; the configuration reference claimed the binary reads
+  no environment variables besides `CIPHERFLAG_CONFIG`, described keys CE never
+  reads, and omitted the ones it does (endpoint sources, CT sources, `[cbom]`,
+  `[intake.dedup]`, `[attrition]`, `[scanners]`), and suggested a read-only
+  config mount that would break every Settings save. The architecture guide's
+  scoring rules and data model, the analytics and constellation descriptions,
+  `CONTRIBUTING.md` local setup, and the Settings hint for the network
+  interface were out of date, and `docs/howto.html` and `docs/index.html` still
+  carried the v1 claims. `SECURITY.md` now exists, `cipherflag setup` prints
+  the right file name and `docker compose`, and the unused Corelight card is
+  gone from Settings.
 
 ### Changed
 - CI (and so the release workflow) builds the Zeek sensor image and runs it

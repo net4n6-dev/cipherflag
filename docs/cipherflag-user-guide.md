@@ -66,7 +66,7 @@ This guide walks you through installation, configuration, and daily use.
 | **On-prem** | SPAN port / network TAP | Dual NIC, Zeek on capture interface |
 | **AWS** | VPC Traffic Mirroring | EC2 with 2 ENIs, mirror target on capture ENI |
 | **Azure** | Virtual Network TAP | VM with 2 NICs, TAP destination on capture NIC |
-| **Azure (fallback)** | Network Watcher | PCAP capture to storage, copied into `./pcap-input/` |
+| **Azure (fallback)** | Network Watcher | PCAP capture to storage, copied into `./pcap-input/<job>/` |
 | **PCAP-only** | Any | Copy `.pcap` files into `./pcap-input/<job>/` |
 
 See the [How-To Deployment Guide](https://cipherflag.com/howto.html#deployment) for step-by-step platform instructions.
@@ -156,10 +156,22 @@ These services should show "Up":
 - `cipherflag` — API server and dashboard
 - `zeek`: network sensor (only when started with `--profile zeek`)
 
+Every `/api/v1` route except `auth/login`, `auth/status`, `auth/me` and
+`auth/setup-admin` needs a session (or an agent token) and returns 401
+without one. The `curl` examples in this guide use a session cookie: create
+the admin account in the web UI first, then log in once and save the cookie
+(replace the email and password with yours):
+
+```bash
+curl -sS -c cookies.txt -X POST http://localhost:8443/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"<your password>"}'
+```
+
 Check the Venafi push status:
 
 ```bash
-curl -s http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
+curl -s -b cookies.txt http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
 ```
 
 Open the dashboard in your browser: `http://<your-ip>:8443`
@@ -368,43 +380,42 @@ Click any risk card to navigate to filtered certificate views.
 
 ## 10. PKI Explorer
 
-The PKI Explorer (`/pki`) is an interactive force-directed graph showing your entire CA hierarchy.
+The PKI Explorer opens the **PKI Constellation** (`/constellation`; the old `/pki` address redirects to it). It is an interactive 3D view of your CA hierarchy built with three.js: each node is a root CA, an intermediate CA or an end-entity certificate, colored by health grade. Clients without WebGL get a flat 2D view of the same graph.
 
 ### Navigating the Graph
 
-- **Pan:** Click and drag the background
-- **Zoom:** Scroll wheel
-- **Hover:** Tooltip with CA name, grade, cert count, expiry stats
+- **Orbit and zoom:** Drag to rotate the view, scroll to zoom
+- **Zoom buttons:** Zoom in, zoom out and "Fit all to view" at the bottom right
+- **Hover:** Tooltip with the node name, grade and certificate counts
 
 ### Inspecting a Node
 
 Click any node to open the **detail panel** on the right:
-- Grade, cert count, expired/expiring stats, avg score
-- Overview tab: key algorithm, fingerprint, validity dates, issuer
-- Findings tab: health findings with severity and remediation
-- Children tab: child certificates issued by this CA
-- Action buttons: "Expand in Graph" and "Blast Radius"
+- Grade, certificate count, expired count, count expiring within 30 days, and average score
+- Type (Root CA, Intermediate CA or End Entity), key algorithm and size, and fingerprint
+- A "View full detail" link to the certificate page
+- For CAs, the buttons "Expand in Graph" (loads the CA's children into the graph) and "Blast Radius"
 
 ### Blast Radius
 
-Right-click a CA node (or click "Blast Radius" in the detail panel) to see every certificate that CA signed, recursively. The graph dims non-affected nodes and shows a summary badge with total certs, expired count, and grade F count.
+Click a root or intermediate CA, then "Blast Radius" in the detail panel, to see every certificate that CA signed. Nodes outside that set are dimmed. Click the background, or press Escape (once the detail panel is closed), to leave blast-radius mode.
 
-### Search
+### Search and Filters
 
-The toolbar search bar finds nodes in the graph (client-side) and certificates not yet loaded (server-side fallback). Click a result to open its detail panel.
+The toolbar search box dims every node whose name, organization or fingerprint prefix does not match. The grade pills (A+ to F) and the **Expired** pill dim nodes that do not match the selected grades or have no expired certificates.
 
 ---
 
 ## 11. Analytics
 
-The Analytics page (`/analytics`) has five tabs:
+The Analytics page (`/analytics`) has seven tabs: Chain Flow, Ownership, Crypto Posture, Expiry Forecast, Source Lineage, Library Distribution and SSH Key Analytics.
 
 ### Chain Flow
 
 A Sankey diagram showing certificate trust flow: Root CAs → Intermediates → Leaf certificates. Each flow is colored by its root CA family. Link width represents certificate count.
 
 - Hover a link to see cert count, expired count, and worst grade
-- Click a CA node to navigate to the PKI Explorer
+- Click a CA node to open it in the PKI Constellation
 - Click a leaf aggregate to see those certificates
 
 ### Ownership
@@ -431,12 +442,20 @@ A 52-week stacked bar chart showing upcoming certificate expirations, broken dow
 
 ### Source Lineage
 
-Cards for each discovery source (Zeek passive, active scan, manual upload, Corelight, etc.) with:
-- Category icon (network, upload, scan, cloud, repository)
+One card for each discovery source recorded on your certificates (certificates from the Zeek sensor and from PCAP files show as Zeek Passive; a source the page has no label for is shown under its recorded name) with:
+- Category icon (network, upload, scan, cloud, repository, platform)
 - Cert count, expired count, expiring <30d, average score
 - Grade distribution mini-bar
 - Key algorithm pills
 - First/last seen dates
+
+### Library Distribution
+
+A treemap of the crypto libraries found on hosts, sized by host count, with libraries that have known CVEs in red. It stays empty until a host-based source (osquery) reports library data.
+
+### SSH Key Analytics
+
+Panels for SSH host keys: Key Strength, Key Types, Key Age and Discovery Sources.
 
 ---
 
@@ -497,7 +516,7 @@ The certificate detail page (`/certificates/{fingerprint}`) shows:
 
 Each health finding shows:
 - Severity (critical, high, medium, low)
-- Category (expiration, key_strength, signature, chain, revocation, transparency)
+- Category (expiration, key_strength, signature, chain, revocation, transparency, wildcard, agility)
 - Point deduction
 - Remediation guidance
 
@@ -552,7 +571,7 @@ CipherFlag pushes discovered certificates to Venafi automatically. See the [Vena
 ### Monitoring Push Status
 
 ```bash
-curl http://localhost:8443/api/v1/venafi/status
+curl -b cookies.txt http://localhost:8443/api/v1/venafi/status
 ```
 
 | Field | Meaning |
@@ -703,7 +722,7 @@ docker compose ps
 docker compose logs -f cipherflag
 
 # Venafi push status
-curl http://localhost:8443/api/v1/venafi/status
+curl -b cookies.txt http://localhost:8443/api/v1/venafi/status
 ```
 
 ### Updating CipherFlag
@@ -747,7 +766,7 @@ docker compose exec postgres psql -U cipherflag -c \
 
 ### Venafi push not working
 
-- Check status: `curl http://localhost:8443/api/v1/venafi/status`
+- Check status: `curl -b cookies.txt http://localhost:8443/api/v1/venafi/status`
 - Look for errors: `docker compose logs cipherflag | grep venafi`
 - For Cloud: verify API key and region match your Venafi Cloud account
 - For TPP: verify the refresh token hasn't expired

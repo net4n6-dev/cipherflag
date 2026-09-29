@@ -29,7 +29,7 @@ friendly inbound license model.
 
 | Dependency | Version | Install |
 |------------|---------|---------|
-| Go | 1.24+ | [go.dev/dl](https://go.dev/dl/) or `brew install go` |
+| Go | 1.25+ | [go.dev/dl](https://go.dev/dl/) or `brew install go` |
 | Node.js | 22+ | [nodejs.org](https://nodejs.org/) or `brew install node` |
 | PostgreSQL | 15+ | [postgresql.org](https://www.postgresql.org/download/) or `brew install postgresql@17` |
 
@@ -52,14 +52,34 @@ psql cipherflag -c "GRANT ALL ON SCHEMA public TO cipherflag;"
 go build -o bin/cipherflag ./cmd/cipherflag/
 ```
 
-### 3. Run migrations
+### 3. Point the config at your database and run migrations
+
+The server reads `config/cipherflag.toml` (or the file named by the
+`CIPHERFLAG_CONFIG` environment variable). There is no environment
+variable or flag for the database URL, and the shipped file points at
+the Docker Compose host `postgres`, so edit these keys first:
+
+```toml
+[server]
+# Defaults are /var/lib/cipherflag/..., which only exists in the Docker image.
+jwt_secret_path = "./dev-jwt-secret.key"
+setup_token_path = "./dev-setup-token"
+
+[storage]
+postgres_url = "postgres://cipherflag:dev@localhost:5432/cipherflag?sslmode=disable"
+```
+
+Do not commit these edits. To keep the tracked file clean, copy it
+instead (`cp config/cipherflag.toml dev.toml`, edit `dev.toml`) and run
+every command below with `CIPHERFLAG_CONFIG=dev.toml`.
 
 ```bash
 ./bin/cipherflag migrate
 ```
 
-This applies the v2.0 baseline migration (26 tables) plus any
-incremental migrations in `internal/store/migrations/`.
+This applies every file in `internal/store/migrations/` (the v2.0
+baseline plus the later incremental migrations) that has not been
+recorded yet.
 
 Note: `cipherflag seed` is a no-op in CE v2.0 — the v1.x demo dataset
 (19 certificates, 206 TLS observations, 10 endpoint profiles) was
@@ -73,7 +93,9 @@ git repo scanner.
 ./bin/cipherflag serve
 ```
 
-The API listens on `http://localhost:8443`.
+The API listens on `http://localhost:8443`. On first start, with no
+admin account, the server logs a setup token (also saved at
+`setup_token_path`); you need it to create the first admin in the web UI.
 
 ### 5. Start the frontend dev server
 
@@ -169,7 +191,6 @@ The frontend is a SvelteKit application in `frontend/`:
 
 - `src/lib/api.ts` -- API client with TypeScript types for all endpoints
 - `src/routes/+page.svelte` -- Certificate landscape graph (Cytoscape.js)
-- `src/routes/upload/` -- PCAP upload page with drag-and-drop
 
 ---
 

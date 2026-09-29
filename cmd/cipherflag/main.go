@@ -284,14 +284,6 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 			Msg("venafi push scheduler started (hot-reload mode)")
 	}
 
-	// CE-flavor: the Zeek log-file ingest poller
-	// (internal/ingest/poller.go) and the legacy PCAP job manager
-	// (internal/ingest/pcap.go) were excluded from the Phase 1 manifest.
-	// CE captures certificate / SSH / library / config evidence through
-	// the osquery webhook + native scanners + git repo scanner. Zeek log
-	// ingest can be re-enabled in a follow-up minor; the unified ingester
-	// + scorer wiring below stays generic enough to accept it.
-
 	// Microsoft Defender for Endpoint connector (off by default).
 	if cfg.Sources.Defender.Enabled {
 		dfCtx, dfCancel := context.WithCancel(ctx)
@@ -564,20 +556,25 @@ func runSeed(ctx context.Context, cfg *config.Config) {
 // adapters, etc.) is not present in CE. CE setup is config-file driven:
 // edit config/cipherflag.toml then run `cipherflag migrate && cipherflag serve`.
 func runSetup() {
-	fmt.Println("CipherFlag CE", Version)
-	fmt.Println()
-	fmt.Println("CE setup is configuration-driven. Quick-start:")
-	fmt.Println()
-	fmt.Println("  1. Copy config/cipherflag.toml.example to config/cipherflag.toml")
-	fmt.Println("  2. Set [storage] postgres_url to your Postgres DSN")
-	fmt.Println("  3. Run: cipherflag migrate")
-	fmt.Println("  4. Run: cipherflag serve")
-	fmt.Println()
-	fmt.Println("For the docker-compose-based smoke deploy:")
-	fmt.Println()
-	fmt.Println("  docker-compose up -d")
-	fmt.Println()
-	fmt.Println("See README.md and CHANGELOG.md for the full v2.0 feature set.")
+	fmt.Print(setupBanner())
+}
+
+// setupBanner returns the text printed by `cipherflag setup`.
+func setupBanner() string {
+	return "CipherFlag CE " + Version + "\n" +
+		"\n" +
+		"CE setup is configuration-driven. Quick-start:\n" +
+		"\n" +
+		"  1. Edit config/cipherflag.toml\n" +
+		"  2. Set [storage] postgres_url to your Postgres DSN\n" +
+		"  3. Run: cipherflag migrate\n" +
+		"  4. Run: cipherflag serve\n" +
+		"\n" +
+		"For the Docker Compose deploy:\n" +
+		"\n" +
+		"  docker compose up -d\n" +
+		"\n" +
+		"See README.md and CHANGELOG.md for the full feature set.\n"
 }
 
 // seedData is a CE-flavor placeholder. The EE seed/ package (synthetic

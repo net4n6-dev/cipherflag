@@ -39,10 +39,18 @@ environment variables; earlier versions of this guide listed some.)
 
 ### Step 3: Verify
 
+Every `/api/v1` route except `auth/login`, `auth/status`, `auth/me` and `auth/setup-admin` needs a session (or an agent token) and returns 401 without one. Log in once and save the cookie (the same file is used by the `-b cookies.txt` examples below):
+
+```bash
+curl -sS -c cookies.txt -X POST http://localhost:8443/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"<your password>"}'
+```
+
 Check the push status:
 
 ```bash
-curl -s http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
+curl -s -b cookies.txt http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
 ```
 
 Expected response:
@@ -129,7 +137,7 @@ takes effect without a restart.
 Same as Cloud — check the push status endpoint:
 
 ```bash
-curl -s http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
+curl -s -b cookies.txt http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
 ```
 
 ---
@@ -217,7 +225,7 @@ The **Export** button on the certificates page in the UI provides the same funct
 - API keys can be rotated in Venafi Cloud under **Preferences** > **API Keys**
 
 **Certificates not appearing**
-- Check the push status endpoint: `curl http://localhost:8443/api/v1/venafi/status`
+- Check the push status endpoint: `curl -b cookies.txt http://localhost:8443/api/v1/venafi/status`
 - Look for push errors in logs: `docker compose logs cipherflag | grep venafi`
 - Certificates appear in Venafi Cloud under **Inventory** > **Certificates** with source "USER_IMPORTED"
 
@@ -243,7 +251,7 @@ The **Export** button on the certificates page in the UI provides the same funct
 ### General
 
 **Dead-lettered certificates**
-- Check status: `curl http://localhost:8443/api/v1/venafi/status` — look at `dead_lettered` count
+- Check status: `curl -b cookies.txt http://localhost:8443/api/v1/venafi/status` and look at the `dead_lettered` count
 - These certificates failed 5+ times and are excluded from push. Common causes: malformed PEM data, missing certificate chain in Venafi.
 - To retry, reset the failure count directly in the database:
   ```sql

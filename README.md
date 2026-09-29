@@ -352,6 +352,7 @@ tree-sitter language bindings, and others).
 
 - [`CHANGELOG.md`](CHANGELOG.md) — release history, breaking changes
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute, license terms
+- [`SECURITY.md`](SECURITY.md): how to report a vulnerability
 - [`NOTICE`](NOTICE) — third-party dependency attributions
 - `discovery-packs/` — osquery queries + bash/PowerShell scripts
   for endpoint discovery
@@ -395,5 +396,6 @@ tree-sitter language bindings, and others).
 ## Reporting issues
 
 Please open issues at https://github.com/net4n6-dev/cipherflag/issues.
-For security issues, see [`SECURITY.md`](SECURITY.md) (if present) or
-email the maintainer (see `LICENSE` for contact info).
+For security vulnerabilities, do not open a public issue: follow
+[`SECURITY.md`](SECURITY.md) and report them privately to
+info@cipherflag.com.

@@ -15,7 +15,7 @@ discovers certificates from network traffic in two ways:
 | Mode | What you need |
 |------|---------------|
 | **Live capture** | A **Linux** host with a capture interface that receives mirrored or tapped traffic (SPAN port, TAP, or cloud traffic mirror), in addition to the management interface you reach the web UI (:8443) on. On Docker Desktop (macOS, Windows) the sensor sees the Docker VM's network, not the machine's. |
-| **Offline PCAP** | Nothing extra, on any platform: copy capture files into `./pcap-input/`. |
+| **Offline PCAP** | Nothing extra, on any platform: copy capture files into `./pcap-input/<job>/` (one subdirectory per capture job). |
 
 See the [How-To Deployment Guide](https://cipherflag.com/howto.html#deployment) for platform-specific setup (on-prem, AWS, Azure).
 

@@ -320,10 +320,10 @@
       <li><a href="#prerequisites" data-num="1">Prerequisites</a></li>
       <li><a href="#deployment" data-num="2">Deployment Guide</a></li>
       <li><a href="#install" data-num="3">Installation</a></li>
-      <li><a href="#setup" data-num="4">Setup Wizard</a></li>
+      <li><a href="#setup" data-num="4">First Login</a></li>
       <li><a href="#manual" data-num="5">Manual Configuration</a></li>
       <li><a href="#verify" data-num="6">Verify Your Deployment</a></li>
-      <li><a href="#pcap" data-num="7">Upload a PCAP</a></li>
+      <li><a href="#pcap" data-num="7">Process a PCAP</a></li>
       <li><a href="#dashboard" data-num="8">Using the Dashboard</a></li>
       <li><a href="#venafi" data-num="9">Venafi Integration</a></li>
       <li><a href="#architecture" data-num="10">Architecture</a></li>
@@ -334,7 +334,7 @@
   <!-- 1. PREREQUISITES -->
   <div class="guide-section" id="prerequisites">
     <h2><span class="step-num">1</span> Prerequisites</h2>
-    <p>CipherFlag runs as three Docker containers. You need Docker 20.10+ and Docker Compose v2+ installed. No other dependencies.</p>
+    <p>CipherFlag runs as up to three Docker containers: PostgreSQL, CipherFlag, and the optional Zeek sensor. You need Docker 20.10+ and Docker Compose v2 (the <code>docker compose</code> command) installed. No other dependencies.</p>
 
     <table class="hw-table">
       <thead>
@@ -348,7 +348,7 @@
     </table>
 
     <h3>Network Requirements for Live Capture</h3>
-    <p>For live certificate discovery, the CipherFlag host requires <strong>two network interfaces</strong>:</p>
+    <p>For live certificate discovery, the CipherFlag host requires <strong>two network interfaces</strong> and must be a <strong>Linux</strong> host (on Docker Desktop the sensor sees the Docker VM's network, not the machine's):</p>
     <table class="hw-table">
       <thead>
         <tr><th>Interface</th><th>Purpose</th><th>Configuration</th></tr>
@@ -358,7 +358,7 @@
         <tr><td><strong>Capture NIC</strong></td><td>Receives mirrored/tapped traffic for Zeek</td><td>Connected to SPAN port, mirror port, or network TAP. No IP required.</td></tr>
       </tbody>
     </table>
-    <p>For <strong>PCAP-only analysis</strong> (offline), only one interface is needed — upload capture files through the web UI.</p>
+    <p>For <strong>PCAP-only analysis</strong> (offline), only one interface is needed: copy capture files into <code>./pcap-input/&lt;job&gt;/</code> (see <a href="#pcap" style="color:var(--blue-link);">Process a PCAP</a>).</p>
   </div>
 
   <!-- 2. DEPLOYMENT GUIDE -->
@@ -433,7 +433,7 @@
   --session-number 1</code></pre>
 
     <p><strong>Step 4: Configure CipherFlag to use the capture ENI</strong></p>
-    <p>In CipherFlag Settings &gt; Sources, select the capture interface (typically <code>eth1</code> or <code>ens6</code> — the second ENI). Or set <code>NETWORK_INTERFACE=eth1</code> in your <code>.env</code> file.</p>
+    <p>Set the capture interface (typically <code>eth1</code> or <code>ens6</code>, the second ENI) as <code>NETWORK_INTERFACE=eth1</code> in your <code>.env</code> file, then start the sensor with <code>docker compose --profile zeek up -d</code>. The Zeek sensor captures on <code>NETWORK_INTERFACE</code>; the interface field in Settings &gt; Sources does not choose it.</p>
 
     <div class="callout callout-info">
       <span class="callout-icon">💡</span>
@@ -473,7 +473,7 @@
   --vnet-tap <span class="code-url">/subscriptions/.../cipherflag-tap</span></code></pre>
 
     <p><strong>Option B: Azure Network Watcher (PCAP analysis)</strong></p>
-    <p>If vTAP isn't available in your region, use Azure Network Watcher to capture packets as PCAP files, then upload them to CipherFlag.</p>
+    <p>If vTAP isn't available in your region, use Azure Network Watcher to capture packets as PCAP files, then copy them into CipherFlag's <code>pcap-input</code> directory.</p>
     <pre><code><span class="code-comment"># Start a packet capture on a VM</span>
 <span class="code-cmd">az network</span> watcher packet-capture create \
   --resource-group <span class="code-url">myResourceGroup</span> \
@@ -482,9 +482,9 @@
   --filters '[{"protocol":"TCP","localPort":"443"}]' \
   --storage-account <span class="code-url">mystorageaccount</span>
 
-<span class="code-comment"># Download the PCAP and upload to CipherFlag</span>
-<span class="code-cmd">curl</span> -X POST http://cipherflag:8443/api/v1/pcap/upload \
-  -F "file=@capture.pcap"</code></pre>
+<span class="code-comment"># Download the PCAP, then give it its own job directory for the sensor</span>
+<span class="code-cmd">mkdir</span> -p pcap-input/tls-capture
+<span class="code-cmd">cp</span> capture.pcap pcap-input/tls-capture/</code></pre>
 
     <div class="callout callout-info">
       <span class="callout-icon">💡</span>
@@ -513,40 +513,33 @@
   <div class="guide-section" id="install">
     <h2><span class="step-num">3</span> Installation</h2>
 
-    <h3>Option A: Install Script (Recommended)</h3>
-    <p>The install script downloads the correct binary for your platform (Linux/macOS, amd64/arm64) and places it in <code>/usr/local/bin</code>.</p>
-    <pre><code><span class="code-cmd">curl</span> -fsSL https://raw.githubusercontent.com/<span class="code-url">net4n6-dev</span>/cipherflag/main/scripts/install.sh | sh
-<span class="code-cmd">cipherflag</span> setup</code></pre>
-
-    <h3>Option B: Clone &amp; Docker Compose</h3>
+    <p>Docker Compose is the install path. Clone the repository, copy the environment file, and start the stack.</p>
     <pre><code><span class="code-cmd">git clone</span> https://github.com/<span class="code-url">net4n6-dev</span>/cipherflag.git
 <span class="code-cmd">cd</span> cipherflag
 <span class="code-cmd">cp</span> .env.example .env          <span class="code-comment"># edit to set NETWORK_INTERFACE</span>
-<span class="code-cmd">docker-compose</span> up -d</code></pre>
+
+<span class="code-comment"># Without the network sensor:</span>
+<span class="code-cmd">docker compose</span> up -d
+
+<span class="code-comment"># With the Zeek network sensor (live capture and PCAP processing):</span>
+<span class="code-cmd">docker compose</span> --profile zeek up -d</code></pre>
 
     <div class="callout callout-info">
       <span class="callout-icon">ℹ</span>
-      <div><p>Pre-built images are published to <code>ghcr.io</code> for both <code>linux/amd64</code> and <code>linux/arm64</code>. Docker Compose will pull them automatically.</p></div>
+      <div><p>Pre-built images are published to <code>ghcr.io</code> (<code>cipherflag-ce</code> and <code>cipherflag-ce-zeek</code>). CipherFlag runs database migrations automatically on first start.</p></div>
     </div>
   </div>
 
   <!-- 4. SETUP WIZARD -->
   <div class="guide-section" id="setup">
-    <h2><span class="step-num">4</span> Setup Wizard</h2>
-    <p>If you used the install script, run <code>cipherflag setup</code> for an interactive walkthrough that handles:</p>
-    <pre><code><span class="code-cmd">cipherflag</span> setup
-
-<span class="code-comment"># The wizard will:</span>
-<span class="code-comment">#  1. Detect available network interfaces</span>
-<span class="code-comment">#  2. Let you select one for live capture (or skip for PCAP-only)</span>
-<span class="code-comment">#  3. Ask for Venafi credentials (optional)</span>
-<span class="code-comment">#  4. Validate the Venafi connection if configured</span>
-<span class="code-comment">#  5. Generate config files (.env, cipherflag.toml)</span>
-<span class="code-comment">#  6. Pull Docker images and start services</span></code></pre>
+    <h2><span class="step-num">4</span> First Login</h2>
+    <p>Open <a href="http://localhost:8443">http://localhost:8443</a>. The first visit shows the <strong>Create Admin Account</strong> page. It asks for the setup token that CipherFlag prints in its server log on startup:</p>
+    <pre><code><span class="code-cmd">docker compose</span> logs cipherflag | grep setup_token</code></pre>
+    <p>Enter the token, then your email, a password (minimum 8 characters) and a display name. This creates the first admin user and signs you in. Later visits go to the login page.</p>
 
     <div class="callout callout-tip">
       <span class="callout-icon">✓</span>
-      <div><p>You can skip Venafi integration during setup and configure it later from the Settings page in the web UI.</p></div>
+      <div><p>The token is also stored in <code>/var/lib/cipherflag/setup-token</code> in the container. Venafi and sources are configured afterwards, in <code>config/cipherflag.toml</code> or the Settings page in the web UI.</p></div>
     </div>
   </div>
 
@@ -555,26 +548,23 @@
     <h2><span class="step-num">5</span> Manual Configuration</h2>
     <p>If you prefer manual setup, two files control everything:</p>
 
-    <h3>.env — Docker Compose variables</h3>
-    <pre><code><span class="code-comment"># Network interface for live capture (leave empty for PCAP-only)</span>
+    <h3>.env: Docker Compose variables</h3>
+    <pre><code><span class="code-comment"># Interface the Zeek sensor captures on (leave empty for PCAP-only)</span>
 NETWORK_INTERFACE=
 
-<span class="code-comment"># PostgreSQL password</span>
-POSTGRES_PASSWORD=<span class="code-flag">changeme</span>
+<span class="code-comment"># Host directory the sensor takes PCAP files from (one subdirectory per job)</span>
+ZEEK_PCAP_DIR=<span class="code-flag">./pcap-input</span>
 
-<span class="code-comment"># Venafi (optional)</span>
-VENAFI_ENABLED=<span class="code-flag">false</span>
-VENAFI_BASE_URL=
-VENAFI_CLIENT_ID=
-VENAFI_REFRESH_TOKEN=
-VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></code></pre>
+<span class="code-comment"># PostgreSQL password. If you change it, change the password in</span>
+<span class="code-comment"># postgres_url under [storage] in config/cipherflag.toml to match.</span>
+POSTGRES_PASSWORD=<span class="code-flag">changeme</span></code></pre>
 
-    <h3>config/cipherflag.toml — Application settings</h3>
-    <p>Controls analysis rules, polling intervals, export settings, and more. See the <a href="https://github.com/net4n6-dev/cipherflag/blob/main/docs/configuration.md">full configuration reference</a> for all options.</p>
+    <h3>config/cipherflag.toml: Application settings</h3>
+    <p>Controls analysis rules, polling intervals, sources, Venafi and other exports, and more. CipherFlag reads no <code>VENAFI_*</code> environment variables; Venafi is set here or under Settings &gt; Venafi. See the <a href="https://github.com/net4n6-dev/cipherflag/blob/main/docs/configuration.md">full configuration reference</a> for all options.</p>
 
     <div class="callout callout-warn">
       <span class="callout-icon">⚠</span>
-      <div><p><strong>Security note:</strong> CipherFlag listens on port 8443. Protect it with network segmentation, a reverse proxy with auth, or host firewall rules. Built-in authentication is available with admin/viewer RBAC.</p></div>
+      <div><p><strong>Security note:</strong> CipherFlag listens on port 8443. Built-in authentication (admin and viewer roles) is always on, but still protect the port with network segmentation, a reverse proxy, or host firewall rules.</p></div>
     </div>
   </div>
 
@@ -583,35 +573,34 @@ VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></
     <h2><span class="step-num">6</span> Verify Your Deployment</h2>
     <p>Once services are running, check that everything is healthy:</p>
     <pre><code><span class="code-comment"># Check container status</span>
-<span class="code-cmd">docker-compose</span> ps
+<span class="code-cmd">docker compose</span> ps
 
-<span class="code-comment"># All three should be "Up":</span>
+<span class="code-comment"># Expected to be "Up":</span>
 <span class="code-comment">#   cipherflag     → API + frontend on :8443</span>
-<span class="code-comment">#   zeek-sensor    → network monitoring</span>
 <span class="code-comment">#   postgres       → database</span>
+<span class="code-comment">#   zeek           → network monitoring (only with --profile zeek)</span>
 
 <span class="code-comment"># Test the API</span>
-<span class="code-cmd">curl</span> -s http://localhost:8443/api/v1/certificates | head</code></pre>
+<span class="code-cmd">curl</span> http://localhost:8443/healthz</code></pre>
 
-    <p>Open <a href="http://localhost:8443">http://localhost:8443</a> in your browser. You'll see the dashboard — if this is a fresh install, it will be empty until certificates are discovered or uploaded.</p>
+    <p>Open <a href="http://localhost:8443">http://localhost:8443</a> in your browser and sign in. A fresh install shows an empty dashboard until a source reports something: the Zeek sensor, the osquery webhook, the scanners, or an enabled connector.</p>
   </div>
 
   <!-- 7. PCAP UPLOAD -->
   <div class="guide-section" id="pcap">
-    <h2><span class="step-num">7</span> Upload a PCAP</h2>
-    <p>The fastest way to see CipherFlag in action is to upload a packet capture file.</p>
-    <pre><code><span class="code-comment"># From the UI:</span>
-<span class="code-comment">#   Navigate to the Upload page → drag &amp; drop a .pcap or .pcapng file</span>
+    <h2><span class="step-num">7</span> Process a PCAP</h2>
+    <p>The fastest way to see CipherFlag in action is to give the Zeek sensor a packet capture file. There is no upload page: captures are copied into a job directory that the sensor watches. Start the stack with the <code>zeek</code> profile (<code>docker compose --profile zeek up -d</code>) first.</p>
+    <pre><code><span class="code-cmd">mkdir</span> -p pcap-input/test-1
+<span class="code-cmd">cp</span> capture.pcap pcap-input/test-1/
 
-<span class="code-comment"># From the CLI:</span>
-<span class="code-cmd">curl</span> -X POST http://localhost:8443/api/v1/pcap \
-  -F "file=@capture.pcap"</code></pre>
+<span class="code-comment"># Check the job: .done means processed, .failed means Zeek could not read the file</span>
+<span class="code-cmd">docker compose</span> exec zeek ls -a /zeek-logs/test-1</code></pre>
 
-    <p>Zeek processes the capture, extracts certificates, and they appear in your inventory within seconds. The upload page shows real-time job status: queued → processing → complete.</p>
+    <p>The sensor waits until the file has been unchanged for 10 seconds, then processes it. CipherFlag reads the job's logs on its next poll (every 30 seconds by default), and the certificates appear in your inventory. Zeek sees a server's certificate in TLS 1.2 and earlier handshakes; in TLS 1.3 the certificate is encrypted, so those sessions yield none.</p>
 
     <div class="callout callout-tip">
       <span class="callout-icon">✓</span>
-      <div><p><strong>Test data:</strong> Don't have a PCAP handy? Capture some TLS traffic with <code>tcpdump -i eth0 -w test.pcap port 443</code>, then upload the file.</p></div>
+      <div><p><strong>Test data:</strong> Don't have a PCAP handy? Capture some TLS traffic with <code>sudo tcpdump -i eth0 -w test.pcap port 443</code>, then copy the file into a job directory as above.</p></div>
     </div>
   </div>
 
@@ -621,10 +610,10 @@ VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></
     <p>The dashboard is organized around the workflow: discover → inspect → assess → act.</p>
 
     <h3>PKI Explorer</h3>
-    <p>The interactive force-directed graph shows your entire CA hierarchy. Click any node to see certificate details, or use blast radius analysis to trace every certificate a CA has signed.</p>
+    <p>The interactive PKI graph (an in-browser 3D constellation, with a 2D fallback) shows your entire CA hierarchy. Click any node to see certificate details, or use blast radius analysis to trace every certificate a CA has signed.</p>
 
     <h3>Analytics</h3>
-    <p>Five tabs give you different views into your certificate posture: chain flow (Sankey diagram), ownership (treemap), crypto posture (donut + heatmap), expiry forecast (stacked timeline), and source lineage (where certificates were discovered).</p>
+    <p>Tabs give you different views into your certificate posture: chain flow (Sankey diagram), ownership (treemap), crypto posture (donut + heatmap), expiry forecast (stacked timeline), source lineage (where certificates were discovered), library distribution, and SSH key analytics.</p>
 
     <h3>Reports</h3>
     <p>Four report types — Domain Certificate, CA Authority, Crypto Compliance, and Expiry Risk — each with drill-down, print, and CSV export.</p>
@@ -639,37 +628,43 @@ VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></
     <p>CipherFlag pushes discovered certificates to Venafi automatically. Both Cloud and on-prem TPP are supported.</p>
 
     <h3>Venafi Cloud</h3>
-    <pre><code><span class="code-comment"># In .env or the Settings page:</span>
-VENAFI_ENABLED=<span class="code-flag">true</span>
-VENAFI_PLATFORM=<span class="code-flag">cloud</span>
-VENAFI_API_KEY=<span class="code-flag">your-api-key</span>
-VENAFI_REGION=<span class="code-flag">us</span>          <span class="code-comment"># or "eu"</span></code></pre>
+    <pre><code><span class="code-comment"># In config/cipherflag.toml (or enter the same values under Settings &gt; Venafi):</span>
+[export.venafi]
+enabled = <span class="code-flag">true</span>
+platform = <span class="code-flag">"cloud"</span>
+api_key = <span class="code-flag">"your-api-key"</span>
+region = <span class="code-flag">"us"</span>          <span class="code-comment"># or "eu"</span>
+push_interval_minutes = <span class="code-flag">60</span></code></pre>
 
     <h3>Venafi TPP (On-Prem)</h3>
-    <pre><code>VENAFI_ENABLED=<span class="code-flag">true</span>
-VENAFI_PLATFORM=<span class="code-flag">tpp</span>
-VENAFI_BASE_URL=<span class="code-flag">https://tpp.example.com/vedsdk</span>
-VENAFI_CLIENT_ID=<span class="code-flag">your-client-id</span>
-VENAFI_REFRESH_TOKEN=<span class="code-flag">your-refresh-token</span>
-VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></code></pre>
+    <pre><code>[export.venafi]
+enabled = <span class="code-flag">true</span>
+platform = <span class="code-flag">"tpp"</span>
+base_url = <span class="code-flag">"https://tpp.example.com"</span>
+client_id = <span class="code-flag">"your-client-id"</span>
+refresh_token = <span class="code-flag">"your-refresh-token"</span>
+folder = <span class="code-flag">"\\VED\\Policy\\Discovered\\CipherFlag"</span>
+push_interval_minutes = <span class="code-flag">60</span></code></pre>
 
-    <p>The push scheduler runs on a configurable interval (default 60 minutes), sending new and updated certificates. Per-certificate failure tracking includes exponential backoff and dead-lettering after 5 failures. Check status at <code>Settings → Venafi</code> or <code>GET /api/v1/venafi/status</code>.</p>
+    <p>Edit the file and run <code>docker compose restart cipherflag</code>, or save the same settings under Settings &gt; Venafi, which takes effect without a restart. CipherFlag reads no <code>VENAFI_*</code> environment variables. See the <a href="https://github.com/net4n6-dev/cipherflag/blob/main/docs/venafi-export.md" style="color:var(--blue-link);">Venafi guide</a> for how to obtain credentials.</p>
+
+    <p>The push scheduler runs on a configurable interval (default 60 minutes), sending new and updated certificates. Per-certificate failure tracking includes exponential backoff and dead-lettering after 5 failures. Check status at <code>Settings &gt; Venafi</code> or <code>GET /api/v1/venafi/status</code> (signed in).</p>
   </div>
 
   <!-- 10. ARCHITECTURE -->
   <div class="guide-section" id="architecture">
     <h2><span class="step-num">10</span> Architecture</h2>
-    <p>CipherFlag runs as three containers orchestrated by Docker Compose:</p>
+    <p>CipherFlag runs as up to three containers orchestrated by Docker Compose (the Zeek sensor is opt-in, via <code>--profile zeek</code>):</p>
 
     <div class="arch-diagram"><span class="dim">┌──────────────────┐</span>     <span class="dim">┌──────────────────┐</span>     <span class="dim">┌──────────────────┐</span>
 <span class="dim">│</span>  <span class="highlight">Zeek Sensor</span>      <span class="dim">│────▶│</span>  <span class="highlight">CipherFlag</span>       <span class="dim">│────▶│</span>  <span class="highlight">PostgreSQL</span>       <span class="dim">│</span>
-<span class="dim">│</span>  zeek 7.x         <span class="dim">│</span>     <span class="dim">│</span>  Go API + SvelteKit<span class="dim">│</span>    <span class="dim">│</span>  v15              <span class="dim">│</span>
-<span class="dim">│</span>  ~120 MB image    <span class="dim">│</span>     <span class="dim">│</span>  ~40 MB image     <span class="dim">│</span>     <span class="dim">│</span>                  <span class="dim">│</span>
+<span class="dim">│</span>  zeek 9           <span class="dim">│</span>     <span class="dim">│</span>  Go API + SvelteKit<span class="dim">│</span>    <span class="dim">│</span>  v16              <span class="dim">│</span>
+<span class="dim">│</span>  (opt-in profile) <span class="dim">│</span>     <span class="dim">│</span>                  <span class="dim">│</span>     <span class="dim">│</span>                  <span class="dim">│</span>
 <span class="dim">└──────────────────┘</span>     <span class="dim">└──────────────────┘</span>     <span class="dim">└──────────────────┘</span>
     SPAN / TAP              :8443 web UI              pg-data volume
     pcap-input vol          zeek-logs vol</div>
 
-    <p>The Zeek sensor watches a network interface for live traffic and processes uploaded PCAPs. CipherFlag's Go backend parses Zeek's JSON logs, scores certificates, and serves the SvelteKit frontend. PostgreSQL stores everything.</p>
+    <p>The Zeek sensor watches a network interface for live traffic and processes PCAPs copied into <code>./pcap-input/&lt;job&gt;/</code>. CipherFlag's Go backend parses Zeek's JSON logs, scores certificates, and serves the SvelteKit frontend. PostgreSQL stores everything.</p>
   </div>
 
   <!-- 11. TROUBLESHOOTING -->
@@ -677,13 +672,13 @@ VENAFI_FOLDER=<span class="code-flag">\VED\Policy\Discovered\CipherFlag</span></
     <h2><span class="step-num">11</span> Troubleshooting</h2>
 
     <h3>Containers won't start</h3>
-    <p>Check <code>docker-compose logs</code> for errors. Common issues: port 8443 already in use, or the <code>.env</code> file has a syntax error.</p>
+    <p>Check <code>docker compose logs</code> for errors. Common issues: port 8443 already in use, the <code>.env</code> file has a syntax error, or <code>POSTGRES_PASSWORD</code> was changed without updating <code>postgres_url</code> in <code>config/cipherflag.toml</code>.</p>
 
     <h3>No certificates appearing</h3>
-    <p>If using live capture, verify your <code>NETWORK_INTERFACE</code> is correct and the container has the necessary capabilities. Try uploading a PCAP first to confirm the pipeline works.</p>
+    <p>Make sure the sensor is running (<code>docker compose --profile zeek up -d</code>). If using live capture, verify your <code>NETWORK_INTERFACE</code> is correct and that you are on a Linux host. Try copying a PCAP into <code>pcap-input/&lt;job&gt;/</code> first to confirm the pipeline works. TLS 1.3 sessions yield no certificates because Zeek cannot see them.</p>
 
     <h3>Venafi push failing</h3>
-    <p>Use <code>GET /api/v1/venafi/status</code> to check for dead-lettered certificates. Verify credentials with the "Test Connection" button in Settings. For TPP, ensure your refresh token hasn't been revoked.</p>
+    <p>Use <code>GET /api/v1/venafi/status</code> (signed in) to check for dead-lettered certificates. Verify credentials with the "Test Connection" button in Settings. For TPP, ensure your refresh token hasn't been revoked.</p>
 
     <h3>Need more help?</h3>
     <p>Check the full documentation in the <a href="https://github.com/net4n6-dev/cipherflag/tree/main/docs">docs/ directory</a> on GitHub, or <a href="https://github.com/net4n6-dev/cipherflag/issues">open an issue</a>.</p>

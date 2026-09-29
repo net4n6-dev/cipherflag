@@ -1,4 +1,8 @@
 # CipherFlag Configuration
+#
+# Keys are documented in docs/configuration.md. Older files may still carry
+# [analysis] expiry_warning_days, [analysis.protocol_policy] and [storage]
+# sqlite_path; CE does not use them.
 
 [server]
 listen = "0.0.0.0:8443"
@@ -9,28 +13,20 @@ frontend_url = "http://localhost:5174"
 # setup_token_path = "/var/lib/cipherflag/setup-token"
 
 [storage]
-# PostgreSQL (primary)
+# PostgreSQL
 postgres_url = "postgres://cipherflag:changeme@postgres:5432/cipherflag?sslmode=disable"
-
-# SQLite fallback (for dev / small deployments)
-# sqlite_path = "./data/cipherflag.db"
 
 [analysis]
 recheck_interval_hours = 6
 scorer_enabled = true
-expiry_warning_days = [30, 60, 90, 180]
-
-[analysis.protocol_policy]
-min_tls_version = "1.2"
-require_forward_secrecy = true
-require_aead = true
-banned_ciphers = ["RC4", "DES", "3DES", "NULL", "EXPORT"]
 
 [sources.zeek_file]
 enabled = true
 log_dir = "/var/log/zeek/current"
 poll_interval_seconds = 30
 
+# Not used by CE: there is no Corelight poller. The table is kept so older
+# files and the sources API still round-trip it.
 [sources.corelight]
 enabled = false
 api_url = ""
