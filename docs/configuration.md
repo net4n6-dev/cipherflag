@@ -402,7 +402,7 @@ This writes `signing.key` (private, mode 0600) and `signing.pub` (public) and pr
 
 The signer (`signer = "file"`, and `signer = "env"` with a PEM value) reads a `PRIVATE KEY` (or `ED25519 PRIVATE KEY`) PEM block; `verify-cbom --trusted-key` reads a `PUBLIC KEY` (or `ED25519 PUBLIC KEY`) PEM block. Each accepts two encodings of an Ed25519 key:
 
-- **Standard**: a PKCS#8 private key and an SPKI public key, as written by `cipherflag generate-signing-key` (2.3.0 and later), OpenSSL, an HSM or a cloud KMS export, and CipherFlag EE 4.11 and later. To make the pair with OpenSSL instead:
+- **Standard**: a PKCS#8 private key and an SPKI public key, as written by `cipherflag generate-signing-key` (2.3.0 and later), OpenSSL, an HSM or a cloud KMS export. To make the pair with OpenSSL instead:
 
       (umask 077; openssl genpkey -algorithm ed25519 -out /etc/cipherflag/signing.key)
       openssl pkey -in /etc/cipherflag/signing.key -pubout -out /etc/cipherflag/signing.pub
@@ -415,7 +415,7 @@ The signer (`signer = "file"`, and `signer = "env"` with a PEM value) reads a `P
 
 With `signer = "env"`, a value that does not start with `-----BEGIN` is read as standard base64 of either encoding's key bytes (PKCS#8 DER or the raw 64 bytes). Other key types (RSA, ECDSA) and a raw private key whose public half does not match its seed are rejected. With signing enabled, a key that cannot be loaded stops `cipherflag serve` at startup, before it connects to the database, with one `FTL` line naming the key file or environment variable and the reason.
 
-CipherFlag CE before 2.3.0 reads only the raw encoding. Its `verify-cbom` misreads a standard `.pub` (from 2.3.0's `generate-signing-key`, OpenSSL or EE 4.11) and reports a trust mismatch for a genuine BOM, and its signer rejects a standard `.key`. Sign and verify with 2.3.0 or later.
+CipherFlag CE before 2.3.0 reads only the raw encoding. Its `verify-cbom` misreads a standard `.pub` (from 2.3.0's `generate-signing-key`, or OpenSSL) and reports a trust mismatch for a genuine BOM, and its signer rejects a standard `.key`. Sign and verify with 2.3.0 or later.
 
 #### Verifying a signed CBOM
 
@@ -468,7 +468,7 @@ Read only by `cipherflag scan-truststore`.
 
 ### `[pcap]`
 
-Not used by CE. PCAP upload is an Enterprise Edition feature; CE has no PCAP upload page or API, and processes PCAP files through the Zeek sensor instead (copy them into `./pcap-input/<job>/`; see `[sources.zeek_file]`). The section (`max_file_size_mb`, `retention_hours`, `input_dir`) is still accepted so that existing configuration files load unchanged, and the settings API still reports it, but nothing in CE reads the values.
+Not used by CE. CE has no PCAP upload page or API; it processes PCAP files through the Zeek sensor instead (copy them into `./pcap-input/<job>/`; see `[sources.zeek_file]`). The section (`max_file_size_mb`, `retention_hours`, `input_dir`) is still accepted so that existing configuration files load unchanged, and the settings API still reports it, but nothing in CE reads the values.
 
 ---
 

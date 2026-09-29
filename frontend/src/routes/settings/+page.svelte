@@ -48,7 +48,7 @@
 	let userError = $state('');
 	let userSuccess = $state('');
 
-	// Sources tab (the API also returns `pcap`; PCAP upload is EE-only, so CE
+	// Sources tab (the API also returns `pcap`; CE has no PCAP upload, so it
 	// ignores it)
 	interface NetworkInterface {
 		name: string; ip: string; is_up: boolean; is_loopback: boolean; mac: string;

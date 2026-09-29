@@ -11,17 +11,10 @@ We do **not** require a Contributor License Agreement (CLA). You retain
 copyright in your contribution; the project receives a non-exclusive
 Apache 2.0 license to use, modify, and redistribute it.
 
-Note: CipherFlag has a related enterprise edition (**CipherFlag EE**)
-with a separate, proprietary license. EE incorporates features developed
-independently in EE, plus a curated subset of features from CE. **Your
-contributions to CE will not flow into EE** under the no-CLA model;
-EE may independently re-implement equivalent functionality, but the
-copyright on your CE contribution stays with you.
-
-This trade-off is deliberate. The maintainer cannot relicense community
-contributions back into the proprietary EE codebase, and the maintainer
-has elected to accept that constraint in exchange for a contributor-
-friendly inbound license model.
+Because there is no CLA, the maintainer cannot relicense community
+contributions: your contribution stays under Apache 2.0, and the
+copyright stays with you. This is deliberate, in exchange for a
+contributor-friendly inbound license model.
 
 ---
 
@@ -83,7 +76,7 @@ recorded yet.
 
 Note: `cipherflag seed` is a no-op in CE v2.0 — the v1.x demo dataset
 (19 certificates, 206 TLS observations, 10 endpoint profiles) was
-removed during the EE→CE port. CE is populated through real ingest
+not shipped with CE. CE is populated through real ingest
 paths: the osquery webhook, the native Layer 2 scanners, and the
 git repo scanner.
 

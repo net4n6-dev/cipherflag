@@ -551,9 +551,8 @@ func runSeed(ctx context.Context, cfg *config.Config) {
 	log.Info().Msg("seed data loaded successfully")
 }
 
-// runSetup prints a CE-flavor startup banner. The EE interactive
-// setup wizard (which configures Venafi push, AI license, endpoint
-// adapters, etc.) is not present in CE. CE setup is config-file driven:
+// runSetup prints a CE-flavor startup banner. CE has no interactive
+// setup wizard; setup is config-file driven:
 // edit config/cipherflag.toml then run `cipherflag migrate && cipherflag serve`.
 func runSetup() {
 	fmt.Print(setupBanner())
@@ -577,10 +576,8 @@ func setupBanner() string {
 		"See README.md and CHANGELOG.md for the full feature set.\n"
 }
 
-// seedData is a CE-flavor placeholder. The EE seed/ package (synthetic
-// hosts, scan jobs, ai_ledger, teams, blast-radius fixtures) is not
-// included in CE — those tables back EE-only features. Operators
-// populate the CE database through real ingest paths (osquery webhook,
+// seedData is a CE-flavor placeholder: CE ships no synthetic seed
+// dataset. Operators populate the CE database through real ingest paths (osquery webhook,
 // Zeek logs, native scanners, git repo scanner).
 func seedData(_ context.Context, _ *store.PostgresStore) error {
 	log.Info().Msg("seedData: CE has no built-in seed dataset; use the live ingest paths (osquery, Zeek, scanners) to populate.")

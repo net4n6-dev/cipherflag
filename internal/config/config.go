@@ -427,8 +427,8 @@ type VenafiExportConfig struct {
 	PushIntervalMinutes int    `toml:"push_interval_minutes"`
 }
 
-// PCAPConfig is the [pcap] block. Not used by CE: PCAP upload and processing
-// are Enterprise Edition features. It is still parsed, and reported by the
+// PCAPConfig is the [pcap] block. Not used by CE: CE has no PCAP upload
+// or in-process PCAP processing (the Zeek sensor handles PCAP files). It is still parsed, and reported by the
 // settings API, so existing configuration files load unchanged.
 type PCAPConfig struct {
 	MaxFileSizeMB  int    `toml:"max_file_size_mb"`

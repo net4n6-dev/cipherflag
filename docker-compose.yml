@@ -24,11 +24,6 @@
 # host network is the VM's). Without NETWORK_INTERFACE it only processes
 # PCAPs dropped into ./pcap-input/<job>/. cipherflag reads its logs from
 # the zeek-logs volume.
-#
-# EE-only services NOT included:
-#   - The container-image scanner binary (Layer 6.2 EE)
-#   - Velociraptor / Wazuh / Defender / SentinelOne / Tanium / Absolute /
-#     Netwrix sidecars (Layer 3 EE adapters)
 
 services:
   postgres:
