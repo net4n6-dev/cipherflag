@@ -33,7 +33,9 @@ func NewCertHandler(s store.CertStore) *CertHandler {
 	return &CertHandler{store: s}
 }
 
-func (h *CertHandler) List(w http.ResponseWriter, r *http.Request) {
+// certSearchQueryFromRequest reads the certificate list filters, sort and
+// paging from the query string. The list and the export share it.
+func certSearchQueryFromRequest(r *http.Request) store.CertSearchQuery {
 	q := store.CertSearchQuery{
 		Search:   r.URL.Query().Get("search"),
 		Grade:    r.URL.Query().Get("grade"),
@@ -68,6 +70,11 @@ func (h *CertHandler) List(w http.ResponseWriter, r *http.Request) {
 		v, _ := strconv.Atoi(ed)
 		q.ExpiringWithinDays = &v
 	}
+	return q
+}
+
+func (h *CertHandler) List(w http.ResponseWriter, r *http.Request) {
+	q := certSearchQueryFromRequest(r)
 
 	result, err := h.store.SearchCertificates(r.Context(), q)
 	if err != nil {

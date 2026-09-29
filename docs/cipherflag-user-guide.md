@@ -513,32 +513,50 @@ curl http://localhost:8443/api/v1/venafi/status
 
 ## 17. Exporting Data
 
+`GET /api/v1/export/certificates` returns your certificate inventory as a download. Any signed-in user (including viewers) and any agent token may call it. The format is CSV unless you pass `format=json`; any other `format` value is rejected with a 400.
+
+The CSV columns, in order, are:
+
+`fingerprint_sha256`, `subject_cn`, `subject_org`, `issuer_cn`, `issuer_org`, `serial_number`, `not_before`, `not_after`, `days_until_expiry`, `key_algorithm`, `key_size_bits`, `signature_algorithm`, `subject_alt_names`, `is_ca`, `grade`, `source`, `first_seen`, `last_seen`
+
+Subject alternative names are joined with `;`, times are RFC 3339 in UTC, and `grade` is empty for a certificate with no health report. The JSON export is an array of objects with the same field names (`subject_alt_names` is an array, `key_size_bits` a number, `is_ca` a boolean).
+
+The export accepts the same filters as the certificate list: `search`, `grade` (a comma-separated list such as `D,F`), `source`, `issuer_cn`, `issuer_org`, `subject_ou`, `key_algorithm`, `signature_algorithm`, `server_name`, `tls_version`, `cipher_strength`, `is_ca`, `expired`, `expiring_within_days`, `sort_by` and `sort_dir`. `page` and `page_size` are ignored: the export returns every matching certificate, fetched a page at a time.
+
+In CSV, a text cell that begins with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading single quote so a spreadsheet does not run it as a formula. The JSON export is not altered.
+
+The response is streamed. If the export fails part way, the status has already been sent, so the server aborts the download by dropping the connection: `curl` exits with a non-zero status and a browser marks the download as failed. Run the export again.
+
+Certificates that change while an export runs can make it repeat or miss rows (sorting by `last_seen` or `grade` while ingest is running is the worst case), so de-duplicate on `fingerprint_sha256` when you consume the file.
+
+The examples below authenticate with an agent token and use `-f` so a failed request (for example a 401) is not saved as `certificates.csv`. Instead of the header you can pass `-b cookies.txt` with a session cookie saved after logging in.
+
 ### CSV Export
 
 ```bash
-curl -o certificates.csv "http://localhost:8443/api/v1/export/certificates?format=csv"
+curl -f -H "Authorization: Bearer <agent token>" -o certificates.csv "http://localhost:8443/api/v1/export/certificates?format=csv"
 ```
 
 ### JSON Export
 
 ```bash
-curl -o certificates.json "http://localhost:8443/api/v1/export/certificates?format=json"
+curl -f -H "Authorization: Bearer <agent token>" -o certificates.json "http://localhost:8443/api/v1/export/certificates?format=json"
 ```
 
 ### Filtered Exports
 
 ```bash
 # Only grade F certificates
-curl -o failing.csv "http://localhost:8443/api/v1/export/certificates?format=csv&grade=F"
+curl -f -H "Authorization: Bearer <agent token>" -o failing.csv "http://localhost:8443/api/v1/export/certificates?format=csv&grade=F"
 
 # Expiring within 30 days
-curl -o expiring.csv "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
+curl -f -H "Authorization: Bearer <agent token>" -o expiring.csv "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
 
 # ECDSA certificates only
-curl -o ecdsa.json "http://localhost:8443/api/v1/export/certificates?format=json&key_algorithm=ECDSA"
+curl -f -H "Authorization: Bearer <agent token>" -o ecdsa.json "http://localhost:8443/api/v1/export/certificates?format=json&key_algorithm=ECDSA"
 
 # Certificates from a specific issuer
-curl -o digicert.csv "http://localhost:8443/api/v1/export/certificates?format=csv&issuer_org=DigiCert+Inc"
+curl -f -H "Authorization: Bearer <agent token>" -o digicert.csv "http://localhost:8443/api/v1/export/certificates?format=csv&issuer_org=DigiCert+Inc"
 ```
 
 ---
@@ -608,8 +626,8 @@ All endpoints are under `/api/v1/`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/export/certificates?format=csv` | CSV download |
-| GET | `/export/certificates?format=json` | JSON download |
+| GET | `/export/certificates` | CSV download (the default; accepts the certificate list filters, ignores `page` and `page_size`) |
+| GET | `/export/certificates?format=json` | JSON download (an array of objects with the CSV field names) |
 
 ---
 

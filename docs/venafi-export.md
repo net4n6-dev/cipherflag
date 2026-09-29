@@ -180,25 +180,27 @@ For organizations that prefer manual import or use a different CLM platform:
 ### CSV Export
 
 ```bash
-curl -o certificates.csv "http://localhost:8443/api/v1/export/certificates?format=csv"
+curl -f -H "Authorization: Bearer <agent token>" -o certificates.csv "http://localhost:8443/api/v1/export/certificates?format=csv"
 ```
 
-The CSV columns are aligned with the Venafi bulk import template.
+The export is a plain certificate inventory with these columns: `fingerprint_sha256`, `subject_cn`, `subject_org`, `issuer_cn`, `issuer_org`, `serial_number`, `not_before`, `not_after`, `days_until_expiry`, `key_algorithm`, `key_size_bits`, `signature_algorithm`, `subject_alt_names`, `is_ca`, `grade`, `source`, `first_seen`, `last_seen`. Mapping it to the import template of a CLM tool is up to the operator.
+
+The examples authenticate with an agent token and use `-f` so a failed request (for example a 401) is not saved as `certificates.csv`; you can pass `-b cookies.txt` with a session cookie instead. If an export fails part way the server drops the connection, so `curl` exits non-zero and a browser marks the download as failed; run it again. Certificates that change while an export runs can make it repeat or miss rows (sorting by `last_seen` or `grade` under live ingest is the worst case), so de-duplicate on `fingerprint_sha256`.
 
 ### JSON Export
 
 ```bash
-curl -o certificates.json "http://localhost:8443/api/v1/export/certificates?format=json"
+curl -f -H "Authorization: Bearer <agent token>" -o certificates.json "http://localhost:8443/api/v1/export/certificates?format=json"
 ```
 
 ### Filtering Exports
 
 ```bash
 # Export only failing certificates
-curl -o failing.csv "http://localhost:8443/api/v1/export/certificates?format=csv&grade=D,F"
+curl -f -H "Authorization: Bearer <agent token>" -o failing.csv "http://localhost:8443/api/v1/export/certificates?format=csv&grade=D,F"
 
 # Export certificates expiring within 30 days
-curl -o expiring.csv "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
+curl -f -H "Authorization: Bearer <agent token>" -o expiring.csv "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
 ```
 
 The **Export** button on the certificates page in the UI provides the same functionality.

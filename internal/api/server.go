@@ -211,6 +211,9 @@ func NewRouter(
 				})
 			})
 
+			// Certificate inventory export (CSV or JSON), readable by any authenticated caller
+			r.Get("/export/certificates", certH.Export)
+
 			// CBOM export (Layer 5.1)
 			r.Get("/export/cbom", cbomH.Download)
 			r.Get("/export/cbom/estate", cbomH.DownloadEstate)

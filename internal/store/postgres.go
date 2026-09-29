@@ -362,6 +362,10 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 	if q.SortDir == "desc" {
 		orderBy = strings.Replace(orderBy, "ASC", "DESC", 1)
 	}
+	// Make the order total so OFFSET paging cannot repeat or skip rows that
+	// share a sort value. Added after the direction flip so only the primary
+	// key changes direction.
+	orderBy += ", c.fingerprint_sha256 ASC"
 
 	// Count
 	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM certificates c LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint %s", where)
@@ -399,13 +403,9 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 	// Initialize as empty slice so the JSON response emits `[]` on
 	// zero-match queries — the previous nil slice marshaled as null
 	// and forced every frontend to guard with `?? []`.
-	certs := []model.Certificate{}
-	for rows.Next() {
-		c, err := scanCertificateRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		certs = append(certs, *c)
+	certs, err := certificatesFromRows(rows)
+	if err != nil {
+		return nil, err
 	}
 	rows.Close()
 
@@ -1997,6 +1997,25 @@ func scanCertificate(row pgx.Row) (*model.Certificate, error) {
 	json.Unmarshal(crlJSON, &c.CRLDistributionPoints)
 	json.Unmarshal(sctsJSON, &c.SCTs)
 	return &c, nil
+}
+
+// certificatesFromRows reads every certificate row. The result is a non-nil
+// empty slice when there are none, so JSON responses emit [] rather than null.
+func certificatesFromRows(rows pgx.Rows) ([]model.Certificate, error) {
+	certs := []model.Certificate{}
+	for rows.Next() {
+		c, err := scanCertificateRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		certs = append(certs, *c)
+	}
+	// Next also returns false when the query failed part way; without this
+	// check that looks like a short page.
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return certs, nil
 }
 
 func scanCertificateRows(rows pgx.Rows) (*model.Certificate, error) {

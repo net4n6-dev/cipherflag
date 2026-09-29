@@ -129,6 +129,15 @@ All notable changes to CipherFlag are documented in this file.
   `${POSTGRES_PASSWORD:-changeme}` placeholder the loader does not expand and
   a Zeek `log_dir` that did not match the Compose mount, so the poller never
   found the sensor's logs. `config/cipherflag.toml` is the shipped config.
+- **The Export button on the Certificates page opened a JSON 404.** The route
+  it calls did not exist in CE. `GET /api/v1/export/certificates` now returns
+  every certificate that matches the list filters as CSV (the default) or
+  JSON, walking the inventory a page at a time; spreadsheet formula
+  characters in exported text are neutralized, and a failure part way aborts
+  the download instead of ending a short file cleanly. Certificate searches
+  also now order ties by fingerprint, so paging never repeats or skips rows
+  that share a sort value, and a database error during a search is reported
+  instead of returning a short page.
 - **Documentation described things CE does not do.** The README,
   quickstart, user guide, configuration reference and Venafi guide
   described:
