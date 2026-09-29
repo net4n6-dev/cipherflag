@@ -684,8 +684,14 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseConfigText(string(data))
+}
+
+// parseConfigText decodes config text, applies the defaults and validates it.
+// Empty text yields the defaulted empty config.
+func parseConfigText(text string) (*Config, error) {
 	cfg := newDefaultConfig()
-	if _, err := toml.Decode(string(data), &cfg); err != nil {
+	if _, err := toml.Decode(text, &cfg); err != nil {
 		return nil, err
 	}
 	// Defaults
@@ -849,15 +855,4 @@ func Load(path string) (*Config, error) {
 		cfg.Scanners.JVMKeystorePasswords = []string{"changeit"}
 	}
 	return &cfg, nil
-}
-
-// Save writes the config back to a TOML file.
-func Save(path string, cfg *Config) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	encoder := toml.NewEncoder(f)
-	return encoder.Encode(cfg)
 }

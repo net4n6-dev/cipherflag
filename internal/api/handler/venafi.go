@@ -177,7 +177,7 @@ func (h *VenafiHandler) UpdateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save to TOML file
-	if err := config.Save(h.cfgPath, h.cfg); err != nil {
+	if err := config.SaveSections(h.cfgPath, h.cfg, "export.venafi"); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("saving config: %v", err))
 		return
 	}

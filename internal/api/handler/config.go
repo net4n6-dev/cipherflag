@@ -272,9 +272,23 @@ func (h *ConfigHandler) UpdateSources(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := config.Save(h.cfgPath, h.cfg); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("saving config: %v", err))
-		return
+	// Save only the tables the request carried: the rest of the file may have
+	// been edited by hand since this process loaded it.
+	var tables []string
+	if req.Zeek != nil {
+		tables = append(tables, "sources.zeek_file")
+	}
+	if req.Corelight != nil {
+		tables = append(tables, "sources.corelight")
+	}
+	if req.PCAP != nil {
+		tables = append(tables, "pcap")
+	}
+	if len(tables) > 0 {
+		if err := config.SaveSections(h.cfgPath, h.cfg, tables...); err != nil {
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("saving config: %v", err))
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated", "note": "restart required for changes to take effect"})

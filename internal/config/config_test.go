@@ -137,7 +137,7 @@ func TestSaveAndReload(t *testing.T) {
 	cfg.Export.Venafi.Platform = "cloud"
 	cfg.Export.Venafi.APIKey = "test-key-123"
 
-	err := Save(path, cfg)
+	err := SaveSections(path, cfg, "export.venafi")
 	if err != nil {
 		t.Fatalf("Save failed: %v", err)
 	}

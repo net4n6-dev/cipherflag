@@ -115,6 +115,15 @@ All notable changes to CipherFlag are documented in this file.
     files copied into `./pcap-input/<job>/`.
   - `cipherflag` reads its logs read-only at the configured `log_dir`.
   - A plain `docker compose up` is unchanged.
+- **Saving Settings rewrote the whole config file.** Saving Settings >
+  Sources or Settings > Venafi replaced `config/cipherflag.toml` with a dump
+  of every option, dropping all comments and adding keys the file never had.
+  Settings now rewrites only the tables it edits (`[sources.zeek_file]`,
+  `[sources.corelight]`, `[pcap]` and `[export.venafi]`), only when their
+  values changed, and only the tables a request carried. The rest of the file
+  is kept as written, the previous file is kept as `cipherflag.toml.bak`, the
+  write is atomic, a file Settings cannot patch safely is left untouched, and
+  a config that cannot be written gives a message that says what to do.
 - **Documentation described things CE does not do.** The README,
   quickstart, user guide, configuration reference and Venafi guide
   described:

@@ -94,3 +94,92 @@ func TestUpdateSources_RoundTripsZeek(t *testing.T) {
 		"enabled": true, "log_dir": "/other/zeek", "poll_interval_seconds": float64(60), "network_interface": "eth2",
 	}, got.Zeek)
 }
+
+// Saving Settings > Sources must rewrite only the tables the page edits.
+func TestUpdateSources_OnlyRewritesItsOwnTables(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cipherflag.toml")
+	original := "# hand edited\n[storage]\npostgres_url = \"x\"\n\n[analysis]\n# tuned\nrecheck_interval_hours = 12\n"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	h := NewConfigHandler(cfg, path, nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/config/sources",
+		strings.NewReader(`{"corelight":{"api_url":"https://corelight.example.test"}}`))
+	h.UpdateSources(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	got, _ := os.ReadFile(path)
+	require.True(t, strings.HasPrefix(string(got), original), "the hand-edited file is preserved")
+	require.Contains(t, string(got), "[sources.corelight]")
+	require.NotContains(t, string(got), "rank_formula")
+	require.NotContains(t, string(got), "[sources.zeek_file]", "an unchanged table is not appended")
+	require.NotContains(t, string(got), "[pcap]", "an unchanged table is not appended")
+}
+
+// A save of one table must not revert hand edits made to the others after
+// CipherFlag started.
+func TestUpdateSources_ASaveOfOneTableKeepsHandEditsToTheOthers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cipherflag.toml")
+	require.NoError(t, os.WriteFile(path, []byte("[pcap]\nmax_file_size_mb = 500\n"), 0o644))
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	h := NewConfigHandler(cfg, path, nil)
+	// The operator edits the file while CipherFlag runs.
+	require.NoError(t, os.WriteFile(path, []byte("[pcap]\nmax_file_size_mb = 123\n"), 0o644))
+
+	rec := httptest.NewRecorder()
+	h.UpdateSources(rec, httptest.NewRequest(http.MethodPut, "/api/v1/config/sources",
+		strings.NewReader(`{"corelight":{"api_url":"https://corelight.example.test"}}`)))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	got, _ := os.ReadFile(path)
+	require.Contains(t, string(got), "max_file_size_mb = 123", "the hand-edited pcap table is kept")
+	require.Contains(t, string(got), `api_url = "https://corelight.example.test"`)
+}
+
+// A body that carries no table writes nothing.
+func TestUpdateSources_AnEmptyBodyWritesNothing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cipherflag.toml")
+	original := "[pcap]\nmax_file_size_mb = 123\n"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	h := NewConfigHandler(cfg, path, nil)
+
+	rec := httptest.NewRecorder()
+	h.UpdateSources(rec, httptest.NewRequest(http.MethodPut, "/api/v1/config/sources", strings.NewReader(`{}`)))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	got, _ := os.ReadFile(path)
+	require.Equal(t, original, string(got))
+	_, err = os.Stat(path + ".bak")
+	require.True(t, os.IsNotExist(err))
+}
+
+// A config file that cannot be written gives an actionable 500, not a
+// truncated file.
+func TestUpdateSources_ReadOnlyConfigReturnsAHelpfulError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file permissions do not stop root")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cipherflag.toml")
+	original := "[storage]\npostgres_url = \"x\"\n"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o444))
+	require.NoError(t, os.Chmod(dir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	h := NewConfigHandler(cfg, path, nil)
+
+	rec := httptest.NewRecorder()
+	h.UpdateSources(rec, httptest.NewRequest(http.MethodPut, "/api/v1/config/sources",
+		strings.NewReader(`{"corelight":{"api_url":"https://corelight.example.test"}}`)))
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	require.Contains(t, rec.Body.String(), "read-write")
+	got, _ := os.ReadFile(path)
+	require.Equal(t, original, string(got))
+}

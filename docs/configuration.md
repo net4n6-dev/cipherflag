@@ -23,6 +23,30 @@ everything it does is set in `config/cipherflag.toml` or Settings.
 Venafi is configured in `[export.venafi]` or Settings > Venafi, not in
 `.env`; see [venafi-export.md](venafi-export.md).
 
+Saving from Settings rewrites only the tables Settings edits:
+`[sources.zeek_file]`, `[sources.corelight]`, `[pcap]` and `[export.venafi]`.
+Every other line of the file, comments included, is kept as it is. Inside a
+rewritten table, comments, keys CipherFlag does not know and a trailing comment
+on the `[table]` header line are not kept.
+
+Settings writes the values it shows for the tables you save, so a table you
+edited by hand after CipherFlag started is overwritten when you save that table
+from Settings (the previous file is kept as `cipherflag.toml.bak`). A Sources
+save only rewrites the tables the request carried.
+
+Before it writes, CipherFlag copies the previous file to `cipherflag.toml.bak`
+next to it. That copy holds only the immediately previous version and has the
+same permissions as the config file. It is best effort when the file can be
+replaced atomically; when the file has to be written in place (a config mounted
+as a single file), a failed backup stops the save. In that single-file case the
+`.bak` is written inside the container, not next to the file on the host. The
+new file keeps the owner and permissions of the old one where the platform
+allows it.
+
+A read-only config file (or a read-only mount) makes saves from Settings fail;
+edit the file by hand in that case. A config that is a symlink stays a
+symlink and its target is updated.
+
 ---
 
 ## Application Configuration (`config/cipherflag.toml`)
@@ -208,3 +232,7 @@ services:
     volumes:
       - ./my-config.toml:/app/config/cipherflag.toml:ro
 ```
+
+A read-only mount like this one makes saves from Settings fail with a "not
+writable" error; the file must then be edited by hand. Drop `:ro` (and keep the
+file's directory writable) if you want to save from Settings.
