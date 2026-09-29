@@ -106,8 +106,3 @@ func GetTokenFromCookie(r *http.Request) string {
 	}
 	return cookie.Value
 }
-
-func GenerateSecret(seed string) []byte {
-	h := sha256.Sum256([]byte("cipherflag-jwt-" + seed))
-	return h[:]
-}

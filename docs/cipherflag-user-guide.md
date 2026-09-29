@@ -103,7 +103,8 @@ CE has no interactive setup wizard; it is configured through `.env`,
 prints a short summary).
 
 1. Open `http://<your-ip>:8443`. The first visit shows the **Create Admin
-   Account** page (see [section 6](#6-authentication)).
+   Account** page (it asks for the setup token from the server log or
+   `/var/lib/cipherflag/setup-token`; see [section 6](#6-authentication)).
 2. Choose discovery sources: the Zeek sensor (sections 7 and 8), the osquery
    webhook, the scanners, and the connectors in `config/cipherflag.toml`.
 3. Optionally connect Venafi in **Settings > Venafi** (section 16).
@@ -171,7 +172,12 @@ CipherFlag includes built-in authentication with JWT tokens and role-based acces
 
 ### First-Time Setup
 
-On first visit (or after a fresh install), you'll see the **Create Admin Account** page. Enter your email, password (min 8 characters), and display name. This creates the first admin user and logs you in.
+On first visit (or after a fresh install), you'll see the **Create Admin
+Account** page. Enter the setup token printed in the server log
+(`docker compose logs cipherflag | grep setup_token`) or stored in
+`/var/lib/cipherflag/setup-token`, then your email, password (min 8
+characters) and display name. This creates the first admin user and logs you
+in.
 
 ### Roles
 
@@ -191,9 +197,12 @@ Admins can manage users at **Settings > Users**:
 - Toggle roles between admin and viewer (click the role badge)
 - Delete users (cannot delete your own account)
 
-### Backward Compatibility
+### Before the first admin exists
 
-If no users have been created, CipherFlag runs without authentication — all endpoints are open. This preserves backward compatibility with existing deployments. Authentication enforcement begins when the first user is created.
+Until the first admin account is created, every `/api/v1` route except
+`auth/login`, `auth/status`, `auth/me` and `auth/setup-admin` returns 401
+without a session or an agent token. The web UI itself, `/healthz` and those
+four routes still answer.
 
 ---
 

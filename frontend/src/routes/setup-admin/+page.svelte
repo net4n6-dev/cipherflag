@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { setupAdmin } from '$lib/auth';
 	import favicon from '$lib/assets/favicon.svg';
 
@@ -7,6 +6,7 @@
 	let password = $state('');
 	let confirmPassword = $state('');
 	let displayName = $state('');
+	let setupToken = $state('');
 	let error = $state('');
 	let submitting = $state(false);
 
@@ -22,8 +22,9 @@
 		}
 		submitting = true;
 		try {
-			await setupAdmin(email, password, displayName);
-			goto('/');
+			await setupAdmin(email, password, displayName, setupToken);
+			// The root layout only checks auth on first mount, so a full page load is needed.
+			window.location.assign('/');
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Setup failed';
 		}
@@ -48,6 +49,15 @@
 		{/if}
 
 		<form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+			<label class="field">
+				<span>Setup Token</span>
+				<input type="text" bind:value={setupToken} required autocomplete="off" spellcheck="false"
+					placeholder="64-character token from the server" />
+				<small class="hint">
+					Find it in the server log (<code>docker compose logs cipherflag | grep setup_token</code>)
+					or in <code>/var/lib/cipherflag/setup-token</code> on the server.
+				</small>
+			</label>
 			<label class="field">
 				<span>Display Name</span>
 				<input type="text" bind:value={displayName} required placeholder="e.g. Admin" />
@@ -118,6 +128,9 @@
 		border-radius: 6px; color: var(--cf-text-primary, #e2e8f0);
 		outline: none;
 	}
+
+	.hint { font-size: 0.75rem; color: var(--cf-text-muted, #64748b); }
+	.hint code { font-size: 0.72rem; color: var(--cf-text-secondary, #94a3b8); }
 
 	.field input:focus { border-color: var(--cf-accent, #38bdf8); }
 

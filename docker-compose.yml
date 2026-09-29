@@ -62,6 +62,10 @@ services:
       # The zeek sensor's logs, at config/cipherflag.toml's
       # [sources.zeek_file] log_dir. Empty unless the zeek profile runs.
       - zeek-logs:/var/log/zeek/current:ro
+      # Holds only the session signing key and the first-admin setup token,
+      # no inventory data. Without it a recreated container generates a new
+      # key and signs everyone out.
+      - cipherflag-state:/var/lib/cipherflag
     depends_on:
       postgres:
         condition: service_healthy
@@ -83,6 +87,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  cipherflag-state:
   pg-data:
   scanner-clones:
   zeek-logs:

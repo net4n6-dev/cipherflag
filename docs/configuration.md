@@ -33,6 +33,8 @@ Venafi is configured in `[export.venafi]` or Settings > Venafi, not in
 |-----|---------|-------------|
 | `listen` | `0.0.0.0:8443` | Address and port for the HTTP server. |
 | `frontend_url` | `http://localhost:5174` | Allowed origin for CORS. In Docker, the frontend is served from the same origin so this is not used. For local development, set to the Vite dev server URL. |
+| `jwt_secret_path` | `/var/lib/cipherflag/jwt-secret.key` | File holding the per-install key that signs session cookies. Created on first start with mode 0600. Delete it and restart to rotate the key (everyone is signed out). In Docker it lives on the `cipherflag-state` volume. Removing that volume (for example `docker compose down -v`) deletes the key, so everyone signs in again; it holds no certificate inventory (the database is a separate volume). |
+| `setup_token_path` | `/var/lib/cipherflag/setup-token` | File holding the token required to create the first admin account. Created on first start with mode 0600 and printed in the log while no admin exists. Ignored once an admin exists. To regenerate it, delete the file and restart. Removing the `cipherflag-state` volume (for example `docker compose down -v`) also deletes it: if no admin exists yet, a new token is generated and logged at the next start. |
 
 ### `[storage]`
 

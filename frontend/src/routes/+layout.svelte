@@ -49,11 +49,6 @@
 
 		const user = await getCurrentUser();
 		if (user) {
-			if (user.id === 'anonymous') {
-				// No users exist — redirect to setup
-				goto('/setup-admin');
-				return;
-			}
 			currentUser = user;
 		} else {
 			// Not authenticated — check if users exist

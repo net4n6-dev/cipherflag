@@ -52,6 +52,12 @@ type AIConfig struct {
 type ServerConfig struct {
 	Listen      string `toml:"listen"`
 	FrontendURL string `toml:"frontend_url"`
+	// JWTSecretPath is the file holding the per-install session signing key.
+	// Empty means auth.DefaultJWTSecretPath.
+	JWTSecretPath string `toml:"jwt_secret_path"`
+	// SetupTokenPath is the file holding the first-admin setup token. Empty
+	// means auth.DefaultSetupTokenPath.
+	SetupTokenPath string `toml:"setup_token_path"`
 }
 
 type StorageConfig struct {

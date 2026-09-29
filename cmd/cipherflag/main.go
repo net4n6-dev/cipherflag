@@ -145,6 +145,32 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		log.Fatal().Err(err).Msg("failed to run migrations")
 	}
 
+	secretPath := cfg.Server.JWTSecretPath
+	if secretPath == "" {
+		secretPath = auth.DefaultJWTSecretPath
+	}
+	jwtSecret, err := auth.LoadOrCreateSecret(secretPath)
+	if err != nil {
+		log.Fatal().Err(err).Str("path", secretPath).
+			Msg("cannot load the session secret; set [server] jwt_secret_path to a writable location")
+	}
+
+	tokenPath := cfg.Server.SetupTokenPath
+	if tokenPath == "" {
+		tokenPath = auth.DefaultSetupTokenPath
+	}
+	setupToken, err := auth.LoadOrCreateToken(tokenPath)
+	if err != nil {
+		log.Fatal().Err(err).Str("path", tokenPath).
+			Msg("cannot load the setup token; set [server] setup_token_path to a writable location")
+	}
+	if has, herr := st.HasUsers(ctx); herr != nil {
+		log.Warn().Err(herr).Str("token_file", tokenPath).Msg("could not check whether an admin account exists")
+	} else if !has {
+		log.Warn().Str("setup_token", setupToken).Str("token_file", tokenPath).
+			Msg("no admin account exists yet: open the web UI and create it with this setup token")
+	}
+
 	// Build the intake observation cache. Shared across CE ingest paths.
 	// If dedup is disabled in config, New returns a no-op cache that
 	// produces byte-identical behaviour to pre-cache ingestion.
@@ -467,8 +493,6 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		log.Info().Str("base_url", cfg.Sources.Netwrix.BaseURL).Msg("netwrix poller started")
 	}
 
-	jwtSecret := auth.GenerateSecret(cfg.Storage.PostgresURL)
-
 	// SSE hub + PostgreSQL LISTEN goroutine (live-update event stream).
 	sseHub := sse.NewHub()
 	go sseHub.Run()
@@ -477,7 +501,7 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	go sse.StartListener(sseCtx, cfg.Storage.PostgresURL, sseHub, log.Logger)
 	log.Info().Msg("SSE hub started")
 
-	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer, sseHub, venafiLive, cbomGen)
+	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, setupToken, sharedCache, scorer, sseHub, venafiLive, cbomGen)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Listen,

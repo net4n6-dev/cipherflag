@@ -15,6 +15,7 @@
 package handler
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 
@@ -27,12 +28,13 @@ import (
 )
 
 type AuthHandler struct {
-	store     store.CertStore
-	jwtSecret []byte
+	store      store.CertStore
+	jwtSecret  []byte
+	setupToken string
 }
 
-func NewAuthHandler(s store.CertStore, jwtSecret []byte) *AuthHandler {
-	return &AuthHandler{store: s, jwtSecret: jwtSecret}
+func NewAuthHandler(s store.CertStore, jwtSecret []byte, setupToken string) *AuthHandler {
+	return &AuthHandler{store: s, jwtSecret: jwtSecret, setupToken: setupToken}
 }
 
 // Status returns whether any users exist (public, no auth).
@@ -90,41 +92,23 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 }
 
 // Me returns the current user profile. Semantically a *status* endpoint
-// rather than a protected resource — always returns 200 with a user
-// object or `user: null`. Moved out of the Auth() middleware group in
-// server.go so a fresh visit without a cookie doesn't produce a console-
-// visible 401 on initial page load.
+// rather than a protected resource: it always returns 200 with a user
+// object or `user: null`. It sits outside the Auth() middleware group in
+// server.go so a fresh visit without a cookie doesn't produce a
+// console-visible 401 on initial page load.
 //
 // Response shapes:
 //
-//	{ "user": { ... }, "authenticated": true }   — valid session
-//	{ "user": <anonymous admin>, "authenticated": false } — no-users no-auth mode
-//	{ "user": null, "authenticated": false }     — no cookie / expired / invalid
+//	{ "user": { ... }, "authenticated": true }   valid session
+//	{ "user": null, "authenticated": false }     no cookie, expired or invalid
 //
-// Callers distinguish `user: null` from `user: {anonymous}` via the
-// user.id field ("anonymous" for no-auth mode). The frontend
-// getCurrentUser() already handles both.
+// Whether first-run setup is needed is answered by Status, not by Me.
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	token := auth.GetTokenFromCookie(r)
 
-	// No cookie — either no-auth mode (no users exist) or unauthenticated.
+	// No cookie: unauthenticated, but return 200 so the status check doesn't
+	// pollute the browser console with a 401 on every initial page load.
 	if token == "" {
-		hasUsers, err := h.store.HasUsers(r.Context())
-		if err == nil && !hasUsers {
-			writeJSON(w, http.StatusOK, map[string]any{
-				"user": map[string]any{
-					"id":           "anonymous",
-					"email":        "admin@localhost",
-					"display_name": "Administrator",
-					"role":         "admin",
-				},
-				"authenticated": false,
-			})
-			return
-		}
-		// Users exist but no cookie — unauthenticated, but return 200
-		// so the status check doesn't pollute the browser console with
-		// a 401 on every initial page load.
 		writeJSON(w, http.StatusOK, map[string]any{
 			"user":          nil,
 			"authenticated": false,
@@ -205,7 +189,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// SetupAdmin creates the first admin user. Returns 403 if users already exist.
+// SetupAdmin creates the first admin user. Returns 403 if users already exist or the X-Setup-Token header does not match the host-held setup token.
 func (h *AuthHandler) SetupAdmin(w http.ResponseWriter, r *http.Request) {
 	has, err := h.store.HasUsers(r.Context())
 	if err != nil {
@@ -214,6 +198,12 @@ func (h *AuthHandler) SetupAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 	if has {
 		writeError(w, http.StatusForbidden, "users already exist")
+		return
+	}
+
+	if h.setupToken == "" ||
+		subtle.ConstantTimeCompare([]byte(h.setupToken), []byte(r.Header.Get("X-Setup-Token"))) != 1 {
+		writeError(w, http.StatusForbidden, "invalid or missing setup token")
 		return
 	}
 

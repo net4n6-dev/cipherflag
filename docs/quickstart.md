@@ -71,7 +71,9 @@ CipherFlag runs database migrations automatically on first start.
 ## Step 4: Open the Dashboard
 
 Open [http://localhost:8443](http://localhost:8443) in your browser. The
-first visit asks you to create the admin account.
+first visit asks you to create the admin account. It also needs the setup
+token printed in the server log:
+`docker compose logs cipherflag | grep setup_token`.
 
 The dashboard is empty until a source reports something: the Zeek sensor,
 the osquery webhook, the scanners, or an enabled connector.

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
 	import { login } from '$lib/auth';
 	import favicon from '$lib/assets/favicon.svg';
 
@@ -13,7 +12,8 @@
 		submitting = true;
 		try {
 			await login(email, password);
-			goto('/');
+			// The root layout only checks auth on first mount, so a full page load is needed.
+			window.location.assign('/');
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Login failed';
 		}

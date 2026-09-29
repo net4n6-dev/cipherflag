@@ -17,7 +17,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 	const res = await fetch(`${BASE}/auth/me`);
 	if (!res.ok) return null;
 	const data = await res.json();
-	return data.user ?? data;
+	return data.user ?? null;
 }
 
 export async function login(email: string, password: string): Promise<AuthUser> {
@@ -38,10 +38,15 @@ export async function logout(): Promise<void> {
 	await fetch(`${BASE}/auth/logout`, { method: 'POST' });
 }
 
-export async function setupAdmin(email: string, password: string, displayName: string): Promise<AuthUser> {
+export async function setupAdmin(
+	email: string,
+	password: string,
+	displayName: string,
+	setupToken: string
+): Promise<AuthUser> {
 	const res = await fetch(`${BASE}/auth/setup-admin`, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
+		headers: { 'Content-Type': 'application/json', 'X-Setup-Token': setupToken.trim() },
 		body: JSON.stringify({ email, password, display_name: displayName }),
 	});
 	if (!res.ok) {

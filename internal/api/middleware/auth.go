@@ -20,8 +20,6 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/net4n6-dev/cipherflag/internal/auth"
 	"github.com/net4n6-dev/cipherflag/internal/model"
@@ -66,33 +64,11 @@ func RequireHumanUser(next http.Handler) http.Handler {
 
 // agentTokenStore is the subset of CryptoStore needed for agent token auth.
 type agentTokenStore interface {
-	HasUsers(ctx context.Context) (bool, error)
 	GetAgentToken(ctx context.Context, tokenHash string) (*model.AgentToken, error)
 	UpdateAgentTokenLastUsed(ctx context.Context, id string) error
 }
 
 func Auth(st agentTokenStore, jwtSecret []byte) func(http.Handler) http.Handler {
-	var (
-		hasUsersCached bool
-		cacheTime      time.Time
-		cacheMu        sync.Mutex
-	)
-
-	checkHasUsers := func(ctx context.Context) bool {
-		cacheMu.Lock()
-		defer cacheMu.Unlock()
-		if time.Since(cacheTime) < 60*time.Second {
-			return hasUsersCached
-		}
-		has, err := st.HasUsers(ctx)
-		if err != nil {
-			return hasUsersCached
-		}
-		hasUsersCached = has
-		cacheTime = time.Now()
-		return has
-	}
-
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check for agent token (Authorization: Bearer header) first.
@@ -113,12 +89,6 @@ func Auth(st agentTokenStore, jwtSecret []byte) func(http.Handler) http.Handler 
 				}
 				// Bearer token present but invalid/revoked -> 401.
 				http.Error(w, `{"error":"invalid or revoked agent token"}`, http.StatusUnauthorized)
-				return
-			}
-
-			// Existing flow: no-auth mode if no users exist.
-			if !checkHasUsers(r.Context()) {
-				next.ServeHTTP(w, r)
 				return
 			}
 
