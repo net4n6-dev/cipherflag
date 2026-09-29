@@ -817,21 +817,27 @@ func (s *PostgresStore) GetBlastRadius(ctx context.Context, fingerprint string, 
 
 // ── Observations ────────────────────────────────────────────────────────────
 
-// RecordObservation stores one TLS session. A session already stored (same
-// certificate, source, time, client, server and port) is left as is, so a
-// source may safely replay its input.
-func (s *PostgresStore) RecordObservation(ctx context.Context, obs *model.CertificateObservation) error {
-	_, err := s.pool.Exec(ctx, `
+const recordObservationSQL = `
 		INSERT INTO observations (cert_fingerprint, server_ip, server_port, server_name, client_ip,
 			negotiated_version, negotiated_cipher, cipher_strength,
 			ja3_fingerprint, ja3s_fingerprint, source, observed_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (cert_fingerprint, source, observed_at, client_ip, server_ip, server_port) DO NOTHING
-	`,
+	`
+
+func observationArgs(obs *model.CertificateObservation) []any {
+	return []any{
 		obs.CertFingerprint, obs.ServerIP, obs.ServerPort, obs.ServerName, obs.ClientIP,
 		string(obs.NegotiatedVersion), obs.NegotiatedCipher, string(obs.CipherStrength),
 		obs.JA3Fingerprint, obs.JA3SFingerprint, string(obs.Source), obs.ObservedAt,
-	)
+	}
+}
+
+// RecordObservation stores one TLS session. A session already stored (same
+// certificate, source, time, client, server and port) is left as is, so a
+// source may safely replay its input.
+func (s *PostgresStore) RecordObservation(ctx context.Context, obs *model.CertificateObservation) error {
+	_, err := s.pool.Exec(ctx, recordObservationSQL, observationArgs(obs)...)
 	return err
 }
 
@@ -866,13 +872,34 @@ func (s *PostgresStore) GetObservations(ctx context.Context, fingerprint string,
 	return obs, nil
 }
 
+// BatchRecordObservations stores TLS sessions in one transaction and one
+// round trip: all of them or, if any row fails, none. Sessions already stored
+// are left as is, as with RecordObservation.
 func (s *PostgresStore) BatchRecordObservations(ctx context.Context, observations []*model.CertificateObservation) error {
+	if len(observations) == 0 {
+		return nil
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	batch := &pgx.Batch{}
 	for _, o := range observations {
-		if err := s.RecordObservation(ctx, o); err != nil {
+		batch.Queue(recordObservationSQL, observationArgs(o)...)
+	}
+	results := tx.SendBatch(ctx, batch)
+	for range observations {
+		if _, err := results.Exec(); err != nil {
+			_ = results.Close()
 			return err
 		}
 	}
-	return nil
+	if err := results.Close(); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // ── Endpoint Profiles ───────────────────────────────────────────────────────

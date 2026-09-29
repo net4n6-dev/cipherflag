@@ -98,7 +98,9 @@ PostgreSQL
   than its offset is read again from the start.
 - **Certificates before sessions:** observations reference certificates, so
   x509 logs are read first. A session whose certificate is not stored is
-  skipped and counted in the poller's log line.
+  kept for up to three polls (about 90 seconds at the default interval)
+  and recorded when its certificate arrives; only if it never does is it
+  counted in the poller's log line.
 - **JSON log format:** Zeek is configured to output JSON, which is simpler
   to parse than Zeek's default TSV format.
 

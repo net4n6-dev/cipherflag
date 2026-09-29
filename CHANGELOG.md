@@ -37,12 +37,45 @@ All notable changes to CipherFlag are documented in this file.
   it was read. The poller now treats only certificates ingest reports as
   stored as known, and a file that fails is reported after the others have
   been read (the ssl logs wait for the next poll if an x509 log failed).
+- **A certificate Go could not parse was stored as a blank row.** When the
+  Zeek sensor logged a certificate that OpenSSL accepts and Go rejects (a
+  negative serial number, a malformed extension), the poller sent only the
+  certificate, so the row had no subject, no expiry and no algorithms and was
+  re-parsed on every sighting. It now falls back to the fields in x509.log.
+- **A log line longer than 16 MB stalled its file for good.** The poller
+  reads at most 16 MB of a file per poll and treated a line that did not end
+  inside that as "still being written", so it re-read the same 16 MB on every
+  poll and never reached the lines behind it. A line that cannot complete
+  inside one read is now skipped and counted as unparseable; a line whose
+  newline has not been written yet is still left for the next poll.
+- **A log file that reused a deleted file's inode could be read from the
+  wrong place.** The poller tracks files by device and inode and reset its
+  position only when a file came back smaller. On filesystems that reuse
+  freed inodes quickly (ext4, overlay2), a new log larger than the old
+  position was resumed from the wrong place (mid-line, skipping what came
+  before), and one of exactly the old size was not read at all. A file now
+  restarts from the beginning when a rotated log's identity turns up under
+  another path, or when the byte before its saved position is not a newline.
 - **A large x509 backlog lost the TLS sessions that followed it.** The poller
   reads at most 16 MB of a file per poll, but it read the ssl logs in the same
   poll even when an x509 log had more left. Sessions referencing certificates
   not yet read were dropped as unknown and the ssl position moved past them
   for good, which is the case for an upgrade from 2.3.0 with a big backlog.
   The ssl logs now wait until the x509 logs are caught up.
+- **A TLS session was lost when its certificate reached the disk a moment
+  after the session did.** Zeek writes x509.log and ssl.log from separate
+  threads, so a session's line can be flushed before its certificate's. A
+  poll in that gap counted the session as unknown and moved past it for good.
+  Such an observation is now kept for up to three polls (about 90 seconds at
+  the default interval) and recorded when its certificate arrives, and
+  dropped if it has not arrived by then. At most 50,000 waiting observations
+  are kept (the oldest are dropped first). Nothing behind it is delayed.
+  Sessions still waiting when the service restarts are dropped.
+- **The Zeek poller made one database round trip per observation.** Each TLS
+  session was inserted on its own inside the read loop, up to thousands of
+  sequential inserts per poll on a busy sensor, and a failure part way left
+  half a batch stored. A batch of sessions is now written in one
+  transaction: all of it or none of it.
 - **The Zeek sensor image failed at startup.** `cipherflag-ce-zeek` was
   built on `zeek/zeek:latest`, which moved to Zeek 9, and Zeek 9 removed the
   `extract-certs-pem` policy the sensor loaded. The images published for

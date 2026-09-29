@@ -249,8 +249,10 @@ docker compose logs -f cipherflag | grep 'zeek:'
 # zeek: ingested logs certificates=12 observations=40 observations_unknown_cert=0 ...
 ```
 
-`observations_unknown_cert` counts sessions whose certificate was not in
-the logs read so far; `unparseable_lines` counts log lines that were not
+`observations_unknown_cert` counts sessions whose certificate never arrived:
+such a session is kept for up to three polls (about 90 seconds at the
+default interval) and recorded when its certificate arrives;
+`unparseable_lines` counts log lines that were not
 valid Zeek JSON.
 
 ---

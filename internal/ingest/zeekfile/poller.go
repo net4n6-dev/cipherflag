@@ -24,7 +24,9 @@
 // complete lines are consumed, so a line Zeek is still writing is read on
 // the next poll. The cursor (one entry per file) is kept as JSON in
 // ingestion_state and saved after every batch; entries for files that no
-// longer exist are dropped.
+// longer exist are dropped. An ssl session whose certificate is not stored
+// yet is parked and retried after each of the next three polls, and dropped
+// if the certificate still has not arrived; the cursor never waits for it.
 package zeekfile
 
 import (
@@ -43,6 +45,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/net4n6-dev/cipherflag/internal/certparse"
 	"github.com/net4n6-dev/cipherflag/internal/ingest"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/dedup"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/zeek"
@@ -54,7 +57,7 @@ type Store interface {
 	GetIngestionState(ctx context.Context, sourceName string) (*model.IngestionState, error)
 	SetIngestionState(ctx context.Context, state *model.IngestionState) error
 	GetCertificate(ctx context.Context, fingerprint string) (*model.Certificate, error)
-	RecordObservation(ctx context.Context, obs *model.CertificateObservation) error
+	BatchRecordObservations(ctx context.Context, obs []*model.CertificateObservation) error
 }
 
 // CertIngester is the part of ingest.UnifiedIngester the poller uses.
@@ -76,6 +79,23 @@ const (
 	doneMarker        = ".done"
 )
 
+// maxHeldPolls is how many polls after the one that read it an observation
+// whose certificate is not stored yet is retried before it is dropped. Zeek's
+// x509 and ssl writers flush on their own beat (about a second apart), so a
+// certificate that is going to arrive does within a poll or two.
+const maxHeldPolls = 3
+
+// pendingObs is an observation parked until its certificate is stored.
+type pendingObs struct {
+	obs      *model.CertificateObservation
+	parkedAt int
+}
+
+// maxPendingObs bounds the parked observations (memory). When it is full the
+// oldest are dropped and counted as unknown-certificate sessions. A variable
+// so tests can lower it.
+var maxPendingObs = 50000
+
 // maxReadPerFile bounds what one poll reads from one file, so a large
 // backlog is worked through over several polls. A variable so tests can
 // lower it.
@@ -93,6 +113,11 @@ type Poller struct {
 	// dirMissing is set while LogDir does not exist, so that is logged once
 	// rather than on every poll.
 	dirMissing bool
+	// pending holds observations whose certificate was not stored when their
+	// session was read, and pollSeq numbers the polls. In memory only (lost
+	// on restart), and PollOnce is not called concurrently.
+	pending []pendingObs
+	pollSeq int
 }
 
 // New returns a Poller for cfg.LogDir.
@@ -133,6 +158,8 @@ type cursorEntry struct {
 type logFile struct {
 	kind, path, id string
 	size           int64
+	// job is set for a log under a finished PCAP job directory.
+	job bool
 }
 
 // pollStats counts one poll's work, for the log line.
@@ -160,6 +187,7 @@ func (p *Poller) PollOnce(ctx context.Context) error {
 		}
 	}
 
+	p.pollSeq++
 	var stats pollStats
 	known := map[string]bool{}
 	// A file that fails is reported after the others have been read, so one
@@ -191,6 +219,23 @@ func (p *Poller) PollOnce(ctx context.Context) error {
 			if f.kind == "x509" {
 				x509Failed = true
 			}
+		}
+	}
+	// Parked observations are retried once the x509 files are read, so a
+	// certificate that arrived this poll is stored. Not while an x509 file is
+	// failing or behind: the certificate may be in what was not read, so no
+	// poll is spent on them.
+	if x509Failed || x509Behind {
+		for i := range p.pending {
+			if p.pending[i].parkedAt < p.pollSeq {
+				p.pending[i].parkedAt++
+			}
+		}
+	} else if err := p.retryPending(ctx, known, &stats); err != nil {
+		if firstErr == nil {
+			firstErr = err
+		} else {
+			log.Warn().Err(err).Msg("zeek: retrying parked observations failed")
 		}
 	}
 	if err := p.saveCursor(ctx, cursor); err != nil {
@@ -258,22 +303,46 @@ func (p *Poller) listFiles() ([]logFile, error) {
 				if id == "" {
 					id = "path:" + path
 				}
-				files = append(files, logFile{kind: kind, path: path, id: id, size: fi.Size()})
+				files = append(files, logFile{kind: kind, path: path, id: id, size: fi.Size(), job: dir != p.cfg.LogDir})
 			}
 		}
 	}
 	return files, nil
 }
 
+// rotatedName reports whether path is a rotated log of kind (x509.<stamp>.log)
+// rather than the live one (x509.log).
+func rotatedName(kind, path string) bool {
+	base := filepath.Base(path)
+	return base != kind+".log" && strings.HasPrefix(base, kind+".") && strings.HasSuffix(base, ".log")
+}
+
+// followsNewline reports whether the byte before offset is a newline.
+func followsNewline(fh *os.File, offset int64) bool {
+	var b [1]byte
+	_, err := fh.ReadAt(b[:], offset-1)
+	return err == nil && b[0] == '\n'
+}
+
 // readFile ingests f's complete lines from its cursor on, one batch at a
 // time, saving the cursor after each. hitLimit reports that the read stopped
 // at maxReadPerFile, so more of the file may be left.
 func (p *Poller) readFile(ctx context.Context, f logFile, cursor map[string]cursorEntry, known map[string]bool, stats *pollStats) (hitLimit bool, err error) {
-	offset := cursor[f.id].Offset
-	if f.size < offset {
+	entry := cursor[f.id]
+	offset := entry.Offset
+	// A reused inode whose new file is exactly the stale size is caught only
+	// by the rotated-name rule; the line-boundary check below runs only when
+	// there is something to read (size beyond offset).
+	switch {
+	case f.size < offset:
 		// Truncated in place, or a new file that reused the inode.
 		offset = 0
+	case offset > 0 && rotatedName(f.kind, entry.Path) && entry.Path != f.path:
+		// A rotated file keeps its name for good, so this id under another
+		// path is a new file that reused the inode.
+		offset = 0
 	}
+	start := offset
 	cursor[f.id] = cursorEntry{Path: f.path, Offset: offset}
 	if f.size == offset {
 		return false, nil
@@ -284,6 +353,15 @@ func (p *Poller) readFile(ctx context.Context, f logFile, cursor map[string]curs
 		return false, fmt.Errorf("open %s: %w", f.path, err)
 	}
 	defer fh.Close()
+	if offset > 0 && !followsNewline(fh, offset) {
+		// The cursor only ever rests after a newline, so this is not the
+		// file it was written for (an inode reused by a new file at least
+		// as large as the old offset).
+		log.Warn().Str("file", f.path).Int64("offset", offset).
+			Msg("zeek: cursor is not on a line boundary; reading the file from the start")
+		offset, start = 0, 0
+		cursor[f.id] = cursorEntry{Path: f.path}
+	}
 	if _, err := fh.Seek(offset, io.SeekStart); err != nil {
 		return false, fmt.Errorf("seek %s: %w", f.path, err)
 	}
@@ -297,7 +375,7 @@ func (p *Poller) readFile(ctx context.Context, f logFile, cursor map[string]curs
 		if len(batch) == 0 {
 			return nil
 		}
-		if err := p.process(ctx, f.kind, batch, known, stats); err != nil {
+		if err := p.process(ctx, f.kind, batch, known, stats, !f.job); err != nil {
 			return fmt.Errorf("%s: %w", f.path, err)
 		}
 		offset += batchBytes
@@ -313,6 +391,14 @@ func (p *Poller) readFile(ctx context.Context, f logFile, cursor map[string]curs
 			if !errors.Is(err, io.EOF) {
 				return false, fmt.Errorf("read %s: %w", f.path, err)
 			}
+			if limited.N == 0 && offset == start && len(batch) == 0 {
+				// A whole read cap and no complete data line (comment and
+				// blank lines before it do not count, so batchBytes is not
+				// tested): the line is longer than the cap and can never
+				// complete inside a poll. The capped read began at offset,
+				// so the scan for its newline starts at offset+maxReadPerFile.
+				return false, p.skipOversizedLine(ctx, f, fh, cursor, offset, stats)
+			}
 			return false, flush()
 		}
 		batchBytes += int64(len(line))
@@ -327,12 +413,55 @@ func (p *Poller) readFile(ctx context.Context, f logFile, cursor map[string]curs
 	}
 }
 
-func (p *Poller) process(ctx context.Context, kind string, lines [][]byte, known map[string]bool, stats *pollStats) error {
+// skipOversizedLine moves the cursor past a line that did not end within
+// maxReadPerFile bytes. If its newline is not there yet (Zeek is still
+// writing it) the cursor is left alone and the next poll tries again.
+func (p *Poller) skipOversizedLine(ctx context.Context, f logFile, fh *os.File, cursor map[string]cursorEntry, offset int64, stats *pollStats) error {
+	next, found, err := nextLineStart(fh, offset+maxReadPerFile)
+	if err != nil {
+		return fmt.Errorf("skip long line in %s: %w", f.path, err)
+	}
+	if !found {
+		return nil
+	}
+	log.Warn().Str("file", f.path).Int64("offset", offset).Int64("bytes", next-offset).
+		Msg("zeek: skipped a line longer than the read cap")
+	stats.badLines++
+	cursor[f.id] = cursorEntry{Path: f.path, Offset: next}
+	return p.saveCursor(ctx, cursor)
+}
+
+// nextLineStart returns the offset just past the first newline at or after
+// from, or found == false if the file ends first.
+func nextLineStart(fh *os.File, from int64) (next int64, found bool, err error) {
+	if _, err := fh.Seek(from, io.SeekStart); err != nil {
+		return 0, false, err
+	}
+	buf := make([]byte, 64<<10)
+	pos := from
+	for {
+		n, rerr := fh.Read(buf)
+		if i := bytes.IndexByte(buf[:n], '\n'); i >= 0 {
+			return pos + int64(i) + 1, true, nil
+		}
+		pos += int64(n)
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) {
+				return pos, false, nil
+			}
+			return 0, false, rerr
+		}
+	}
+}
+
+// process handles one batch of lines. park says an ssl session whose
+// certificate is not stored yet may be parked for a later poll.
+func (p *Poller) process(ctx context.Context, kind string, lines [][]byte, known map[string]bool, stats *pollStats, park bool) error {
 	switch kind {
 	case "x509":
 		return p.processX509(ctx, lines, known, stats)
 	case "ssl":
-		return p.processSSL(ctx, lines, known, stats)
+		return p.processSSL(ctx, lines, known, stats, park)
 	}
 	return nil
 }
@@ -375,15 +504,19 @@ func (p *Poller) processX509(ctx context.Context, lines [][]byte, known map[stri
 	return nil
 }
 
-// certDiscovery is the discovery for one x509.log record. With the
-// certificate itself (log-certs-base64), ingest parses it and stores every
-// field, so x509.log's own fields are not sent: they would override the
-// parsed values in their Zeek spelling (upper-case serial, OpenSSL
-// algorithm names). Without it, the record's fields are all there is.
+// certDiscovery is the discovery for one x509.log record. With a certificate
+// Go can parse (log-certs-base64), ingest parses it and stores every field,
+// so x509.log's own fields are not sent: they would override the parsed
+// values in their Zeek spelling (upper-case serial, OpenSSL algorithm
+// names). Without one, or with one Go's parser rejects (OpenSSL accepts
+// certificates Go does not: a negative serial, a malformed extension), the
+// record's fields are all there is, and the unusable PEM is not sent.
 func certDiscovery(rec *zeek.X509Record) dedup.CertDiscovery {
 	fp := strings.ToLower(rec.Fingerprint)
 	if rec.CertPEM != "" {
-		return dedup.CertDiscovery{FingerprintSHA256: fp, RawPEM: rec.CertPEM}
+		if _, err := certparse.ParsePEM([]byte(rec.CertPEM)); err == nil {
+			return dedup.CertDiscovery{FingerprintSHA256: fp, RawPEM: rec.CertPEM}
+		}
 	}
 	c := zeek.MapX509ToCertificate(rec)
 	return dedup.CertDiscovery{
@@ -402,10 +535,15 @@ func certDiscovery(rec *zeek.X509Record) dedup.CertDiscovery {
 }
 
 // processSSL records which server served which certificate. A session
-// whose certificate is not stored is skipped (observations have a foreign
-// key to certificates); x509 logs are read first, so that is a certificate
-// Zeek logged without its x509 record reaching this poller.
-func (p *Poller) processSSL(ctx context.Context, lines [][]byte, known map[string]bool, stats *pollStats) error {
+// references its certificates by foreign key, and x509 logs are read first,
+// but Zeek's x509 and ssl writers flush on their own beat, so a certificate
+// may simply not have reached the disk yet. While park, such an observation
+// is parked and retried by retryPending; nothing waits for it. Otherwise it is
+// dropped and counted. The known observations of the batch are written with
+// one call, and the unknown ones are parked only once that call has succeeded.
+func (p *Poller) processSSL(ctx context.Context, lines [][]byte, known map[string]bool, stats *pollStats, park bool) error {
+	var write, parked []*model.CertificateObservation
+	unknown := 0
 	for _, line := range lines {
 		rec, err := zeek.ParseSSLRecord(line)
 		if err != nil {
@@ -418,16 +556,67 @@ func (p *Poller) processSSL(ctx context.Context, lines [][]byte, known map[strin
 			if err != nil {
 				return err
 			}
-			if !ok {
-				stats.unknownCerts++
-				continue
+			switch {
+			case ok:
+				write = append(write, o)
+			case park:
+				parked = append(parked, o)
+			default:
+				unknown++
 			}
-			if err := p.st.RecordObservation(ctx, o); err != nil {
-				return fmt.Errorf("record observation: %w", err)
-			}
-			stats.observations++
 		}
 	}
+	if len(write) > 0 {
+		if err := p.st.BatchRecordObservations(ctx, write); err != nil {
+			return fmt.Errorf("record observations: %w", err)
+		}
+		stats.observations += len(write)
+	}
+	stats.unknownCerts += unknown
+	for _, o := range parked {
+		if len(p.pending) >= maxPendingObs {
+			p.pending = p.pending[1:]
+			stats.unknownCerts++
+		}
+		p.pending = append(p.pending, pendingObs{obs: o, parkedAt: p.pollSeq})
+	}
+	return nil
+}
+
+// retryPending writes the parked observations whose certificate is stored by
+// now, in one batched call, and drops those parked for maxHeldPolls polls.
+// Observations parked in this poll are left alone. If the lookup or the write
+// fails, the parked list is left as it was.
+func (p *Poller) retryPending(ctx context.Context, known map[string]bool, stats *pollStats) error {
+	keep := make([]pendingObs, 0, len(p.pending))
+	var write []*model.CertificateObservation
+	dropped := 0
+	for _, po := range p.pending {
+		if po.parkedAt >= p.pollSeq {
+			keep = append(keep, po)
+			continue
+		}
+		ok, err := p.certKnown(ctx, po.obs.CertFingerprint, known)
+		if err != nil {
+			return fmt.Errorf("retry parked observations: %w", err)
+		}
+		switch {
+		case ok:
+			write = append(write, po.obs)
+		case p.pollSeq-po.parkedAt >= maxHeldPolls:
+			dropped++
+		default:
+			keep = append(keep, po)
+		}
+	}
+	if len(write) > 0 {
+		if err := p.st.BatchRecordObservations(ctx, write); err != nil {
+			return fmt.Errorf("record observations: %w", err)
+		}
+		stats.observations += len(write)
+	}
+	p.pending = keep
+	stats.unknownCerts += dropped
 	return nil
 }
 
