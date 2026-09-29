@@ -2,6 +2,199 @@
 
 All notable changes to CipherFlag are documented in this file.
 
+## [2.3.1] - 2026-09-29
+
+### Security
+- **Session cookies are now signed with a per-install random key.** The key
+  was previously derived from configuration rather than generated at
+  random, so it was not unique to an install. It is now 32 random bytes
+  kept in `/var/lib/cipherflag/jwt-secret.key` (`[server] jwt_secret_path`),
+  on the new `cipherflag-state` Compose volume. Everyone signs in once after
+  upgrading.
+- **Creating the first admin requires a setup token.** The token is a random
+  value the server keeps in `/var/lib/cipherflag/setup-token` and prints in
+  its log while no admin exists; the setup page and `setup-admin` API take it
+  in an `X-Setup-Token` header.
+- **The API no longer serves unauthenticated requests while no admin
+  exists.** Every `/api/v1` route except `auth/login`, `auth/status`,
+  `auth/me` and `auth/setup-admin` returns 401 without a session or agent
+  token.
+
+### Fixed
+- **The web UI did not redirect a signed-out visitor to the login page.**
+  The current-user check treated the "no user" response as a signed-in
+  user.
+- **A stock install never scored anything.** `analysis.scorer_enabled`
+  defaulted to false and the shipped config did not set it, so the dashboard
+  grade donut, risk cards, health findings, compliance gauge and CBOM findings
+  stayed empty. Scoring is now on by default (set `scorer_enabled = false` to
+  opt out), the shipped configs set it explicitly, `docs/configuration.md`
+  documents it, and `serve` logs a warning when scoring is off.
+- **CipherFlag has not read Zeek logs since 2.0.0.** The 2.0.0 release
+  dropped the Zeek log poller, so from 2.0.0 to 2.3.0 no certificate or TLS
+  session seen by a Zeek sensor reached CipherFlag, although
+  `[sources.zeek_file]`, its Settings tab, the sensor image and the docs all
+  remained. A new poller reads the sensor's `x509` and `ssl` logs from
+  `log_dir`:
+  - It covers live logs, the files Zeek's hourly rotation renames them to,
+    and each offline PCAP job once the sensor has finished it.
+  - Certificates are stored in full from the PEM the sensor now logs;
+    sessions become observations (server, SNI, TLS version, cipher, JA3).
+  - Files are followed across rotation, only complete lines are read, and
+    the position is kept in `ingestion_state`, so a restart resumes where it
+    left off.
+- **Re-reading a Zeek log stored its TLS sessions twice.** Observations were a
+  plain insert with no key, so any re-read (a lost cursor, a failed cursor
+  save, a batch that failed part way) duplicated them, although certificates
+  were unaffected. A session is now unique on certificate, source, time,
+  client, server and port and a repeat is ignored; the upgrade removes
+  duplicates already stored.
+- **One bad certificate could stall the Zeek poller for good.** When ingest
+  skipped a certificate whose fingerprint contradicted its PEM, the poller
+  still took it for stored, so the TLS session that referenced it failed its
+  foreign key on every poll, the ssl position never moved, and no file after
+  it was read. The poller now treats only certificates ingest reports as
+  stored as known, and a file that fails is reported after the others have
+  been read (the ssl logs wait for the next poll if an x509 log failed).
+- **A certificate Go could not parse was stored as a blank row.** When the
+  Zeek sensor logged a certificate that OpenSSL accepts and Go rejects (a
+  negative serial number, a malformed extension), the poller sent only the
+  certificate, so the row had no subject, no expiry and no algorithms and was
+  re-parsed on every sighting. It now falls back to the fields in x509.log.
+- **A log line longer than 16 MB stalled its file for good.** The poller
+  reads at most 16 MB of a file per poll and treated a line that did not end
+  inside that as "still being written", so it re-read the same 16 MB on every
+  poll and never reached the lines behind it. A line that cannot complete
+  inside one read is now skipped and counted as unparseable; a line whose
+  newline has not been written yet is still left for the next poll.
+- **A log file that reused a deleted file's inode could be read from the
+  wrong place.** The poller tracks files by device and inode and reset its
+  position only when a file came back smaller. On filesystems that reuse
+  freed inodes quickly (ext4, overlay2), a new log larger than the old
+  position was resumed from the wrong place (mid-line, skipping what came
+  before), and one of exactly the old size was not read at all. A file now
+  restarts from the beginning when a rotated log's identity turns up under
+  another path, or when the byte before its saved position is not a newline.
+- **A large x509 backlog lost the TLS sessions that followed it.** The poller
+  reads at most 16 MB of a file per poll, but it read the ssl logs in the same
+  poll even when an x509 log had more left. Sessions referencing certificates
+  not yet read were dropped as unknown and the ssl position moved past them
+  for good, which is the case for an upgrade from 2.3.0 with a big backlog.
+  The ssl logs now wait until the x509 logs are caught up.
+- **A TLS session was lost when its certificate reached the disk a moment
+  after the session did.** Zeek writes x509.log and ssl.log from separate
+  threads, so a session's line can be flushed before its certificate's. A
+  poll in that gap counted the session as unknown and moved past it for good.
+  Such an observation is now kept for up to three polls (about 90 seconds at
+  the default interval) and recorded when its certificate arrives, and
+  dropped if it has not arrived by then. At most 50,000 waiting observations
+  are kept (the oldest are dropped first). Nothing behind it is delayed.
+  Sessions still waiting when the service restarts are dropped.
+- **The Zeek poller made one database round trip per observation.** Each TLS
+  session was inserted on its own inside the read loop, up to thousands of
+  sequential inserts per poll on a busy sensor, and a failure part way left
+  half a batch stored. A batch of sessions is now written in one
+  transaction: all of it or none of it.
+- **The Zeek sensor image failed at startup.** `cipherflag-ce-zeek` was
+  built on `zeek/zeek:latest`, which moved to Zeek 9, and Zeek 9 removed the
+  `extract-certs-pem` policy the sensor loaded. The images published for
+  2.3.0 (and `latest`) have this bug:
+  - Live capture exits at once.
+  - Every PCAP job is marked done with no logs.
+
+  The fixed image:
+  - pins Zeek 9.0.0 by digest;
+  - logs each certificate in `x509.log` (`log-certs-base64`);
+  - ignores the invalid TCP checksums that NIC offloading produces, which
+    otherwise made Zeek drop all TLS traffic;
+  - marks a PCAP job Zeek cannot process `.failed` instead of `.done`.
+- **Docker Compose no longer ran the Zeek sensor.** The `zeek` service was
+  removed in 2.0.0. It is back as an opt-in profile,
+  `docker compose --profile zeek up -d`:
+  - It captures on `NETWORK_INTERFACE` (Linux hosts) and processes PCAP
+    files copied into `./pcap-input/<job>/`.
+  - `cipherflag` reads its logs read-only at the configured `log_dir`.
+  - A plain `docker compose up` is unchanged.
+- **Saving Settings rewrote the whole config file.** Saving Settings >
+  Sources or Settings > Venafi replaced `config/cipherflag.toml` with a dump
+  of every option, dropping all comments and adding keys the file never had.
+  Settings now rewrites only the tables it edits (`[sources.zeek_file]`,
+  `[sources.corelight]`, `[pcap]` and `[export.venafi]`), only when their
+  values changed, and only the tables a request carried. The rest of the file
+  is kept as written, the previous file is kept as `cipherflag.toml.bak`, the
+  write is atomic, a file Settings cannot patch safely is left untouched, and
+  a config that cannot be written gives a message that says what to do.
+- **`config/cipherflag.docker.toml` is removed.** Nothing read it, and
+  following its own instructions gave a broken install: it used a
+  `${POSTGRES_PASSWORD:-changeme}` placeholder the loader does not expand and
+  a Zeek `log_dir` that did not match the Compose mount, so the poller never
+  found the sensor's logs. `config/cipherflag.toml` is the shipped config.
+- **The Export button on the Certificates page opened a JSON 404.** The route
+  it calls did not exist in CE. `GET /api/v1/export/certificates` now returns
+  every certificate that matches the list filters as CSV (the default) or
+  JSON, walking the inventory a page at a time; spreadsheet formula
+  characters in exported text are neutralized, and a failure part way aborts
+  the download instead of ending a short file cleanly. Certificate searches
+  also now order ties by fingerprint, so paging never repeats or skips rows
+  that share a sort value, and a database error during a search is reported
+  instead of returning a short page.
+- **The Zeek sensor processed only one capture per job, forgot what it had
+  done, read half-copied files and never cleaned up.** Every capture in a job
+  directory is now processed (one capture keeps the log directory `<job>`;
+  several get `<job>--<file name>`). Processed and failed captures are
+  recorded in `/zeek-logs/.state/<job>/<file name>`, so deleting a log
+  directory no longer re-runs a capture, and a file is only picked up once it
+  has not changed for `PCAP_SETTLE_SECONDS` (default 10). Rotated logs and
+  finished job directories older than `ZEEK_LOG_RETENTION_HOURS` (default 168,
+  0 disables) are removed hourly. Upgrading: the first capture of a job that
+  holds several captures runs once more (the store dedupes it); a job marked
+  `.done` by the broken 2.3.0 sensor without producing logs is still treated
+  as processed, so delete its `/zeek-logs/<job>` directory to reprocess it;
+  logs older than the retention window are removed on the first pass, so set
+  `ZEEK_LOG_RETENTION_HOURS=0` for the first start to keep them.
+- **PCAP job directories with `[`, `*` or `?` in their name were misread.** The
+  poller matched log files by globbing the whole path, so a job directory such
+  as `job--cap[1].pcap` was never ingested and a name with a wildcard pulled
+  in the logs of other, unfinished jobs. Names are now matched literally.
+- **Documentation described things CE does not do.** The README,
+  quickstart, user guide, configuration reference and Venafi guide
+  described:
+  - `VENAFI_*` environment variables (CipherFlag reads none);
+  - a PCAP upload page;
+  - an install script and interactive setup wizard;
+  - the API on port 8080 (it is 8443);
+  - an agent token issued at setup.
+
+  They also said to change `POSTGRES_PASSWORD` without the matching change
+  to `postgres_url`, which leaves CipherFlag unable to connect. All of
+  these are corrected.
+- **More documentation and UI text was wrong.** The Venafi verification
+  `curl` examples ran without a session and got 401; the quickstart and user
+  guide told users to copy a PCAP into `./pcap-input/` instead of
+  `./pcap-input/<job>/`; the configuration reference claimed the binary reads
+  no environment variables besides `CIPHERFLAG_CONFIG`, described keys CE never
+  reads, and omitted the ones it does (endpoint sources, CT sources, `[cbom]`,
+  `[intake.dedup]`, `[attrition]`, `[scanners]`), and suggested a read-only
+  config mount that would break every Settings save. The architecture guide's
+  scoring rules and data model, the analytics and constellation descriptions,
+  `CONTRIBUTING.md` local setup, and the Settings hint for the network
+  interface were out of date, and `docs/howto.html` and `docs/index.html` still
+  carried the v1 claims. `SECURITY.md` now exists, `cipherflag setup` prints
+  the right file name and `docker compose`, and the unused Corelight card is
+  gone from Settings.
+
+### Changed
+- CI (and so the release workflow) builds the Zeek sensor image and runs it
+  over a fixture PCAP before anything is published.
+
+### Notes
+- On upgrade, installs with `[sources.zeek_file] enabled = true` (the
+  default) start reading `log_dir`. That includes any logs already there,
+  worked through 16 MB per file per poll. If nothing writes to `log_dir`,
+  CipherFlag logs one warning and carries on.
+- Zeek sees a server's certificate only in TLS 1.2 and earlier handshakes;
+  TLS 1.3 encrypts it.
+
 ## [2.3.0] - 2026-09-27
 
 ### Security

@@ -30,12 +30,7 @@ import (
 
 type mockStore struct {
 	store.CryptoStore
-	hasUsers bool
-	token    *model.AgentToken
-}
-
-func (m *mockStore) HasUsers(ctx context.Context) (bool, error) {
-	return m.hasUsers, nil
+	token *model.AgentToken
 }
 
 func (m *mockStore) GetAgentToken(ctx context.Context, tokenHash string) (*model.AgentToken, error) {
@@ -59,7 +54,6 @@ func TestAuth_AgentTokenValid(t *testing.T) {
 	tokenHash := hashToken(rawToken)
 
 	st := &mockStore{
-		hasUsers: true,
 		token: &model.AgentToken{
 			ID: "tok-1", Name: "test-agent", TokenHash: tokenHash,
 			TokenPrefix: rawToken[:8], CreatedBy: "admin-1",
@@ -98,7 +92,6 @@ func TestAuth_AgentTokenRevoked(t *testing.T) {
 	revokedAt := time.Now()
 
 	st := &mockStore{
-		hasUsers: true,
 		token: &model.AgentToken{
 			ID: "tok-2", Name: "revoked", TokenHash: tokenHash,
 			TokenPrefix: rawToken[:8], CreatedBy: "admin-1",
@@ -121,7 +114,7 @@ func TestAuth_AgentTokenRevoked(t *testing.T) {
 }
 
 func TestAuth_AgentTokenInvalid(t *testing.T) {
-	st := &mockStore{hasUsers: true}
+	st := &mockStore{}
 
 	handler := Auth(st, []byte("secret"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
@@ -137,12 +130,11 @@ func TestAuth_AgentTokenInvalid(t *testing.T) {
 	}
 }
 
-func TestAuth_AgentTokenWorksWithNoUsers(t *testing.T) {
+func TestAuth_AgentTokenWorksWithoutCookie(t *testing.T) {
 	rawToken := "no-users-token-raw-value-12345"
 	tokenHash := hashToken(rawToken)
 
 	st := &mockStore{
-		hasUsers: false,
 		token: &model.AgentToken{
 			ID: "tok-3", Name: "agent-no-users", TokenHash: tokenHash,
 			TokenPrefix: rawToken[:8], CreatedBy: "seed-admin",
@@ -165,13 +157,13 @@ func TestAuth_AgentTokenWorksWithNoUsers(t *testing.T) {
 		t.Errorf("status = %d, want 200", w.Code)
 	}
 	if gotUser == nil || gotUser.Role != "agent" {
-		t.Error("expected agent auth to work even with no users")
+		t.Error("expected agent auth to work without a cookie")
 	}
 }
 
 func TestAuth_JWTCookieStillWorks(t *testing.T) {
-	secret := auth.GenerateSecret("test-middleware-secret")
-	st := &mockStore{hasUsers: true}
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	st := &mockStore{}
 
 	token, _ := auth.SignJWT(secret, "user-123", "admin@test.com", "admin")
 
@@ -237,5 +229,53 @@ func TestRequireHumanUser_AllowsAdmin(t *testing.T) {
 	}
 	if !called {
 		t.Error("handler should be called for admin role")
+	}
+}
+
+// The 2.3.0 middleware served every request unauthenticated while no user
+// existed. A request with no credentials must now always get 401.
+func TestAuth_NoUsersNoCookie_Returns401(t *testing.T) {
+	st := &mockStore{}
+	called := false
+	h := Auth(st, []byte("0123456789abcdef0123456789abcdef"))(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(200)
+	}))
+	req := httptest.NewRequest("GET", "/api/v1/certificates", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401 with no users and no credentials", w.Code)
+	}
+	if called {
+		t.Error("handler ran for an unauthenticated request")
+	}
+}
+
+// Review focus 3: a cookie signed with the old DSN-derived key must not
+// verify under a per-install random secret.
+func TestAuth_CookieSignedWithLegacyDSNKeyRejected(t *testing.T) {
+	legacy := sha256.Sum256([]byte("cipherflag-jwt-" + "postgres://user:placeholder@db:5432/x"))
+	forged, err := auth.SignJWT(legacy[:], "attacker", "a@example.com", "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The real protection is that no seed-derived key exists any more; this
+	// test pins that a cookie forged with the old DSN-derived key is refused.
+	real := []byte("0123456789abcdef0123456789abcdef")
+	called := false
+	h := Auth(&mockStore{}, real)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(200)
+	}))
+	req := httptest.NewRequest("GET", "/api/v1/certificates", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: forged})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, req)
+	if w.Code != 401 {
+		t.Errorf("status = %d, want 401 for a forged cookie", w.Code)
+	}
+	if called {
+		t.Error("downstream handler must not run for a forged cookie")
 	}
 }

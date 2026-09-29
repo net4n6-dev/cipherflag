@@ -362,6 +362,10 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 	if q.SortDir == "desc" {
 		orderBy = strings.Replace(orderBy, "ASC", "DESC", 1)
 	}
+	// Make the order total so OFFSET paging cannot repeat or skip rows that
+	// share a sort value. Added after the direction flip so only the primary
+	// key changes direction.
+	orderBy += ", c.fingerprint_sha256 ASC"
 
 	// Count
 	countSQL := fmt.Sprintf("SELECT COUNT(*) FROM certificates c LEFT JOIN health_reports h ON c.fingerprint_sha256 = h.cert_fingerprint %s", where)
@@ -399,13 +403,9 @@ func (s *PostgresStore) SearchCertificates(ctx context.Context, q CertSearchQuer
 	// Initialize as empty slice so the JSON response emits `[]` on
 	// zero-match queries — the previous nil slice marshaled as null
 	// and forced every frontend to guard with `?? []`.
-	certs := []model.Certificate{}
-	for rows.Next() {
-		c, err := scanCertificateRows(rows)
-		if err != nil {
-			return nil, err
-		}
-		certs = append(certs, *c)
+	certs, err := certificatesFromRows(rows)
+	if err != nil {
+		return nil, err
 	}
 	rows.Close()
 
@@ -817,17 +817,27 @@ func (s *PostgresStore) GetBlastRadius(ctx context.Context, fingerprint string, 
 
 // ── Observations ────────────────────────────────────────────────────────────
 
-func (s *PostgresStore) RecordObservation(ctx context.Context, obs *model.CertificateObservation) error {
-	_, err := s.pool.Exec(ctx, `
+const recordObservationSQL = `
 		INSERT INTO observations (cert_fingerprint, server_ip, server_port, server_name, client_ip,
 			negotiated_version, negotiated_cipher, cipher_strength,
 			ja3_fingerprint, ja3s_fingerprint, source, observed_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-	`,
+		ON CONFLICT (cert_fingerprint, source, observed_at, client_ip, server_ip, server_port) DO NOTHING
+	`
+
+func observationArgs(obs *model.CertificateObservation) []any {
+	return []any{
 		obs.CertFingerprint, obs.ServerIP, obs.ServerPort, obs.ServerName, obs.ClientIP,
 		string(obs.NegotiatedVersion), obs.NegotiatedCipher, string(obs.CipherStrength),
 		obs.JA3Fingerprint, obs.JA3SFingerprint, string(obs.Source), obs.ObservedAt,
-	)
+	}
+}
+
+// RecordObservation stores one TLS session. A session already stored (same
+// certificate, source, time, client, server and port) is left as is, so a
+// source may safely replay its input.
+func (s *PostgresStore) RecordObservation(ctx context.Context, obs *model.CertificateObservation) error {
+	_, err := s.pool.Exec(ctx, recordObservationSQL, observationArgs(obs)...)
 	return err
 }
 
@@ -862,13 +872,34 @@ func (s *PostgresStore) GetObservations(ctx context.Context, fingerprint string,
 	return obs, nil
 }
 
+// BatchRecordObservations stores TLS sessions in one transaction and one
+// round trip: all of them or, if any row fails, none. Sessions already stored
+// are left as is, as with RecordObservation.
 func (s *PostgresStore) BatchRecordObservations(ctx context.Context, observations []*model.CertificateObservation) error {
+	if len(observations) == 0 {
+		return nil
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	batch := &pgx.Batch{}
 	for _, o := range observations {
-		if err := s.RecordObservation(ctx, o); err != nil {
+		batch.Queue(recordObservationSQL, observationArgs(o)...)
+	}
+	results := tx.SendBatch(ctx, batch)
+	for range observations {
+		if _, err := results.Exec(); err != nil {
+			_ = results.Close()
 			return err
 		}
 	}
-	return nil
+	if err := results.Close(); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // ── Endpoint Profiles ───────────────────────────────────────────────────────
@@ -1966,6 +1997,25 @@ func scanCertificate(row pgx.Row) (*model.Certificate, error) {
 	json.Unmarshal(crlJSON, &c.CRLDistributionPoints)
 	json.Unmarshal(sctsJSON, &c.SCTs)
 	return &c, nil
+}
+
+// certificatesFromRows reads every certificate row. The result is a non-nil
+// empty slice when there are none, so JSON responses emit [] rather than null.
+func certificatesFromRows(rows pgx.Rows) ([]model.Certificate, error) {
+	certs := []model.Certificate{}
+	for rows.Next() {
+		c, err := scanCertificateRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		certs = append(certs, *c)
+	}
+	// Next also returns false when the query failed part way; without this
+	// check that looks like a short page.
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return certs, nil
 }
 
 func scanCertificateRows(rows pgx.Rows) (*model.Certificate, error) {

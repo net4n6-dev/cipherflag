@@ -21,7 +21,7 @@ import (
 	"time"
 )
 
-var testSecret = GenerateSecret("test-secret-seed")
+var testSecret = []byte("0123456789abcdef0123456789abcdef")
 
 func TestSignAndVerifyJWT(t *testing.T) {
 	token, err := SignJWT(testSecret, "user-123", "admin@test.com", "admin")
@@ -49,7 +49,7 @@ func TestSignAndVerifyJWT(t *testing.T) {
 
 func TestVerifyJWTWrongSecret(t *testing.T) {
 	token, _ := SignJWT(testSecret, "user-123", "admin@test.com", "admin")
-	wrongSecret := GenerateSecret("wrong-secret")
+	wrongSecret := []byte("fedcba9876543210fedcba9876543210")
 
 	_, err := VerifyJWT(wrongSecret, token)
 	if err == nil {
@@ -171,21 +171,5 @@ func TestGetTokenFromCookieMissing(t *testing.T) {
 	got := GetTokenFromCookie(req)
 	if got != "" {
 		t.Errorf("expected empty string, got %q", got)
-	}
-}
-
-func TestGenerateSecretDeterministic(t *testing.T) {
-	s1 := GenerateSecret("same-seed")
-	s2 := GenerateSecret("same-seed")
-	if string(s1) != string(s2) {
-		t.Error("same seed should produce same secret")
-	}
-}
-
-func TestGenerateSecretDifferentSeeds(t *testing.T) {
-	s1 := GenerateSecret("seed-a")
-	s2 := GenerateSecret("seed-b")
-	if string(s1) == string(s2) {
-		t.Error("different seeds should produce different secrets")
 	}
 }

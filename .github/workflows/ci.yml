@@ -85,3 +85,20 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+
+  # The published sensor image once failed at startup (its base image moved
+  # to a Zeek release without a policy it loaded) with nothing to catch it.
+  # This builds it and runs it over a fixture PCAP; release.yml runs it too,
+  # through this workflow, before publishing.
+  zeek-sensor:
+    name: Zeek Sensor Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sensor control script tests
+        run: sh docker/zeek/test-entrypoint.sh
+
+      - name: Build the sensor image and process a fixture PCAP
+        run: docker/zeek/test-sensor.sh

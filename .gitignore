@@ -14,6 +14,8 @@ frontend/.svelte-kit/
 .env
 *.pcap
 *.pcapng
+# The Zeek sensor's test fixture (throwaway certificates only).
+!docker/zeek/testdata/*.pcap
 .superpowers/
 .worktrees/
 .claire/
@@ -21,6 +23,11 @@ frontend/.svelte-kit/
 research/
 # Private dev/handover notes — never publish (reference EE internals)
 docs/handover-*.md
+
+# Settings saves keep the previous config as config/cipherflag.toml.bak (it holds
+# the old API tokens and keys) and leave a temp file only after a crash.
+config/*.bak
+config/.cipherflag-*.toml
 
 # Go build artifacts left at repo root by `go build ./cmd/...` with no -o flag.
 /cipherflag

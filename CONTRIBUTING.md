@@ -11,17 +11,10 @@ We do **not** require a Contributor License Agreement (CLA). You retain
 copyright in your contribution; the project receives a non-exclusive
 Apache 2.0 license to use, modify, and redistribute it.
 
-Note: CipherFlag has a related enterprise edition (**CipherFlag EE**)
-with a separate, proprietary license. EE incorporates features developed
-independently in EE, plus a curated subset of features from CE. **Your
-contributions to CE will not flow into EE** under the no-CLA model;
-EE may independently re-implement equivalent functionality, but the
-copyright on your CE contribution stays with you.
-
-This trade-off is deliberate. The maintainer cannot relicense community
-contributions back into the proprietary EE codebase, and the maintainer
-has elected to accept that constraint in exchange for a contributor-
-friendly inbound license model.
+Because there is no CLA, the maintainer cannot relicense community
+contributions: your contribution stays under Apache 2.0, and the
+copyright stays with you. This is deliberate, in exchange for a
+contributor-friendly inbound license model.
 
 ---
 
@@ -29,7 +22,7 @@ friendly inbound license model.
 
 | Dependency | Version | Install |
 |------------|---------|---------|
-| Go | 1.24+ | [go.dev/dl](https://go.dev/dl/) or `brew install go` |
+| Go | 1.25+ | [go.dev/dl](https://go.dev/dl/) or `brew install go` |
 | Node.js | 22+ | [nodejs.org](https://nodejs.org/) or `brew install node` |
 | PostgreSQL | 15+ | [postgresql.org](https://www.postgresql.org/download/) or `brew install postgresql@17` |
 
@@ -52,18 +45,38 @@ psql cipherflag -c "GRANT ALL ON SCHEMA public TO cipherflag;"
 go build -o bin/cipherflag ./cmd/cipherflag/
 ```
 
-### 3. Run migrations
+### 3. Point the config at your database and run migrations
+
+The server reads `config/cipherflag.toml` (or the file named by the
+`CIPHERFLAG_CONFIG` environment variable). There is no environment
+variable or flag for the database URL, and the shipped file points at
+the Docker Compose host `postgres`, so edit these keys first:
+
+```toml
+[server]
+# Defaults are /var/lib/cipherflag/..., which only exists in the Docker image.
+jwt_secret_path = "./dev-jwt-secret.key"
+setup_token_path = "./dev-setup-token"
+
+[storage]
+postgres_url = "postgres://cipherflag:dev@localhost:5432/cipherflag?sslmode=disable"
+```
+
+Do not commit these edits. To keep the tracked file clean, copy it
+instead (`cp config/cipherflag.toml dev.toml`, edit `dev.toml`) and run
+every command below with `CIPHERFLAG_CONFIG=dev.toml`.
 
 ```bash
 ./bin/cipherflag migrate
 ```
 
-This applies the v2.0 baseline migration (26 tables) plus any
-incremental migrations in `internal/store/migrations/`.
+This applies every file in `internal/store/migrations/` (the v2.0
+baseline plus the later incremental migrations) that has not been
+recorded yet.
 
 Note: `cipherflag seed` is a no-op in CE v2.0 — the v1.x demo dataset
 (19 certificates, 206 TLS observations, 10 endpoint profiles) was
-removed during the EE→CE port. CE is populated through real ingest
+not shipped with CE. CE is populated through real ingest
 paths: the osquery webhook, the native Layer 2 scanners, and the
 git repo scanner.
 
@@ -73,7 +86,9 @@ git repo scanner.
 ./bin/cipherflag serve
 ```
 
-The API listens on `http://localhost:8443`.
+The API listens on `http://localhost:8443`. On first start, with no
+admin account, the server logs a setup token (also saved at
+`setup_token_path`); you need it to create the first admin in the web UI.
 
 ### 5. Start the frontend dev server
 
@@ -169,7 +184,6 @@ The frontend is a SvelteKit application in `frontend/`:
 
 - `src/lib/api.ts` -- API client with TypeScript types for all endpoints
 - `src/routes/+page.svelte` -- Certificate landscape graph (Cytoscape.js)
-- `src/routes/upload/` -- PCAP upload page with drag-and-drop
 
 ---
 

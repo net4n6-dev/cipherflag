@@ -43,6 +43,7 @@ import (
 	"github.com/net4n6-dev/cipherflag/internal/ingest/observcache"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/sentinelone"
 	"github.com/net4n6-dev/cipherflag/internal/ingest/tanium"
+	"github.com/net4n6-dev/cipherflag/internal/ingest/zeekfile"
 	"github.com/net4n6-dev/cipherflag/internal/scanner/cachegc"
 	scanscheduler "github.com/net4n6-dev/cipherflag/internal/scanner/scheduler"
 	"github.com/net4n6-dev/cipherflag/internal/sightingsprune"
@@ -55,7 +56,7 @@ import (
 // workflow refuses to publish unless the pushed tag equals v+Version
 // (scripts/check-release-tag.sh), and cmd/cipherflag/version_test.go checks
 // that CHANGELOG.md, frontend/package.json and docker-compose.yml agree.
-const Version = "2.3.0"
+const Version = "2.3.1"
 
 func main() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
@@ -144,6 +145,32 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		log.Fatal().Err(err).Msg("failed to run migrations")
 	}
 
+	secretPath := cfg.Server.JWTSecretPath
+	if secretPath == "" {
+		secretPath = auth.DefaultJWTSecretPath
+	}
+	jwtSecret, err := auth.LoadOrCreateSecret(secretPath)
+	if err != nil {
+		log.Fatal().Err(err).Str("path", secretPath).
+			Msg("cannot load the session secret; set [server] jwt_secret_path to a writable location")
+	}
+
+	tokenPath := cfg.Server.SetupTokenPath
+	if tokenPath == "" {
+		tokenPath = auth.DefaultSetupTokenPath
+	}
+	setupToken, err := auth.LoadOrCreateToken(tokenPath)
+	if err != nil {
+		log.Fatal().Err(err).Str("path", tokenPath).
+			Msg("cannot load the setup token; set [server] setup_token_path to a writable location")
+	}
+	if has, herr := st.HasUsers(ctx); herr != nil {
+		log.Warn().Err(herr).Str("token_file", tokenPath).Msg("could not check whether an admin account exists")
+	} else if !has {
+		log.Warn().Str("setup_token", setupToken).Str("token_file", tokenPath).
+			Msg("no admin account exists yet: open the web UI and create it with this setup token")
+	}
+
 	// Build the intake observation cache. Shared across CE ingest paths.
 	// If dedup is disabled in config, New returns a no-op cache that
 	// produces byte-identical behaviour to pre-cache ingestion.
@@ -187,6 +214,8 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 			Dur("interval", interval).
 			Int("batch_size", cfg.Analysis.RuleSweepBatchSize).
 			Msg("scoring sweeper started")
+	} else {
+		log.Warn().Msg("scoring is disabled (analysis.scorer_enabled = false): no health reports will be written, so grades, findings and compliance stay empty")
 	}
 
 	// Layer 6.1b-4: scan scheduler goroutine.
@@ -254,14 +283,6 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 			Bool("enabled", cfg.Export.Venafi.Enabled).
 			Msg("venafi push scheduler started (hot-reload mode)")
 	}
-
-	// CE-flavor: the Zeek log-file ingest poller
-	// (internal/ingest/poller.go) and the legacy PCAP job manager
-	// (internal/ingest/pcap.go) were excluded from the Phase 1 manifest.
-	// CE captures certificate / SSH / library / config evidence through
-	// the osquery webhook + native scanners + git repo scanner. Zeek log
-	// ingest can be re-enabled in a follow-up minor; the unified ingester
-	// + scorer wiring below stays generic enough to accept it.
 
 	// Microsoft Defender for Endpoint connector (off by default).
 	if cfg.Sources.Defender.Enabled {
@@ -354,6 +375,19 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		}
 		go absPoller.Run(absCtx)
 		log.Info().Str("console_url", cfg.Sources.Absolute.ConsoleURL).Msg("absolute poller started")
+	}
+
+	// Zeek sensor logs (x509.log, ssl.log) from [sources.zeek_file].log_dir.
+	if cfg.Sources.ZeekFile.Enabled {
+		zeekCtx, zeekCancel := context.WithCancel(ctx)
+		defer zeekCancel()
+		zeekIngester := ingest.NewUnifiedIngester(st, ingest.WithObservationCache(sharedCache), ingest.WithScorer(scorer))
+		zeekPoller := zeekfile.New(zeekfile.Config{
+			LogDir:   cfg.Sources.ZeekFile.LogDir,
+			Interval: time.Duration(cfg.Sources.ZeekFile.PollIntervalSeconds) * time.Second,
+		}, st, zeekIngester)
+		go zeekPoller.Run(zeekCtx)
+		log.Info().Str("log_dir", cfg.Sources.ZeekFile.LogDir).Msg("zeek log poller started")
 	}
 
 	// Certificate Transparency: crt.sh (off by default).
@@ -451,8 +485,6 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 		log.Info().Str("base_url", cfg.Sources.Netwrix.BaseURL).Msg("netwrix poller started")
 	}
 
-	jwtSecret := auth.GenerateSecret(cfg.Storage.PostgresURL)
-
 	// SSE hub + PostgreSQL LISTEN goroutine (live-update event stream).
 	sseHub := sse.NewHub()
 	go sseHub.Run()
@@ -461,7 +493,7 @@ func runServe(ctx context.Context, cfg *config.Config, configPath string) {
 	go sse.StartListener(sseCtx, cfg.Storage.PostgresURL, sseHub, log.Logger)
 	log.Info().Msg("SSE hub started")
 
-	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, sharedCache, scorer, sseHub, venafiLive, cbomGen)
+	router := api.NewRouter(st, cfg, configPath, cfg.Server.FrontendURL, jwtSecret, setupToken, sharedCache, scorer, sseHub, venafiLive, cbomGen)
 
 	srv := &http.Server{
 		Addr:         cfg.Server.Listen,
@@ -519,31 +551,33 @@ func runSeed(ctx context.Context, cfg *config.Config) {
 	log.Info().Msg("seed data loaded successfully")
 }
 
-// runSetup prints a CE-flavor startup banner. The EE interactive
-// setup wizard (which configures Venafi push, AI license, endpoint
-// adapters, etc.) is not present in CE. CE setup is config-file driven:
+// runSetup prints a CE-flavor startup banner. CE has no interactive
+// setup wizard; setup is config-file driven:
 // edit config/cipherflag.toml then run `cipherflag migrate && cipherflag serve`.
 func runSetup() {
-	fmt.Println("CipherFlag CE", Version)
-	fmt.Println()
-	fmt.Println("CE setup is configuration-driven. Quick-start:")
-	fmt.Println()
-	fmt.Println("  1. Copy config/cipherflag.toml.example to config/cipherflag.toml")
-	fmt.Println("  2. Set [storage] postgres_url to your Postgres DSN")
-	fmt.Println("  3. Run: cipherflag migrate")
-	fmt.Println("  4. Run: cipherflag serve")
-	fmt.Println()
-	fmt.Println("For the docker-compose-based smoke deploy:")
-	fmt.Println()
-	fmt.Println("  docker-compose up -d")
-	fmt.Println()
-	fmt.Println("See README.md and CHANGELOG.md for the full v2.0 feature set.")
+	fmt.Print(setupBanner())
 }
 
-// seedData is a CE-flavor placeholder. The EE seed/ package (synthetic
-// hosts, scan jobs, ai_ledger, teams, blast-radius fixtures) is not
-// included in CE — those tables back EE-only features. Operators
-// populate the CE database through real ingest paths (osquery webhook,
+// setupBanner returns the text printed by `cipherflag setup`.
+func setupBanner() string {
+	return "CipherFlag CE " + Version + "\n" +
+		"\n" +
+		"CE setup is configuration-driven. Quick-start:\n" +
+		"\n" +
+		"  1. Edit config/cipherflag.toml\n" +
+		"  2. Set [storage] postgres_url to your Postgres DSN\n" +
+		"  3. Run: cipherflag migrate\n" +
+		"  4. Run: cipherflag serve\n" +
+		"\n" +
+		"For the Docker Compose deploy:\n" +
+		"\n" +
+		"  docker compose up -d\n" +
+		"\n" +
+		"See README.md and CHANGELOG.md for the full feature set.\n"
+}
+
+// seedData is a CE-flavor placeholder: CE ships no synthetic seed
+// dataset. Operators populate the CE database through real ingest paths (osquery webhook,
 // Zeek logs, native scanners, git repo scanner).
 func seedData(_ context.Context, _ *store.PostgresStore) error {
 	log.Info().Msg("seedData: CE has no built-in seed dataset; use the live ingest paths (osquery, Zeek, scanners) to populate.")

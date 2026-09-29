@@ -55,6 +55,7 @@ func NewRouter(
 	cfgPath string,
 	frontendURL string,
 	jwtSecret []byte,
+	setupToken string,
 	cache observcache.ObservationCache,
 	scorer scoring.Scorer,
 	sseHub *sse.Hub,
@@ -80,7 +81,7 @@ func NewRouter(
 	statsH := handler.NewStatsHandler(st)
 	reportsH := handler.NewReportsHandler(st)
 	configH := handler.NewConfigHandler(cfg, cfgPath, st)
-	authH := handler.NewAuthHandler(st, jwtSecret)
+	authH := handler.NewAuthHandler(st, jwtSecret, setupToken)
 	agentTokenH := handler.NewAgentTokenHandler(st)
 	unifiedIngester := ingest.NewUnifiedIngester(
 		st,
@@ -209,6 +210,9 @@ func NewRouter(
 					r.Delete("/declared-cas/{fingerprint}", shadowCAH.Revoke)
 				})
 			})
+
+			// Certificate inventory export (CSV or JSON), readable by any authenticated caller
+			r.Get("/export/certificates", certH.Export)
 
 			// CBOM export (Layer 5.1)
 			r.Get("/export/cbom", cbomH.Download)

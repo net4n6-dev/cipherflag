@@ -2,12 +2,12 @@
 // shows and saves back. The response is checked, not trusted: a missing or
 // mistyped field throws, so the page reports the problem instead of showing
 // hard-coded defaults that a Save would then write over the real config.
-// The shape is pinned by src/lib/testdata/sources-config.json, which the
+// Only the Zeek table is editable here; other sections of the response are
+// ignored. The shape is pinned by src/lib/testdata/sources-config.json, which the
 // backend's handler test also checks against.
 
 export interface SourcesConfig {
 	zeek: { enabled: boolean; log_dir: string; poll_interval_seconds: number; network_interface: string };
-	corelight: { enabled: boolean; api_url: string; has_token: boolean };
 }
 
 type FieldType = 'boolean' | 'string' | 'number';
@@ -39,11 +39,6 @@ export function parseSourcesConfig(body: unknown): SourcesConfig {
 			log_dir: 'string',
 			poll_interval_seconds: 'number',
 			network_interface: 'string'
-		}),
-		corelight: fields(root.corelight, 'corelight', {
-			enabled: 'boolean',
-			api_url: 'string',
-			has_token: 'boolean'
 		})
 	};
 }

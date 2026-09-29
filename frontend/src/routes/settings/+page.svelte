@@ -48,7 +48,7 @@
 	let userError = $state('');
 	let userSuccess = $state('');
 
-	// Sources tab (the API also returns `pcap`; PCAP upload is EE-only, so CE
+	// Sources tab (the API also returns `pcap`; CE has no PCAP upload, so it
 	// ignores it)
 	interface NetworkInterface {
 		name: string; ip: string; is_up: boolean; is_loopback: boolean; mac: string;
@@ -60,9 +60,6 @@
 	let srcZeekLogDir = $state('');
 	let srcZeekPollInterval = $state(30);
 	let srcNetworkInterface = $state('');
-	let srcCorelightEnabled = $state(false);
-	let srcCorelightURL = $state('');
-	let srcCorelightToken = $state('');
 	let srcError = $state('');
 	let srcLoadError = $state('');
 	let srcSuccess = $state('');
@@ -82,7 +79,7 @@
 
 	onMount(async () => {
 		currentUser = await getCurrentUser();
-		if (!currentUser || currentUser.id === 'anonymous') {
+		if (!currentUser) {
 			goto('/login');
 			return;
 		}
@@ -188,8 +185,6 @@
 			srcZeekLogDir = cfg.zeek.log_dir;
 			srcZeekPollInterval = cfg.zeek.poll_interval_seconds;
 			srcNetworkInterface = cfg.zeek.network_interface;
-			srcCorelightEnabled = cfg.corelight.enabled;
-			srcCorelightURL = cfg.corelight.api_url;
 		} catch (e) {
 			sourcesConfig = null;
 			const reason = e instanceof Error ? e.message : String(e);
@@ -210,9 +205,7 @@
 		srcError = ''; srcSuccess = '';
 		const body: any = {
 			zeek: { enabled: srcZeekEnabled, log_dir: srcZeekLogDir, poll_interval_seconds: srcZeekPollInterval, network_interface: srcNetworkInterface },
-			corelight: { enabled: srcCorelightEnabled, api_url: srcCorelightURL },
 		};
-		if (srcCorelightToken) body.corelight.api_token = srcCorelightToken;
 		try {
 			const res = await fetch('/api/v1/config/sources', {
 				method: 'PUT',
@@ -225,7 +218,6 @@
 				return;
 			}
 			srcSuccess = 'Configuration saved. Restart required for changes to take effect.';
-			srcCorelightToken = '';
 			await loadSources();
 		} catch { srcError = 'Failed to save'; }
 	}
@@ -296,7 +288,7 @@
 				vfError = err.error || 'Failed to save';
 				return;
 			}
-			vfSuccess = 'Configuration saved. Restart required for push scheduler changes.';
+			vfSuccess = 'Configuration saved. The push scheduler applies the changes immediately.';
 			vfAPIKey = ''; vfRefreshToken = '';
 			await loadVenafi();
 		} catch { vfError = 'Failed to save'; }
@@ -520,36 +512,7 @@
 											{:else}
 												<input type="text" bind:value={srcNetworkInterface} placeholder="e.g. eth0, ens192" />
 											{/if}
-											<p class="field-hint">Interface for Zeek network capture. Requires restart of Zeek container.</p>
-										</div>
-									</div>
-								{/if}
-							</div>
-
-							<!-- Corelight -->
-							<div class="source-card">
-								<div class="src-card-header">
-									<svg class="src-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-										<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
-									</svg>
-									<div class="src-card-info">
-										<h3>Corelight</h3>
-										<p>Ingest from Corelight sensor appliance via API</p>
-									</div>
-									<label class="toggle-row">
-										<input type="checkbox" bind:checked={srcCorelightEnabled} />
-										<span>{srcCorelightEnabled ? 'Enabled' : 'Disabled'}</span>
-									</label>
-								</div>
-								{#if srcCorelightEnabled}
-									<div class="src-card-body">
-										<div class="vf-field">
-											<span class="vf-label">API URL</span>
-											<input type="url" bind:value={srcCorelightURL} placeholder="https://corelight.example.com/api" />
-										</div>
-										<div class="vf-field">
-											<span class="vf-label">API Token {sourcesConfig?.corelight.has_token ? '(configured)' : '(not set)'}</span>
-											<input type="password" bind:value={srcCorelightToken} placeholder={sourcesConfig?.corelight.has_token ? '••••••••' : 'Enter API token'} />
+											<p class="field-hint">Not used by CipherFlag CE. The Compose sensor captures on the NETWORK_INTERFACE value in your .env file.</p>
 										</div>
 									</div>
 								{/if}
@@ -569,12 +532,6 @@
 										<div class="ro-row"><span>Log Dir:</span> <span>{sourcesConfig.zeek.log_dir}</span></div>
 										<div class="ro-row"><span>Poll Interval:</span> <span>{sourcesConfig.zeek.poll_interval_seconds}s</span></div>
 										<div class="ro-row"><span>Interface:</span> <span>{sourcesConfig.zeek.network_interface || 'Not set'}</span></div>
-									</div>
-								</div>
-								<div class="source-card">
-									<div class="src-card-header">
-										<h3>Corelight</h3>
-										<span class="src-status" class:on={sourcesConfig.corelight.enabled}>{sourcesConfig.corelight.enabled ? 'Enabled' : 'Disabled'}</span>
 									</div>
 								</div>
 							{:else}
@@ -684,7 +641,7 @@
 									</div>
 								{/if}
 
-								<p class="config-hint">Changes are saved to <code>config/cipherflag.toml</code>. Restart the service for push scheduler changes to take effect.</p>
+								<p class="config-hint">Changes are saved to <code>config/cipherflag.toml</code>. The running push scheduler picks up the changes immediately, no restart needed.</p>
 							</div>
 						{:else}
 							<div class="config-note">

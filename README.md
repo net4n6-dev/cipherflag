@@ -32,6 +32,17 @@ calls home, no telemetry, and no commercial license required.
 - Script-output parser auto-classifies output into the unified asset
   model
 
+**Passive network discovery (Zeek)**
+- A Zeek sensor (`docker/zeek`, Zeek 9, published as
+  `ghcr.io/net4n6-dev/cipherflag-ce-zeek`) captures live traffic on a
+  mirrored interface or processes PCAP files, and logs every certificate it
+  sees in a TLS handshake (TLS 1.2 and earlier; TLS 1.3 encrypts it)
+- CipherFlag reads the sensor's logs (`[sources.zeek_file]`): each
+  certificate is stored in full from its PEM, and each TLS session is
+  recorded as an observation (server IP, port, SNI, TLS version, cipher,
+  JA3/JA3S)
+- Opt-in in Docker Compose: `docker compose --profile zeek up -d`
+
 **Layer 2 — native scanners**
 - SSH key scanner (system + user `~/.ssh/`)
 - Crypto-library scanner (OpenSSL, libgcrypt, BoringSSL, mbedTLS,
@@ -150,62 +161,6 @@ calls home, no telemetry, and no commercial license required.
 
 ---
 
-## What's NOT included (CipherFlag EE)
-
-A separate **CipherFlag EE** product (commercial license) adds:
-
-- **Layer 6.1d** — optional LLM-assisted enrichment for repo and
-  container finding triage. **Disabled by default**, license-gated, and
-  narrow in scope: it never produces a grade, a compliance verdict, or
-  CBOM contents — those are deterministic in both editions. The operator
-  chooses and controls the model endpoint: either a **local open-weight
-  model running inside their own network** (Ollama, vLLM, llama.cpp,
-  LM Studio, or any OpenAI-compatible endpoint) or a commercial API
-  under their **own key**. CipherFlag ships no hosted inference service
-  and never proxies scan data. A byte-range redactor is the only code
-  path between detection and prompt assembly (key material is replaced
-  with `[REDACTED-<TYPE>-<hash>]` markers, enforced by test), responses
-  pass exploit / no-leak / strict-JSON guardrails before they can become
-  findings, and spend is capped per scan, per day, and per month with a
-  full token and cost ledger.
-- **Layer 6.2** — Container image scanner (binary crypto detect,
-  OCI registry extraction, plus the same optional enrichment tier
-  described above)
-- **Layer 6.3** — Active network scanner
-- **Layer 3** — Velociraptor endpoint integration (requires vendor
-  gRPC SDK — EE-only; Wazuh is handled via webhook and not a
-  dedicated connector)
-- **Layer 4.1c** — TLS/SSH protocol-version scoring rules
-  (PROTO-001..006) + `protocol_endpoints` aggregate
-- **Layer 4.3** — PCI DSS 4.0 compliance evaluator
-- **Layer 4.4** — Per-asset risk prioritization with blast-radius
-  analysis (host-dependency graph + PKI edge engine)
-- **Layer 5.4** — Thales CipherTrust + advanced Venafi TPP
-  policy-folder management (deep TPP policy engine and CipherTrust
-  adapters; the basic Venafi TPP + Cloud push export ships in CE)
-- **MCP server** (`cipherflag-mcp`) — a native Model Context Protocol
-  server exposing **45 tools** (36 read-only, 9 write) over the live
-  crypto estate, so an MCP-capable AI agent can query and act on crypto
-  posture directly: inventory and search, blast radius, ownership
-  resolution, compliance status, config drift, coverage, renewal
-  propagation, PQC dispositions/tasks/migration waves, cadence, posture
-  trend, and scoped CBOM export. Auth is Entra device-code OAuth or a
-  scoped agent token. Writes are safety-gated — compliance-affecting
-  writes require a two-step preview + `confirm_token` flow, and tools
-  with external side effects (ServiceNow / Jira ticket creation) also
-  require a provisioned human user.
-- **PQC program management** — per-framework dispositions with expiring
-  waivers, policy scope exclusions, ranked remediation tasks, and
-  ordered migration waves with cross-wave consequence detection.
-- **Layer 8** — advanced operator UX surfaces that depend on EE-only
-  backends (host-dependency / risk-prioritization blast-radius graph
-  views, enrichment surfaces). The CE operator shell, PKI
-  Constellation explorer, and analytics page shipped in CE v2.2.
-
-Contact CipherFlag for EE access.
-
----
-
 ## Quick start
 
 ### Docker Compose (recommended)
@@ -213,45 +168,52 @@ Contact CipherFlag for EE access.
 ```bash
 git clone https://github.com/net4n6-dev/cipherflag.git
 cd cipherflag
-docker-compose up -d
+docker compose up -d                    # CipherFlag and Postgres
+docker compose --profile zeek up -d     # the same, plus the Zeek network sensor
 ```
 
-The HTTP API comes up on `http://localhost:8080`; Postgres on
-`localhost:5432`.
+The web UI and API come up on `http://localhost:8443` (Postgres on
+`localhost:5433`). The first visit to the web UI creates the admin account.
+It asks for a setup token, which the server prints in its log at startup
+(`docker compose logs cipherflag | grep setup_token`) and keeps in
+`/var/lib/cipherflag/setup-token`.
+[`docs/quickstart.md`](docs/quickstart.md) walks through live capture and
+processing a PCAP file.
 
-Initialize an admin user:
-
-```bash
-curl -sS -X POST http://localhost:8080/api/v1/auth/setup-admin \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"admin@example.com","password":"changeme","display_name":"Admin"}'
-```
-
-Then send an osquery webhook ingest:
+The same from the command line: create the admin account (which also logs
+you in), then export a CBOM:
 
 ```bash
-curl -sS -X POST http://localhost:8080/api/v1/ingest/osquery \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer <agent-token-from-setup>' \
-  -d @discovery-packs/osquery/example-payload.json
-```
+TOKEN=$(docker compose exec -T cipherflag cat /var/lib/cipherflag/setup-token)
+curl -sS -c cookies.txt -X POST http://localhost:8443/api/v1/auth/setup-admin \
+  -H 'Content-Type: application/json' -H "X-Setup-Token: $TOKEN" \
+  -d '{"email":"admin@example.com","password":"<choose a password>","display_name":"Admin"}'
 
-Export a CBOM:
-
-```bash
-curl -sS http://localhost:8080/api/v1/export/cbom | jq '.bomFormat, .specVersion'
+curl -sS -b cookies.txt http://localhost:8443/api/v1/export/cbom | jq '.bomFormat, .specVersion'
 # "CycloneDX"
 # "1.6"
 ```
+
+Endpoints push discoveries with an agent token, which an admin creates:
+
+```bash
+curl -sS -b cookies.txt -X POST http://localhost:8443/api/v1/auth/agent-tokens \
+  -H 'Content-Type: application/json' -d '{"name":"osquery"}'
+# {"token":"<shown once>", ...}
+```
+
+osquery sends its results to `POST /api/v1/ingest/osquery` with
+`Authorization: Bearer <token>`; the query pack is in
+`discovery-packs/osquery/`.
 
 ### From source (Go 1.25+)
 
 ```bash
 git clone https://github.com/net4n6-dev/cipherflag.git
 cd cipherflag
-go build ./...
-cp config/cipherflag.toml.example config/cipherflag.toml
-# edit config/cipherflag.toml — set [storage] postgres_url
+go build -o cipherflag ./cmd/cipherflag
+# edit config/cipherflag.toml: set [storage] postgres_url, and
+# [sources.zeek_file] log_dir if a Zeek sensor writes logs on this host
 ./cipherflag migrate
 ./cipherflag serve
 ```
@@ -290,8 +252,9 @@ uses its own codes, listed above.
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  Discovery sources                                               │
-│   • osquery webhook        • Layer 2 native scanners             │
-│   • CBOM import endpoint   • Git repo scanner (deterministic)    │
+│   • Zeek sensor logs       • osquery webhook                     │
+│   • Layer 2 native scanners • Git repo scanner (deterministic)   │
+│   • CBOM import endpoint   • CT logs, endpoint connectors        │
 └────────────────┬─────────────────────────────────────────────────┘
                  ▼
 ┌──────────────────────────────────────────────────────────────────┐
@@ -333,6 +296,7 @@ tree-sitter language bindings, and others).
 
 - [`CHANGELOG.md`](CHANGELOG.md) — release history, breaking changes
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to contribute, license terms
+- [`SECURITY.md`](SECURITY.md): how to report a vulnerability
 - [`NOTICE`](NOTICE) — third-party dependency attributions
 - `discovery-packs/` — osquery queries + bash/PowerShell scripts
   for endpoint discovery
@@ -364,16 +328,18 @@ tree-sitter language bindings, and others).
 | CBOM hardening: `verify-cbom` validation, admin-only import, push-scheduler panic containment | shipped v2.2.2–v2.2.3 (CE) |
 | Fresh-install schema fixes (migration `v2.2.4_schema_parity.sql`) + integration tests in CI | shipped v2.2.4 (CE) |
 | Certificate Transparency multi-provider (`ct_crtsh`/`ct_static`/`ct_certspotter`/`ct_multi`) | shipped v2.3 (CE, off by default, config-only) |
-| Risk prioritization + blast-radius (host-dependency) | **EE-only** |
-| Optional LLM-assisted repo enrichment (off by default; local or BYO-key model) | **EE-only** |
-| Container image scanning | **EE-only** |
-| Active network scanning | **EE-only** |
-| PCI DSS 4.0 compliance | **EE-only** |
+| Zeek passive discovery (sensor + log ingest, Compose `zeek` profile) | v1; missing from v2.0.0 to v2.3.0; restored v2.3.1 (CE) |
+| Risk prioritization + blast-radius (host-dependency) | Not in CE |
+| Optional LLM-assisted repo enrichment (off by default; local or BYO-key model) | Not in CE |
+| Container image scanning | Not in CE |
+| Active network scanning | Not in CE |
+| PCI DSS 4.0 compliance | Not in CE |
 
 ---
 
 ## Reporting issues
 
 Please open issues at https://github.com/net4n6-dev/cipherflag/issues.
-For security issues, see [`SECURITY.md`](SECURITY.md) (if present) or
-email the maintainer (see `LICENSE` for contact info).
+For security vulnerabilities, do not open a public issue: follow
+[`SECURITY.md`](SECURITY.md) and report them privately to
+info@cipherflag.com.

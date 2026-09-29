@@ -23,7 +23,7 @@ import (
 // The shipped sample configs are what new installs start from (the image
 // copies config/cipherflag.toml; compose mounts config/), so each must load.
 func TestShippedSampleConfigsLoad(t *testing.T) {
-	for _, name := range []string{"cipherflag.toml", "cipherflag.docker.toml"} {
+	for _, name := range []string{"cipherflag.toml"} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Load(filepath.Join("..", "..", "config", name)); err != nil {
 				t.Fatalf("config/%s does not load: %v", name, err)

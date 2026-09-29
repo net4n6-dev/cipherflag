@@ -28,52 +28,25 @@ import (
 )
 
 // fakeAuthMeStore is a narrow test double for AuthHandler.Me. Embeds
-// store.CertStore so we can override just the two methods Me() uses
-// (HasUsers + GetUserByID) without implementing the full interface.
+// store.CertStore so we can override just the method Me() uses
+// (GetUserByID) without implementing the full interface.
 type fakeAuthMeStore struct {
 	store.CertStore
-	hasUsers    bool
-	hasUsersErr error
-	users       map[string]*model.User
+	users map[string]*model.User
 }
 
-func (f *fakeAuthMeStore) HasUsers(_ context.Context) (bool, error) {
-	return f.hasUsers, f.hasUsersErr
-}
 func (f *fakeAuthMeStore) GetUserByID(_ context.Context, id string) (*model.User, error) {
 	return f.users[id], nil
 }
 
 const testJWTSecret = "0123456789abcdef0123456789abcdef"
 
-func TestAuthMe_NoCookie_NoUsers_ReturnsAnonymousAdmin(t *testing.T) {
-	// Fresh deployment: no users yet, no cookie. Backend runs in
-	// "no-auth mode" and surfaces the anonymous-admin fallback.
-	h := NewAuthHandler(&fakeAuthMeStore{hasUsers: false}, []byte(testJWTSecret))
-	req := httptest.NewRequest("GET", "/api/v1/auth/me", nil)
-	rr := httptest.NewRecorder()
-	h.Me(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200 (never 401 from this endpoint)", rr.Code)
-	}
-	var body map[string]any
-	_ = json.Unmarshal(rr.Body.Bytes(), &body)
-	user, _ := body["user"].(map[string]any)
-	if user == nil || user["id"] != "anonymous" {
-		t.Errorf("expected anonymous admin user, got %v", body)
-	}
-	if auth, _ := body["authenticated"].(bool); auth {
-		t.Errorf("anonymous admin must not be flagged as authenticated")
-	}
-}
-
 func TestAuthMe_NoCookie_UsersExist_ReturnsNullUser(t *testing.T) {
-	// Users exist but client has no cookie — the v1.4.1 behaviour
+	// The client has no cookie (Me no longer consults the user count). This is the v1.4.1 behaviour
 	// change. Previously this returned 401 (via the Auth middleware);
 	// now it returns 200 with user:null so the browser console stays
 	// clean on initial unauthenticated page load.
-	h := NewAuthHandler(&fakeAuthMeStore{hasUsers: true}, []byte(testJWTSecret))
+	h := NewAuthHandler(&fakeAuthMeStore{}, []byte(testJWTSecret), "")
 	req := httptest.NewRequest("GET", "/api/v1/auth/me", nil)
 	rr := httptest.NewRecorder()
 	h.Me(rr, req)
@@ -92,7 +65,7 @@ func TestAuthMe_NoCookie_UsersExist_ReturnsNullUser(t *testing.T) {
 }
 
 func TestAuthMe_InvalidCookie_ReturnsSessionExpired(t *testing.T) {
-	h := NewAuthHandler(&fakeAuthMeStore{hasUsers: true}, []byte(testJWTSecret))
+	h := NewAuthHandler(&fakeAuthMeStore{}, []byte(testJWTSecret), "")
 	req := httptest.NewRequest("GET", "/api/v1/auth/me", nil)
 	req.AddCookie(&http.Cookie{Name: "cipherflag_token", Value: "not-a-valid-jwt"})
 	rr := httptest.NewRecorder()
@@ -125,9 +98,8 @@ func TestAuthMe_ValidCookie_ReturnsAuthenticatedUser(t *testing.T) {
 	}
 
 	h := NewAuthHandler(&fakeAuthMeStore{
-		hasUsers: true,
-		users:    map[string]*model.User{u.ID: u},
-	}, []byte(testJWTSecret))
+		users: map[string]*model.User{u.ID: u},
+	}, []byte(testJWTSecret), "")
 	req := httptest.NewRequest("GET", "/api/v1/auth/me", nil)
 	req.AddCookie(&http.Cookie{Name: "cipherflag_token", Value: token})
 	rr := httptest.NewRecorder()

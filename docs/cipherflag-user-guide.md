@@ -12,12 +12,12 @@ This guide walks you through installation, configuration, and daily use.
 
 1. [Prerequisites](#1-prerequisites)
 2. [Installation](#2-installation)
-3. [The Setup Wizard](#3-the-setup-wizard)
+3. [First Run](#3-first-run)
 4. [Manual Configuration](#4-manual-configuration)
 5. [Verifying Your Deployment](#5-verifying-your-deployment)
 6. [Authentication](#6-authentication)
 7. [Network Capture](#7-network-capture)
-8. [Uploading PCAP Files](#8-uploading-pcap-files)
+8. [Processing PCAP Files](#8-processing-pcap-files)
 9. [The Dashboard](#9-the-dashboard)
 10. [PKI Explorer](#10-pki-explorer)
 11. [Analytics](#11-analytics)
@@ -40,7 +40,7 @@ This guide walks you through installation, configuration, and daily use.
 | Software | Minimum Version | Purpose |
 |----------|----------------|---------|
 | Docker | 20.10+ | Runs the CipherFlag containers |
-| Docker Compose | v2+ | Orchestrates the three services |
+| Docker Compose | v2+ | Orchestrates the services (two, three with the Zeek sensor) |
 | A web browser | Any modern browser | Access the CipherFlag dashboard |
 
 **Installing Docker:** Follow the official guide for your OS:
@@ -51,10 +51,13 @@ This guide walks you through installation, configuration, and daily use.
 ### Network Requirements
 
 - **Port 8443** must be accessible from your browser
-- For live capture: **two network interfaces** are required:
+- For live capture: a **Linux** host with **two network interfaces**:
   - **Management NIC** — SSH access, web UI (:8443), Venafi push (standard IP, routable)
   - **Capture NIC** — Receives mirrored/tapped traffic (connected to SPAN port, TAP, or cloud traffic mirror)
-- For PCAP-only analysis: single NIC, no special network access needed
+
+  On Docker Desktop (macOS, Windows) the sensor's host network is the
+  Docker VM's, so it cannot capture the machine's traffic.
+- For PCAP-only analysis: single NIC, no special network access needed, any platform
 
 ### Deployment Platforms
 
@@ -63,8 +66,8 @@ This guide walks you through installation, configuration, and daily use.
 | **On-prem** | SPAN port / network TAP | Dual NIC, Zeek on capture interface |
 | **AWS** | VPC Traffic Mirroring | EC2 with 2 ENIs, mirror target on capture ENI |
 | **Azure** | Virtual Network TAP | VM with 2 NICs, TAP destination on capture NIC |
-| **Azure (fallback)** | Network Watcher | PCAP capture to storage, upload to CipherFlag |
-| **PCAP-only** | Any | Upload .pcap files through the web UI |
+| **Azure (fallback)** | Network Watcher | PCAP capture to storage, copied into `./pcap-input/<job>/` |
+| **PCAP-only** | Any | Copy `.pcap` files into `./pcap-input/<job>/` |
 
 See the [How-To Deployment Guide](https://cipherflag.com/howto.html#deployment) for step-by-step platform instructions.
 
@@ -80,100 +83,51 @@ See the [How-To Deployment Guide](https://cipherflag.com/howto.html#deployment) 
 
 ## 2. Installation
 
-### Option A: Install Script (Recommended)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/net4n6-dev/cipherflag/main/scripts/install.sh | sh
-```
-
-This downloads the `cipherflag` CLI binary for your platform (Linux or macOS, amd64 or arm64) and installs it to `/usr/local/bin`.
-
-Then run the setup wizard:
-
-```bash
-cipherflag setup
-```
-
-### Option B: Clone and Build
-
 ```bash
 git clone https://github.com/net4n6-dev/cipherflag.git
 cd cipherflag
-docker-compose up -d
+cp .env.example .env              # see section 4
+docker compose up -d              # CipherFlag and Postgres
+docker compose --profile zeek up -d   # add the Zeek network sensor
 ```
+
+The [Quick Start Guide](quickstart.md) covers the same steps with a test
+PCAP.
 
 ---
 
-## 3. The Setup Wizard
+## 3. First Run
 
-The setup wizard (`cipherflag setup`) is the easiest way to get started. It walks through four steps:
+CE has no interactive setup wizard; it is configured through `.env`,
+`config/cipherflag.toml` and the web UI's Settings (`cipherflag setup` only
+prints a short summary).
 
-### Step 1: Installation Directory
-
-Choose where CipherFlag writes its configuration files. Default: `./cipherflag`.
-
-```
-Step 1/4: Installation Directory
-Directory [./cipherflag]:
-```
-
-### Step 2: Network Interface
-
-The wizard lists available network interfaces with their IP addresses. Select the one connected to your SPAN port or mirror.
-
-```
-Step 2/4: Network Capture
-Available interfaces:
-  1. eth0        10.0.1.5       up
-  2. ens192      172.16.0.10    up
-  3. lo          127.0.0.1      up (loopback)
-Select interface [1]: 2
-```
-
-### Step 3: Venafi Integration
-
-Choose your Venafi platform or skip for now.
-
-```
-Step 3/4: Venafi Integration
-  1. Venafi Cloud (SaaS)
-  2. Venafi TPP (on-prem)
-  3. Skip (configure later)
-```
-
-For Venafi Cloud, you'll need your API key (from Venafi Cloud > Preferences > API Keys). For TPP, you'll need the server URL, OAuth2 client ID, and refresh token. The wizard validates your credentials before proceeding.
-
-### Step 4: Deploy
-
-The wizard generates configuration files, pulls Docker images, and optionally starts the services.
-
-```
-Start services now? [Y/n]: Y
-✓ Services started
-
-══════════════════════════════════════
-Dashboard:  http://10.0.1.5:8443
-Venafi:     Cloud (us) — push every 60 min
-Interface:  ens192 (172.16.0.10)
-══════════════════════════════════════
-```
+1. Open `http://<your-ip>:8443`. The first visit shows the **Create Admin
+   Account** page (it asks for the setup token from the server log or
+   `/var/lib/cipherflag/setup-token`; see [section 6](#6-authentication)).
+2. Choose discovery sources: the Zeek sensor (sections 7 and 8), the osquery
+   webhook, the scanners, and the connectors in `config/cipherflag.toml`.
+3. Optionally connect Venafi in **Settings > Venafi** (section 16).
 
 ---
 
 ## 4. Manual Configuration
 
-If you prefer manual setup, CipherFlag uses two configuration files:
+CipherFlag uses two configuration files:
 
 ### `.env` — Docker Compose variables
 
 ```bash
-NETWORK_INTERFACE=ens192
-POSTGRES_PASSWORD=your-secure-password
-VENAFI_ENABLED=true
-VENAFI_PLATFORM=cloud
-VENAFI_API_KEY=your-api-key
-VENAFI_REGION=us
+NETWORK_INTERFACE=ens192        # interface the Zeek sensor captures on; empty = PCAP files only
+ZEEK_PCAP_DIR=./pcap-input      # where the sensor takes PCAP files from (default)
+POSTGRES_PASSWORD=changeme      # see below
 ```
+
+`.env` configures the containers only; CipherFlag itself reads no
+environment variables. If you change `POSTGRES_PASSWORD`, change the
+password in `[storage] postgres_url` in `config/cipherflag.toml` to match,
+or CipherFlag cannot connect to the database. Venafi is configured in
+`config/cipherflag.toml` or Settings, not in `.env`.
 
 ### `config/cipherflag.toml` — Application settings
 
@@ -183,9 +137,9 @@ Key sections:
 - `[server]` — listen address
 - `[storage]` — PostgreSQL connection
 - `[analysis]` — health scoring rules and thresholds
-- `[sources.zeek_file]` — Zeek log polling
+- `[sources.zeek_file]`: Zeek log polling (`log_dir` is where the Compose
+  sensor's logs are mounted, `/var/log/zeek/current`)
 - `[export.venafi]` — Venafi Cloud or TPP integration
-- `[pcap]` — PCAP upload limits
 
 ---
 
@@ -197,15 +151,27 @@ After starting services, verify everything is running:
 docker compose ps
 ```
 
-All three services should show "Up":
+These services should show "Up":
 - `postgres` — database
-- `zeek` — network sensor
 - `cipherflag` — API server and dashboard
+- `zeek`: network sensor (only when started with `--profile zeek`)
+
+Every `/api/v1` route except `auth/login`, `auth/status`, `auth/me` and
+`auth/setup-admin` needs a session (or an agent token) and returns 401
+without one. The `curl` examples in this guide use a session cookie: create
+the admin account in the web UI first, then log in once and save the cookie
+(replace the email and password with yours):
+
+```bash
+curl -sS -c cookies.txt -X POST http://localhost:8443/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"<your password>"}'
+```
 
 Check the Venafi push status:
 
 ```bash
-curl -s http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
+curl -s -b cookies.txt http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
 ```
 
 Open the dashboard in your browser: `http://<your-ip>:8443`
@@ -218,7 +184,12 @@ CipherFlag includes built-in authentication with JWT tokens and role-based acces
 
 ### First-Time Setup
 
-On first visit (or after a fresh install), you'll see the **Create Admin Account** page. Enter your email, password (min 8 characters), and display name. This creates the first admin user and logs you in.
+On first visit (or after a fresh install), you'll see the **Create Admin
+Account** page. Enter the setup token printed in the server log
+(`docker compose logs cipherflag | grep setup_token`) or stored in
+`/var/lib/cipherflag/setup-token`, then your email, password (min 8
+characters) and display name. This creates the first admin user and logs you
+in.
 
 ### Roles
 
@@ -238,9 +209,12 @@ Admins can manage users at **Settings > Users**:
 - Toggle roles between admin and viewer (click the role badge)
 - Delete users (cannot delete your own account)
 
-### Backward Compatibility
+### Before the first admin exists
 
-If no users have been created, CipherFlag runs without authentication — all endpoints are open. This preserves backward compatibility with existing deployments. Authentication enforcement begins when the first user is created.
+Until the first admin account is created, every `/api/v1` route except
+`auth/login`, `auth/status`, `auth/me` and `auth/setup-admin` returns 401
+without a session or an agent token. The web UI itself, `/healthz` and those
+four routes still answer.
 
 ---
 
@@ -248,48 +222,145 @@ If no users have been created, CipherFlag runs without authentication — all en
 
 CipherFlag uses Zeek to passively extract certificates from TLS handshakes. No traffic is modified or interrupted.
 
+### Starting the Sensor
+
+The Zeek sensor is an opt-in Compose service. Set the capture interface in
+`.env` and start it with the `zeek` profile:
+
+```bash
+echo 'NETWORK_INTERFACE=ens192' >> .env
+docker compose --profile zeek up -d
+```
+
+The sensor uses the host's network (and the `NET_RAW`/`NET_ADMIN`
+capabilities) to capture, so live capture needs a Linux host. It writes JSON
+logs to the `zeek-logs` volume, rotated hourly; CipherFlag reads them from
+`[sources.zeek_file] log_dir`, polling every 30 seconds by default.
+
+The **network interface** field in Settings > Sources is saved to
+`config/cipherflag.toml` but does not choose the capture interface; the
+Compose sensor captures on `NETWORK_INTERFACE`.
+
+Any other Zeek sensor works too, as long as it writes JSON logs with the
+certificates in them (`@load policy/tuning/json-logs` and
+`@load policy/protocols/ssl/log-certs-base64`) to a directory CipherFlag can
+read; point `log_dir` at it.
+
 ### Setting Up a SPAN Port
 
 Connect the capture interface to a SPAN/mirror port on your switch or a network TAP. CipherFlag sees a copy of all traffic on that segment and extracts TLS certificates from the handshakes.
 
 ### What Gets Captured
 
-For each TLS connection, CipherFlag records:
-- The complete X.509 certificate chain (leaf + intermediates + root)
+For each TLS connection whose certificates Zeek can see, CipherFlag records:
+- The certificate chain the server sent (leaf, intermediates, and a root if sent), each stored in full
 - Server hostname (SNI), IP address, and port
 - Negotiated TLS version and cipher suite
 - JA3/JA3S fingerprints
 
+Zeek sees certificates in TLS 1.2 and earlier handshakes. TLS 1.3 encrypts
+the server's certificate, so TLS 1.3 sessions yield no certificate.
+
 ### Monitoring Capture Activity
 
-Watch the logs for certificate discovery:
+After each poll that found something, CipherFlag logs what it ingested:
 
 ```bash
-docker compose logs -f cipherflag | grep -i "cert\|ingest"
+docker compose logs -f cipherflag | grep 'zeek:'
+# zeek: ingested logs certificates=12 observations=40 observations_unknown_cert=0 ...
 ```
+
+`observations_unknown_cert` counts sessions whose certificate never arrived:
+such a session is kept for up to three polls (about 90 seconds at the
+default interval) and recorded when its certificate arrives;
+`unparseable_lines` counts log lines that were not
+valid Zeek JSON.
 
 ---
 
-## 8. Uploading PCAP Files
+## 8. Processing PCAP Files
 
-For offline analysis, upload packet captures via the **Upload** page or API.
-
-### Via the UI
-
-Navigate to the **Upload** tab in the dashboard. Drag and drop a `.pcap` or `.pcapng` file (up to 500 MB by default).
-
-### Via the API
+For offline analysis, hand packet captures to the Zeek sensor through a
+directory (there is no upload page or API in CE). With the `zeek` profile
+running, give each capture its own job directory under `./pcap-input/` (or
+`ZEEK_PCAP_DIR`):
 
 ```bash
-curl -X POST http://localhost:8443/api/v1/pcap/upload \
-  -F "file=@capture.pcap"
+mkdir -p pcap-input/branch-office-2026-09
+cp capture.pcap pcap-input/branch-office-2026-09/
 ```
 
-Check job status:
+The sensor checks for new files every 5 seconds and runs Zeek over each once
+it has stopped changing (10 seconds by default, `PCAP_SETTLE_SECONDS`), so a
+`cp` still in progress is not processed truncated. `mv` from the same
+filesystem keeps the file's old modification time, so a file already older
+than that window is picked up at once; a just-created file still waits. It
+then marks the job:
 
 ```bash
-curl http://localhost:8443/api/v1/pcap/jobs
+docker compose exec zeek ls -a /zeek-logs/branch-office-2026-09
+# .done     processed: CipherFlag reads the job's logs on its next poll
+# .failed   Zeek could not process it (the reason is in: docker compose logs zeek)
 ```
+
+A job directory may hold several captures. They are processed independently,
+and one that fails does not block the others. With one capture the logs are in
+`/zeek-logs/<job>`; with several, each capture gets its own directory,
+`/zeek-logs/<job>--<file name>` (for example `branch--one.pcap`), with its own
+`.done` or `.failed`.
+
+A capture whose log directory name would collide with another capture's (job
+`x` with capture `y`, and a job named `x--y`) or is longer than 200 characters
+is refused and marked failed. It has no log directory and no `.failed` file;
+the reason is in its marker, `/zeek-logs/.state/<job>/<file name>`, and in
+`docker compose logs zeek`. If a log directory still holds the logs of a
+capture that no longer exists, a new capture that maps to it waits (the sensor
+log says so) and is processed once retention removes that directory or you
+remove it by hand; a real collision with a capture that still exists is
+failed for good.
+
+A capture is processed once. The sensor records that in
+`/zeek-logs/.state/<job>/<file name>`, keyed by name, so deleting a job's log
+directory does not make it run again, and neither does copying a file with the
+same name over it or back in. Do not rename or replace a job's only capture;
+put the new file in a new job directory. Certificates already stored are
+updated, not duplicated, and sessions are stored once.
+
+To process a capture again, drop it under a new job name. Or delete both its
+log directory and its marker, the log directory first: deleting only the
+marker does nothing, because the sensor finds the `.done` in the log directory
+and records the capture as processed again. For a job with one capture the log
+directory is `/zeek-logs/<job>`; for a job with several it is
+`/zeek-logs/<job>--<file name>`. The marker is always
+`/zeek-logs/.state/<job>/<file name>`:
+
+```bash
+docker compose exec zeek rm -rf /zeek-logs/branch-office-2026-09
+docker compose exec zeek rm /zeek-logs/.state/branch-office-2026-09/capture.pcap
+```
+
+If you upgrade from an older sensor:
+
+- A job directory with one capture that was already processed is adopted
+  (marked processed), not run again.
+- A job directory that holds several captures had only its first one
+  processed. After the upgrade every capture of that job is processed into its
+  own directory, so the first one runs once more. The same happens if you add
+  a second capture later to an older one-capture job, because the first
+  capture's log directory name changes. The store deduplicates the re-ingested
+  sessions, so nothing is duplicated in the inventory; only Zeek's work and
+  the extra log files are repeated.
+- A `.done` directory left by the broken 2.3.0 sensor without any logs is
+  treated as processed. Delete those `/zeek-logs/<job>` directories (or use a
+  new job name) to reprocess the captures.
+- Logs older than the retention window are removed on the first pass after
+  the upgrade. Set `ZEEK_LOG_RETENTION_HOURS=0` for the first start to keep
+  them.
+
+The sensor deletes old logs itself. Once an hour it removes rotated logs
+(`<log>.<time>.log`) and finished job directories older than
+`ZEEK_LOG_RETENTION_HOURS` (default 168, one week; 0 keeps everything). See
+[configuration.md](configuration.md#zeek-sensor-environment).
 
 ---
 
@@ -309,43 +380,42 @@ Click any risk card to navigate to filtered certificate views.
 
 ## 10. PKI Explorer
 
-The PKI Explorer (`/pki`) is an interactive force-directed graph showing your entire CA hierarchy.
+The PKI Explorer opens the **PKI Constellation** (`/constellation`; the old `/pki` address redirects to it). It is an interactive 3D view of your CA hierarchy built with three.js: each node is a root CA, an intermediate CA or an end-entity certificate, colored by health grade. Clients without WebGL get a flat 2D view of the same graph.
 
 ### Navigating the Graph
 
-- **Pan:** Click and drag the background
-- **Zoom:** Scroll wheel
-- **Hover:** Tooltip with CA name, grade, cert count, expiry stats
+- **Orbit and zoom:** Drag to rotate the view, scroll to zoom
+- **Zoom buttons:** Zoom in, zoom out and "Fit all to view" at the bottom right
+- **Hover:** Tooltip with the node name, grade and certificate counts
 
 ### Inspecting a Node
 
 Click any node to open the **detail panel** on the right:
-- Grade, cert count, expired/expiring stats, avg score
-- Overview tab: key algorithm, fingerprint, validity dates, issuer
-- Findings tab: health findings with severity and remediation
-- Children tab: child certificates issued by this CA
-- Action buttons: "Expand in Graph" and "Blast Radius"
+- Grade, certificate count, expired count, count expiring within 30 days, and average score
+- Type (Root CA, Intermediate CA or End Entity), key algorithm and size, and fingerprint
+- A "View full detail" link to the certificate page
+- For CAs, the buttons "Expand in Graph" (loads the CA's children into the graph) and "Blast Radius"
 
 ### Blast Radius
 
-Right-click a CA node (or click "Blast Radius" in the detail panel) to see every certificate that CA signed, recursively. The graph dims non-affected nodes and shows a summary badge with total certs, expired count, and grade F count.
+Click a root or intermediate CA, then "Blast Radius" in the detail panel, to see every certificate that CA signed. Nodes outside that set are dimmed. Click the background, or press Escape (once the detail panel is closed), to leave blast-radius mode.
 
-### Search
+### Search and Filters
 
-The toolbar search bar finds nodes in the graph (client-side) and certificates not yet loaded (server-side fallback). Click a result to open its detail panel.
+The toolbar search box dims every node whose name, organization or fingerprint prefix does not match. The grade pills (A+ to F) and the **Expired** pill dim nodes that do not match the selected grades or have no expired certificates.
 
 ---
 
 ## 11. Analytics
 
-The Analytics page (`/analytics`) has five tabs:
+The Analytics page (`/analytics`) has seven tabs: Chain Flow, Ownership, Crypto Posture, Expiry Forecast, Source Lineage, Library Distribution and SSH Key Analytics.
 
 ### Chain Flow
 
 A Sankey diagram showing certificate trust flow: Root CAs → Intermediates → Leaf certificates. Each flow is colored by its root CA family. Link width represents certificate count.
 
 - Hover a link to see cert count, expired count, and worst grade
-- Click a CA node to navigate to the PKI Explorer
+- Click a CA node to open it in the PKI Constellation
 - Click a leaf aggregate to see those certificates
 
 ### Ownership
@@ -372,12 +442,20 @@ A 52-week stacked bar chart showing upcoming certificate expirations, broken dow
 
 ### Source Lineage
 
-Cards for each discovery source (Zeek passive, active scan, manual upload, Corelight, etc.) with:
-- Category icon (network, upload, scan, cloud, repository)
+One card for each discovery source recorded on your certificates (certificates from the Zeek sensor and from PCAP files show as Zeek Passive; a source the page has no label for is shown under its recorded name) with:
+- Category icon (network, upload, scan, cloud, repository, platform)
 - Cert count, expired count, expiring <30d, average score
 - Grade distribution mini-bar
 - Key algorithm pills
 - First/last seen dates
+
+### Library Distribution
+
+A treemap of the crypto libraries found on hosts, sized by host count, with libraries that have known CVEs in red. It stays empty until a host-based source (osquery) reports library data.
+
+### SSH Key Analytics
+
+Panels for SSH host keys: Key Strength, Key Types, Key Age and Discovery Sources.
 
 ---
 
@@ -438,7 +516,7 @@ The certificate detail page (`/certificates/{fingerprint}`) shows:
 
 Each health finding shows:
 - Severity (critical, high, medium, low)
-- Category (expiration, key_strength, signature, chain, revocation, transparency)
+- Category (expiration, key_strength, signature, chain, revocation, transparency, wildcard, agility)
 - Point deduction
 - Remediation guidance
 
@@ -455,9 +533,8 @@ Manage user accounts: create, delete, and toggle roles between admin and viewer.
 ### Sources
 
 Configure certificate discovery sources:
-- **Zeek File Poller** — enable/disable, log directory, poll interval (5-300 seconds), network interface selector (dropdown populated from host interfaces showing name, IP, MAC, and status)
+- **Zeek File Poller**: enable/disable, log directory, poll interval (5-300 seconds), and a network interface field. The interface list shows the interfaces of the machine CipherFlag runs on (inside Docker, its container's); the saved value is not used for capture, which the sensor's `NETWORK_INTERFACE` controls.
 - **Corelight** — enable/disable, API URL, API token
-- **PCAP Upload** — max file size (1-5000 MB), retention (1-720 hours)
 
 ### Venafi
 
@@ -485,7 +562,7 @@ CipherFlag pushes discovered certificates to Venafi automatically. See the [Vena
 
 ### How It Works
 
-1. CipherFlag discovers certificates via Zeek or PCAP upload
+1. CipherFlag discovers certificates via Zeek (live or from PCAP files) or any other source
 2. The push scheduler runs every 60 minutes (configurable)
 3. New/updated certificates are batched (up to 100 per API call) and pushed to Venafi
 4. Per-certificate failure tracking with exponential backoff prevents hammering Venafi with consistently failing certs
@@ -494,7 +571,7 @@ CipherFlag pushes discovered certificates to Venafi automatically. See the [Vena
 ### Monitoring Push Status
 
 ```bash
-curl http://localhost:8443/api/v1/venafi/status
+curl -b cookies.txt http://localhost:8443/api/v1/venafi/status
 ```
 
 | Field | Meaning |
@@ -515,32 +592,50 @@ curl http://localhost:8443/api/v1/venafi/status
 
 ## 17. Exporting Data
 
+`GET /api/v1/export/certificates` returns your certificate inventory as a download. Any signed-in user (including viewers) and any agent token may call it. The format is CSV unless you pass `format=json`; any other `format` value is rejected with a 400.
+
+The CSV columns, in order, are:
+
+`fingerprint_sha256`, `subject_cn`, `subject_org`, `issuer_cn`, `issuer_org`, `serial_number`, `not_before`, `not_after`, `days_until_expiry`, `key_algorithm`, `key_size_bits`, `signature_algorithm`, `subject_alt_names`, `is_ca`, `grade`, `source`, `first_seen`, `last_seen`
+
+Subject alternative names are joined with `;`, times are RFC 3339 in UTC, and `grade` is empty for a certificate with no health report. The JSON export is an array of objects with the same field names (`subject_alt_names` is an array, `key_size_bits` a number, `is_ca` a boolean).
+
+The export accepts the same filters as the certificate list: `search`, `grade` (a comma-separated list such as `D,F`), `source`, `issuer_cn`, `issuer_org`, `subject_ou`, `key_algorithm`, `signature_algorithm`, `server_name`, `tls_version`, `cipher_strength`, `is_ca`, `expired`, `expiring_within_days`, `sort_by` and `sort_dir`. `page` and `page_size` are ignored: the export returns every matching certificate, fetched a page at a time.
+
+In CSV, a text cell that begins with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading single quote so a spreadsheet does not run it as a formula. The JSON export is not altered.
+
+The response is streamed. If the export fails part way, the status has already been sent, so the server aborts the download by dropping the connection: `curl` exits with a non-zero status and a browser marks the download as failed. Run the export again.
+
+Certificates that change while an export runs can make it repeat or miss rows (sorting by `last_seen` or `grade` while ingest is running is the worst case), so de-duplicate on `fingerprint_sha256` when you consume the file.
+
+The examples below authenticate with an agent token and use `-f` so a failed request (for example a 401) is not saved as `certificates.csv`. Instead of the header you can pass `-b cookies.txt` with a session cookie saved after logging in.
+
 ### CSV Export
 
 ```bash
-curl -o certificates.csv "http://localhost:8443/api/v1/export/certificates?format=csv"
+curl -f -H "Authorization: Bearer <agent token>" -o certificates.csv "http://localhost:8443/api/v1/export/certificates?format=csv"
 ```
 
 ### JSON Export
 
 ```bash
-curl -o certificates.json "http://localhost:8443/api/v1/export/certificates?format=json"
+curl -f -H "Authorization: Bearer <agent token>" -o certificates.json "http://localhost:8443/api/v1/export/certificates?format=json"
 ```
 
 ### Filtered Exports
 
 ```bash
 # Only grade F certificates
-curl -o failing.csv "http://localhost:8443/api/v1/export/certificates?format=csv&grade=F"
+curl -f -H "Authorization: Bearer <agent token>" -o failing.csv "http://localhost:8443/api/v1/export/certificates?format=csv&grade=F"
 
 # Expiring within 30 days
-curl -o expiring.csv "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
+curl -f -H "Authorization: Bearer <agent token>" -o expiring.csv "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
 
 # ECDSA certificates only
-curl -o ecdsa.json "http://localhost:8443/api/v1/export/certificates?format=json&key_algorithm=ECDSA"
+curl -f -H "Authorization: Bearer <agent token>" -o ecdsa.json "http://localhost:8443/api/v1/export/certificates?format=json&key_algorithm=ECDSA"
 
 # Certificates from a specific issuer
-curl -o digicert.csv "http://localhost:8443/api/v1/export/certificates?format=csv&issuer_org=DigiCert+Inc"
+curl -f -H "Authorization: Bearer <agent token>" -o digicert.csv "http://localhost:8443/api/v1/export/certificates?format=csv&issuer_org=DigiCert+Inc"
 ```
 
 ---
@@ -610,8 +705,8 @@ All endpoints are under `/api/v1/`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/export/certificates?format=csv` | CSV download |
-| GET | `/export/certificates?format=json` | JSON download |
+| GET | `/export/certificates` | CSV download (the default; accepts the certificate list filters, ignores `page` and `page_size`) |
+| GET | `/export/certificates?format=json` | JSON download (an array of objects with the CSV field names) |
 
 ---
 
@@ -627,7 +722,7 @@ docker compose ps
 docker compose logs -f cipherflag
 
 # Venafi push status
-curl http://localhost:8443/api/v1/venafi/status
+curl -b cookies.txt http://localhost:8443/api/v1/venafi/status
 ```
 
 ### Updating CipherFlag
@@ -664,13 +759,14 @@ docker compose exec postgres psql -U cipherflag -c \
 
 ### No certificates appearing
 
-- Verify Zeek is running: `docker compose logs zeek`
-- Confirm the network interface is correct and receiving traffic
-- For PCAP uploads, check job status: `curl http://localhost:8443/api/v1/pcap/jobs`
+- Verify Zeek is running: `docker compose --profile zeek ps` and `docker compose logs zeek`
+- Confirm `NETWORK_INTERFACE` is correct and receiving traffic (TLS 1.3-only traffic yields no certificates)
+- For PCAP files, check the job's marker: `docker compose exec zeek ls -a /zeek-logs/<job>` (`.done` or `.failed`; a job with several captures uses `/zeek-logs/<job>--<file name>`). A refused capture (name collision, name over 200 characters) has no log directory: read `docker compose exec zeek cat /zeek-logs/.state/<job>/<file name>`
+- Check that CipherFlag reads the logs: `docker compose logs cipherflag | grep 'zeek:'` shows what each poll ingested, or warns that `log_dir` does not exist
 
 ### Venafi push not working
 
-- Check status: `curl http://localhost:8443/api/v1/venafi/status`
+- Check status: `curl -b cookies.txt http://localhost:8443/api/v1/venafi/status`
 - Look for errors: `docker compose logs cipherflag | grep venafi`
 - For Cloud: verify API key and region match your Venafi Cloud account
 - For TPP: verify the refresh token hasn't expired
@@ -686,5 +782,5 @@ docker compose exec postgres psql -U cipherflag -c \
 ### High memory usage
 
 - Check PostgreSQL: `docker compose exec postgres psql -U cipherflag -c "SELECT pg_size_pretty(pg_database_size('cipherflag'));"`
-- Zeek logs accumulate — adjust retention in the Zeek container
-- PCAP files are retained for 24 hours by default (configurable in `cipherflag.toml`)
+- Zeek logs accumulate: no manual cleanup is needed. The sensor rotates them hourly and deletes rotated logs and finished job directories older than `ZEEK_LOG_RETENTION_HOURS` (default 168 hours; 0 keeps everything). Deleting a finished job's logs by hand is safe (the sensor will not re-run the capture) but unnecessary. Logs older than the window are removed even if CipherFlag was stopped and never read them
+- PCAP files in `./pcap-input/` are not removed after processing; delete them when no longer needed

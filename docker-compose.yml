@@ -16,12 +16,14 @@
 #
 # Brings up:
 #   - postgres:16          (data store)
-#   - cipherflag           (HTTP API server on :8080)
+#   - cipherflag           (web UI and API on :8443)
 #
-# EE-only services NOT included:
-#   - The container-image scanner binary (Layer 6.2 EE)
-#   - Velociraptor / Wazuh / Defender / SentinelOne / Tanium / Absolute /
-#     Netwrix sidecars (Layer 3 EE adapters)
+# Optional Zeek network sensor (profile "zeek"):
+#   NETWORK_INTERFACE=eth0 docker compose --profile zeek up -d
+# captures live on that host interface (Linux hosts: on Docker Desktop the
+# host network is the VM's). Without NETWORK_INTERFACE it only processes
+# PCAPs dropped into ./pcap-input/<job>/. cipherflag reads its logs from
+# the zeek-logs volume.
 
 services:
   postgres:
@@ -43,7 +45,7 @@ services:
   cipherflag:
     build:
       context: .
-    image: ghcr.io/net4n6-dev/cipherflag-ce:2.3.0
+    image: ghcr.io/net4n6-dev/cipherflag-ce:2.3.1
     environment:
       CIPHERFLAG_CONFIG: /app/config/cipherflag.toml
     ports:
@@ -52,10 +54,40 @@ services:
       - ./config:/app/config
       # Mount a working directory for the git repo scanner clone cache.
       - scanner-clones:/var/cache/cipherflag/scanner/clones
+      # The zeek sensor's logs, at config/cipherflag.toml's
+      # [sources.zeek_file] log_dir. Empty unless the zeek profile runs.
+      - zeek-logs:/var/log/zeek/current:ro
+      # Holds only the session signing key and the first-admin setup token,
+      # no inventory data. Without it a recreated container generates a new
+      # key and signs everyone out.
+      - cipherflag-state:/var/lib/cipherflag
     depends_on:
       postgres:
         condition: service_healthy
 
+  zeek:
+    profiles: [zeek]
+    build:
+      context: ./docker/zeek
+    image: ghcr.io/net4n6-dev/cipherflag-ce-zeek:2.3.1
+    environment:
+      NETWORK_INTERFACE: ${NETWORK_INTERFACE:-}
+      # Hours to keep rotated logs and finished job logs (0 keeps everything).
+      ZEEK_LOG_RETENTION_HOURS: ${ZEEK_LOG_RETENTION_HOURS:-168}
+      ZEEK_RETENTION_INTERVAL_SECONDS: ${ZEEK_RETENTION_INTERVAL_SECONDS:-3600}
+      # Seconds a capture must be unchanged before it is processed.
+      PCAP_SETTLE_SECONDS: ${PCAP_SETTLE_SECONDS:-10}
+    volumes:
+      - zeek-logs:/zeek-logs
+      - ${ZEEK_PCAP_DIR:-./pcap-input}:/pcap-input
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    restart: unless-stopped
+
 volumes:
+  cipherflag-state:
   pg-data:
   scanner-clones:
+  zeek-logs:

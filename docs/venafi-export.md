@@ -27,27 +27,30 @@ region = "us"                   # "us" or "eu"
 push_interval_minutes = 60
 ```
 
-Or use environment variables:
-
-```bash
-VENAFI_ENABLED=true
-VENAFI_PLATFORM=cloud
-VENAFI_API_KEY=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
-VENAFI_REGION=us
-```
-
 Restart CipherFlag:
 
 ```bash
-docker-compose restart cipherflag
+docker compose restart cipherflag
 ```
 
+Or enter the same settings in **Settings > Venafi** in the web UI, which
+takes effect without a restart. (CipherFlag reads no `VENAFI_*`
+environment variables; earlier versions of this guide listed some.)
+
 ### Step 3: Verify
+
+Every `/api/v1` route except `auth/login`, `auth/status`, `auth/me` and `auth/setup-admin` needs a session (or an agent token) and returns 401 without one. Log in once and save the cookie (the same file is used by the `-b cookies.txt` examples below):
+
+```bash
+curl -sS -c cookies.txt -X POST http://localhost:8443/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@example.com","password":"<your password>"}'
+```
 
 Check the push status:
 
 ```bash
-curl -s http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
+curl -s -b cookies.txt http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
 ```
 
 Expected response:
@@ -120,29 +123,21 @@ folder = "\\VED\\Policy\\Discovered\\CipherFlag"
 push_interval_minutes = 60
 ```
 
-Or use environment variables:
-
-```bash
-VENAFI_ENABLED=true
-VENAFI_PLATFORM=tpp
-VENAFI_BASE_URL=https://tpp.example.com
-VENAFI_CLIENT_ID=your-client-id
-VENAFI_REFRESH_TOKEN=your-refresh-token
-VENAFI_FOLDER=\VED\Policy\Discovered\CipherFlag
-```
-
 Restart CipherFlag:
 
 ```bash
-docker-compose restart cipherflag
+docker compose restart cipherflag
 ```
+
+Or enter the same settings in **Settings > Venafi** in the web UI, which
+takes effect without a restart.
 
 ### Step 3: Verify
 
 Same as Cloud — check the push status endpoint:
 
 ```bash
-curl -s http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
+curl -s -b cookies.txt http://localhost:8443/api/v1/venafi/status | python3 -m json.tool
 ```
 
 ---
@@ -193,25 +188,27 @@ For organizations that prefer manual import or use a different CLM platform:
 ### CSV Export
 
 ```bash
-curl -o certificates.csv "http://localhost:8443/api/v1/export/certificates?format=csv"
+curl -f -H "Authorization: Bearer <agent token>" -o certificates.csv "http://localhost:8443/api/v1/export/certificates?format=csv"
 ```
 
-The CSV columns are aligned with the Venafi bulk import template.
+The export is a plain certificate inventory with these columns: `fingerprint_sha256`, `subject_cn`, `subject_org`, `issuer_cn`, `issuer_org`, `serial_number`, `not_before`, `not_after`, `days_until_expiry`, `key_algorithm`, `key_size_bits`, `signature_algorithm`, `subject_alt_names`, `is_ca`, `grade`, `source`, `first_seen`, `last_seen`. Mapping it to the import template of a CLM tool is up to the operator.
+
+The examples authenticate with an agent token and use `-f` so a failed request (for example a 401) is not saved as `certificates.csv`; you can pass `-b cookies.txt` with a session cookie instead. If an export fails part way the server drops the connection, so `curl` exits non-zero and a browser marks the download as failed; run it again. Certificates that change while an export runs can make it repeat or miss rows (sorting by `last_seen` or `grade` under live ingest is the worst case), so de-duplicate on `fingerprint_sha256`.
 
 ### JSON Export
 
 ```bash
-curl -o certificates.json "http://localhost:8443/api/v1/export/certificates?format=json"
+curl -f -H "Authorization: Bearer <agent token>" -o certificates.json "http://localhost:8443/api/v1/export/certificates?format=json"
 ```
 
 ### Filtering Exports
 
 ```bash
 # Export only failing certificates
-curl -o failing.csv "http://localhost:8443/api/v1/export/certificates?format=csv&grade=D,F"
+curl -f -H "Authorization: Bearer <agent token>" -o failing.csv "http://localhost:8443/api/v1/export/certificates?format=csv&grade=D,F"
 
 # Export certificates expiring within 30 days
-curl -o expiring.csv "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
+curl -f -H "Authorization: Bearer <agent token>" -o expiring.csv "http://localhost:8443/api/v1/export/certificates?format=csv&expiring_within_days=30"
 ```
 
 The **Export** button on the certificates page in the UI provides the same functionality.
@@ -228,8 +225,8 @@ The **Export** button on the certificates page in the UI provides the same funct
 - API keys can be rotated in Venafi Cloud under **Preferences** > **API Keys**
 
 **Certificates not appearing**
-- Check the push status endpoint: `curl http://localhost:8443/api/v1/venafi/status`
-- Look for push errors in logs: `docker-compose logs cipherflag | grep venafi`
+- Check the push status endpoint: `curl -b cookies.txt http://localhost:8443/api/v1/venafi/status`
+- Look for push errors in logs: `docker compose logs cipherflag | grep venafi`
 - Certificates appear in Venafi Cloud under **Inventory** > **Certificates** with source "USER_IMPORTED"
 
 ### Venafi TPP
@@ -237,7 +234,7 @@ The **Export** button on the certificates page in the UI provides the same funct
 **"connection refused" or timeout errors**
 - Verify `base_url` is correct and reachable from the Docker network:
   ```bash
-  docker-compose exec cipherflag wget -q -O- https://tpp.example.com/vedsdk/ || echo "unreachable"
+  docker compose exec cipherflag wget -q -O- https://tpp.example.com/vedsdk/ || echo "unreachable"
   ```
 - If TPP is on an internal network, ensure the Docker host has network access
 
@@ -249,12 +246,12 @@ The **Export** button on the certificates page in the UI provides the same funct
 **Certificates not appearing in Venafi**
 - Verify the target folder exists in Venafi: `\VED\Policy\Discovered\CipherFlag`
 - The service account needs Create permission on the target folder
-- Check CipherFlag logs: `docker-compose logs cipherflag | grep venafi`
+- Check CipherFlag logs: `docker compose logs cipherflag | grep venafi`
 
 ### General
 
 **Dead-lettered certificates**
-- Check status: `curl http://localhost:8443/api/v1/venafi/status` — look at `dead_lettered` count
+- Check status: `curl -b cookies.txt http://localhost:8443/api/v1/venafi/status` and look at the `dead_lettered` count
 - These certificates failed 5+ times and are excluded from push. Common causes: malformed PEM data, missing certificate chain in Venafi.
 - To retry, reset the failure count directly in the database:
   ```sql
