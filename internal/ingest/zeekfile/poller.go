@@ -285,11 +285,27 @@ func (p *Poller) listFiles() ([]logFile, error) {
 	var files []logFile
 	for _, kind := range logKinds {
 		for _, dir := range dirs {
+			// Match names inside the directory rather than globbing the
+			// full path: a job directory is named after a capture file and
+			// may hold glob metacharacters.
+			names, err := os.ReadDir(dir)
+			if err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					continue
+				}
+				return nil, err
+			}
 			var paths []string
 			for _, pattern := range []string{kind + ".*.log", kind + ".log"} {
-				m, err := filepath.Glob(filepath.Join(dir, pattern))
-				if err != nil {
-					return nil, err
+				var m []string
+				for _, n := range names {
+					ok, err := filepath.Match(pattern, n.Name())
+					if err != nil {
+						return nil, err
+					}
+					if ok {
+						m = append(m, filepath.Join(dir, n.Name()))
+					}
 				}
 				sort.Strings(m)
 				paths = append(paths, m...)

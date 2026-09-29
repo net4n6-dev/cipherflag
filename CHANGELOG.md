@@ -152,6 +152,10 @@ All notable changes to CipherFlag are documented in this file.
   as processed, so delete its `/zeek-logs/<job>` directory to reprocess it;
   logs older than the retention window are removed on the first pass, so set
   `ZEEK_LOG_RETENTION_HOURS=0` for the first start to keep them.
+- **PCAP job directories with `[`, `*` or `?` in their name were misread.** The
+  poller matched log files by globbing the whole path, so a job directory such
+  as `job--cap[1].pcap` was never ingested and a name with a wildcard pulled
+  in the logs of other, unfinished jobs. Names are now matched literally.
 - **Documentation described things CE does not do.** The README,
   quickstart, user guide, configuration reference and Venafi guide
   described:

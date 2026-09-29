@@ -369,6 +369,27 @@ func TestPollOnce_ReadsAPCAPJobOnceItIsDone(t *testing.T) {
 	require.Len(t, ing.certs, 2, "a finished job is read once")
 }
 
+// A multi-capture job directory is named after the capture file, so its name
+// can hold glob metacharacters. Names are literal: a bracketed name is still
+// read, and a wildcard name does not pull in another job's logs.
+func TestPollOnce_JobDirectoryNamesAreLiteral(t *testing.T) {
+	dir := t.TempDir()
+	bracket := filepath.Join(dir, "job--cap[1].pcap")
+	writeLines(t, filepath.Join(bracket, "x509.log"), fixture(t, "x509.log")...)
+	writeLines(t, filepath.Join(bracket, "ssl.log"), fixture(t, "ssl.log")...)
+	require.NoError(t, os.WriteFile(filepath.Join(bracket, ".done"), nil, 0o644))
+
+	star := filepath.Join(dir, "q*")
+	writeLines(t, filepath.Join(star, "x509.log"), x509Line("cc33"))
+	require.NoError(t, os.WriteFile(filepath.Join(star, ".done"), nil, 0o644))
+	unfinished := filepath.Join(dir, "qz")
+	writeLines(t, filepath.Join(unfinished, "x509.log"), x509Line("dd44"))
+
+	p, _, ing := newTestPoller(t, dir, 0)
+	require.NoError(t, p.PollOnce(context.Background()))
+	require.Len(t, ing.certs, 3, "two from the bracketed job, one from q*, none from the unfinished qz")
+}
+
 // The cursor keeps one entry per log file it has read; rotated files that
 // are deleted must drop out of it or it grows by one entry an hour.
 func TestPollOnce_ForgetsFilesThatAreGone(t *testing.T) {
